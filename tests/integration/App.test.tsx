@@ -1,40 +1,27 @@
 import { Suspense, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  act,
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+} from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { http, HttpResponse } from "msw";
+import { proxyKeys } from "@/lib/query/proxy";
+import { usageKeys } from "@/lib/query/usage";
+import type { Provider } from "@/types";
 import { providersApi } from "@/lib/api/providers";
 import {
   resetProviderState,
   setCurrentProviderId,
-  setLiveProviderIds,
   setProviders,
   setSettings,
 } from "../msw/state";
 import { emitTauriEvent } from "../msw/tauriMocks";
-import { server } from "../msw/server";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
-// Keep the shared multi-app action regressions while separately testing the
-// actual product policy below. No legacy mode is exposed by production App.
-const shellPolicy = vi.hoisted(() => ({ enforce: false }));
-vi.mock("@/config/productShell", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/config/productShell")>();
-  return {
-    ...actual,
-    isProductApp: (app: unknown) =>
-      shellPolicy.enforce ? actual.isProductApp(app) : typeof app === "string",
-    isProductView: (view: unknown) =>
-      shellPolicy.enforce ? actual.isProductView(view) : true,
-    normalizeProductApp: (app: unknown) =>
-      shellPolicy.enforce ? actual.normalizeProductApp(app) : app || "claude",
-    normalizeProductView: (view: unknown) =>
-      shellPolicy.enforce
-        ? actual.normalizeProductView(view)
-        : view || "providers",
-  };
-});
 const routedAccountState = vi.hoisted(() => ({
   enabled: false,
   failover: undefined as boolean | undefined,
@@ -84,11 +71,6 @@ vi.mock("@/components/settings/SettingsPage", () => ({
   ),
 }));
 
-const skillsPanelMocks = vi.hoisted(() => ({
-  checkUpdates: vi.fn(),
-  openDiscovery: vi.fn(),
-}));
-
 vi.mock("sonner", () => ({
   toast: {
     success: (...args: unknown[]) => toastSuccessMock(...args),
@@ -129,7 +111,6 @@ vi.mock("@/components/providers/ProviderList", () => ({
     onOpenWebsite,
     onCreate,
     onDelete,
-    onRemoveFromConfig,
   }: any) => (
     <div>
       <div data-testid="provider-list">{JSON.stringify(providers)}</div>
@@ -149,9 +130,6 @@ vi.mock("@/components/providers/ProviderList", () => ({
       </button>
       <button onClick={() => onDelete(Object.values(providers)[0])}>
         delete
-      </button>
-      <button onClick={() => onRemoveFromConfig?.(Object.values(providers)[0])}>
-        remove
       </button>
       <button onClick={() => onCreate?.()}>create</button>
     </div>
@@ -243,51 +221,13 @@ vi.mock("@/components/AppSwitcher", () => ({
   ),
 }));
 
-vi.mock("@/components/skills/UnifiedSkillsPanel", async () => {
-  const React = await import("react");
-  const MockUnifiedSkillsPanel = React.forwardRef(
-    ({ onCheckUpdatesStateChange }: any, ref) => {
-      React.useEffect(() => {
-        onCheckUpdatesStateChange?.({ isChecking: false, hasSkills: true });
-        return () =>
-          onCheckUpdatesStateChange?.({
-            isChecking: false,
-            hasSkills: false,
-          });
-      }, [onCheckUpdatesStateChange]);
-      React.useImperativeHandle(ref, () => ({
-        openDiscovery: skillsPanelMocks.openDiscovery,
-        openImport: vi.fn(),
-        openInstallFromZip: vi.fn(),
-        openRestoreFromBackup: vi.fn(),
-        checkUpdates: skillsPanelMocks.checkUpdates,
-      }));
-      return <div data-testid="unified-skills-panel" />;
-    },
-  );
-  MockUnifiedSkillsPanel.displayName = "MockUnifiedSkillsPanel";
-  return { default: MockUnifiedSkillsPanel };
-});
-
 vi.mock("@/components/UpdateBadge", () => ({
   UpdateBadge: ({ onClick }: any) => (
     <button onClick={onClick}>update-badge</button>
   ),
 }));
 
-vi.mock("@/components/mcp/McpPanel", () => ({
-  default: ({ open, onOpenChange }: any) =>
-    open ? (
-      <div data-testid="mcp-panel">
-        <button onClick={() => onOpenChange(false)}>close-mcp</button>
-      </div>
-    ) : (
-      <button onClick={() => onOpenChange(true)}>open-mcp</button>
-    ),
-}));
-
-const renderApp = (AppComponent: ComponentType) => {
-  const client = new QueryClient();
+const renderApp = (AppComponent: ComponentType, client = new QueryClient()) => {
   return render(
     <QueryClientProvider client={client}>
       <Suspense fallback={<div data-testid="loading">loading</div>}>
@@ -299,7 +239,6 @@ const renderApp = (AppComponent: ComponentType) => {
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
-    shellPolicy.enforce = false;
     routedAccountState.enabled = false;
     routedAccountState.failover = undefined;
     routedAccountState.loading = false;
@@ -307,8 +246,6 @@ describe("App integration with MSW", () => {
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
-    skillsPanelMocks.checkUpdates.mockReset();
-    skillsPanelMocks.openDiscovery.mockReset();
     localStorage.removeItem("cc-switch-last-view");
     localStorage.removeItem("cc-switch-last-app");
   });
@@ -318,12 +255,11 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "claude-1",
+      expect(screen.getByTestId("accounts-panel").textContent).toContain(
+        "codex-1",
       ),
     );
 
-    fireEvent.click(screen.getByText("switch-codex"));
     fireEvent.click(
       await screen.findByText("Connection configurations", {
         selector: "button",
@@ -375,13 +311,13 @@ describe("App integration with MSW", () => {
     expect(toastSuccessMock).toHaveBeenCalled();
   }, 10_000);
 
-  it("resets provider view scroll when switching apps", async () => {
+  it("resets provider view scroll when changing home tabs", async () => {
     const { default: App } = await import("@/App");
     const { container } = renderApp(App);
 
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "claude-1",
+      expect(screen.getByTestId("accounts-panel").textContent).toContain(
+        "codex-1",
       ),
     );
 
@@ -401,7 +337,6 @@ describe("App integration with MSW", () => {
     providerScrollContainer!.scrollTop = 640;
     providerScrollContainer!.scrollLeft = 24;
 
-    fireEvent.click(screen.getByText("switch-codex"));
     fireEvent.click(
       await screen.findByText("Connection configurations", {
         selector: "button",
@@ -425,8 +360,8 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "claude-1",
+      expect(screen.getByTestId("accounts-panel").textContent).toContain(
+        "codex-1",
       ),
     );
 
@@ -462,349 +397,248 @@ describe("App integration with MSW", () => {
     });
   });
 
-  it("duplicates openclaw providers with a generated key that avoids live-only ids", async () => {
-    setProviders("openclaw", {
-      deepseek: {
-        id: "deepseek",
-        name: "DeepSeek",
-        settingsConfig: {
-          baseUrl: "https://api.deepseek.com",
-          apiKey: "test-key",
-          api: "openai-completions",
-          models: [],
-        },
-        category: "custom",
-        sortIndex: 0,
-        createdAt: Date.now(),
-      },
-    });
-    setCurrentProviderId("openclaw", "deepseek");
-    setLiveProviderIds("openclaw", ["deepseek-copy"]);
-
-    const { default: App } = await import("@/App");
-    renderApp(App);
-
-    fireEvent.click(screen.getByText("switch-openclaw"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "deepseek",
-      ),
-    );
-
-    fireEvent.click(screen.getByText("duplicate"));
-
-    await waitFor(() => {
-      const providerList = screen.getByTestId("provider-list").textContent;
-      expect(providerList).toContain("deepseek-copy-2");
-      expect(providerList).toContain("DeepSeek copy");
-    });
-
-    expect(toastErrorMock).not.toHaveBeenCalledWith(
-      expect.stringContaining("Provider key is required for openclaw"),
-    );
-  });
-
-  it.each([
-    { options: { apiKey: "test-key" } },
-    { npm: "@ai-sdk/openai-compatible", models: {} },
-    { models: { "glm-5": { name: "GLM 5" } } },
-  ])(
-    "blocks incomplete OpenCode copies before saving or sorting: %j",
-    async (settingsConfig) => {
-      localStorage.setItem("cc-switch-last-app", "opencode");
-      setProviders("opencode", {
-        "opencode-go": {
-          id: "opencode-go",
-          name: "OpenCode Go",
-          settingsConfig,
-          sortIndex: 0,
-        },
-        other: { id: "other", name: "Other", settingsConfig: {}, sortIndex: 1 },
-      });
-      setCurrentProviderId("opencode", "opencode-go");
-      setLiveProviderIds("opencode", ["opencode-go"]);
-      const add = vi.spyOn(providersApi, "add");
-      const sort = vi.spyOn(providersApi, "updateSortOrder");
-      try {
-        const { default: App } = await import("@/App");
-        renderApp(App);
-        await waitFor(() =>
-          expect(screen.getByTestId("provider-list").textContent).toContain(
-            "opencode-go",
-          ),
-        );
-        fireEvent.click(screen.getByText("duplicate"));
-        await waitFor(() =>
-          expect(toastErrorMock).toHaveBeenCalledWith(
-            "opencode.duplicateRequiresDefinition",
-          ),
-        );
-        expect(add).not.toHaveBeenCalled();
-        expect(sort).not.toHaveBeenCalled();
-        expect(screen.getByTestId("provider-list").textContent).not.toContain(
-          "opencode-go-copy",
-        );
-      } finally {
-        add.mockRestore();
-        sort.mockRestore();
-      }
-    },
-  );
-
-  it("duplicates complete OpenCode providers using an unused ID", async () => {
-    localStorage.setItem("cc-switch-last-app", "opencode");
-    setProviders("opencode", {
-      custom: {
-        id: "custom",
-        name: "Custom",
-        sortIndex: 0,
-        settingsConfig: {
-          npm: "@ai-sdk/openai-compatible",
-          models: { "glm-5": { name: "GLM 5" } },
-        },
-      },
-    });
-    setCurrentProviderId("opencode", "custom");
-    setLiveProviderIds("opencode", ["custom-copy"]);
-    const { default: App } = await import("@/App");
-    renderApp(App);
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "custom",
-      ),
-    );
-    fireEvent.click(screen.getByText("duplicate"));
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "custom-copy-2",
-      ),
-    );
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  });
-
-  it("duplicates MiniMax Code providers under a generated unused key", async () => {
-    localStorage.setItem("cc-switch-last-app", "mcode");
-    const provider = (id: string, name: string) => ({
-      id,
-      name,
-      settingsConfig: {},
-      category: "custom" as const,
-      sortIndex: 0,
-      createdAt: Date.now(),
-    });
-    setProviders("mcode", {
-      kimi: provider("kimi", "Kimi"),
-      "kimi-copy": provider("kimi-copy", "Kimi copy"),
-    });
-    setCurrentProviderId("mcode", "kimi");
-
-    const { default: App } = await import("@/App");
-    renderApp(App);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "kimi-copy",
-      ),
-    );
-    fireEvent.click(screen.getByText("duplicate"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "kimi-copy-2",
-      ),
-    );
-    expect(toastErrorMock).not.toHaveBeenCalledWith(
-      expect.stringContaining("Provider key is required for mcode"),
-    );
-  });
-
-  it("refreshes MiniMax Code provider membership after removing it from live config", async () => {
-    localStorage.setItem("cc-switch-last-app", "mcode");
-    let liveConfigManaged = true;
-    let providerRequests = 0;
-    server.use(
-      http.post("http://tauri.local/get_providers", async ({ request }) => {
-        const { app } = (await request.json()) as { app: string };
-        if (app !== "mcode") return;
-        providerRequests += 1;
-        return HttpResponse.json({
-          custom: {
-            id: "custom",
-            name: "Custom MiniMax Code",
-            settingsConfig: {},
-            meta: { liveConfigManaged },
-          },
-        });
-      }),
-      http.post(
-        "http://tauri.local/remove_provider_from_live_config",
-        async ({ request }) => {
-          expect(await request.json()).toEqual({ id: "custom", app: "mcode" });
-          liveConfigManaged = false;
-          return HttpResponse.json(true);
-        },
-      ),
-    );
-
-    const { default: App } = await import("@/App");
-    renderApp(App);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list")).toHaveTextContent(
-        '"liveConfigManaged":true',
-      ),
-    );
-    const requestsBeforeRemoval = providerRequests;
-    fireEvent.click(screen.getByText("remove"));
-    fireEvent.click(screen.getByText("confirm-delete"));
-
-    await waitFor(() =>
-      expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument(),
-    );
-    expect(liveConfigManaged).toBe(false);
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list")).toHaveTextContent(
-        '"liveConfigManaged":false',
-      ),
-    );
-    expect(providerRequests).toBeGreaterThan(requestsBeforeRemoval);
-    expect(screen.getByTestId("provider-list")).toHaveTextContent(
-      "Custom MiniMax Code",
-    );
-  });
-
-  it("warns without blocking when removing Pi's global default provider", async () => {
-    localStorage.setItem("cc-switch-last-app", "pi");
-    setProviders("pi", {
-      custom: {
-        id: "custom",
-        name: "Custom Pi",
-        settingsConfig: {
-          baseUrl: "https://api.example.com/v1",
-          apiKey: "test-key",
-          api: "openai-completions",
-          models: [{ id: "model-a" }],
-        },
-        category: "custom",
-        sortIndex: 0,
-        createdAt: Date.now(),
-      },
-    });
-    server.use(
-      http.post("http://tauri.local/get_pi_current_state", () =>
-        HttpResponse.json({
-          enabledProviderIds: ["custom"],
-          defaultProviderId: "custom",
-        }),
-      ),
-    );
-
-    const { default: App } = await import("@/App");
-    renderApp(App);
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "Custom Pi",
-      ),
-    );
-    fireEvent.click(screen.getByText("remove"));
-
-    expect(screen.getByTestId("confirm-message")).toHaveTextContent(
-      "confirm.piDefaultProviderWarning",
-    );
-    fireEvent.click(screen.getByText("confirm-delete"));
-    await waitFor(() =>
-      expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument(),
-    );
-  });
-
-  it("shows toast when duplicate cannot load live provider ids", async () => {
-    setProviders("openclaw", {
-      deepseek: {
-        id: "deepseek",
-        name: "DeepSeek",
-        settingsConfig: {
-          baseUrl: "https://api.deepseek.com",
-          apiKey: "test-key",
-          api: "openai-completions",
-          models: [],
-        },
-        category: "custom",
-        sortIndex: 0,
-        createdAt: Date.now(),
-      },
-    });
-    setCurrentProviderId("openclaw", "deepseek");
-
-    const liveIdsSpy = vi
-      .spyOn(providersApi, "getOpenClawLiveProviderIds")
-      .mockRejectedValueOnce(new Error("broken config"));
-
-    const { default: App } = await import("@/App");
-    renderApp(App);
-
-    fireEvent.click(screen.getByText("switch-openclaw"));
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "deepseek",
-      ),
-    );
-
-    fireEvent.click(screen.getByText("duplicate"));
-
-    await waitFor(() => {
-      expect(toastErrorMock).toHaveBeenCalledWith(
-        expect.stringContaining("读取配置中的供应商标识失败"),
+  it("refetches Codex switches, ignores other apps, and unsubscribes on unmount", async () => {
+    const getProviders = vi.spyOn(providersApi, "getAll");
+    try {
+      const { default: App } = await import("@/App");
+      const { unmount } = renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+          "codex-1",
+        ),
       );
-    });
+      getProviders.mockClear();
+      setCurrentProviderId("codex", "codex-2");
 
-    expect(screen.getByTestId("provider-list").textContent).not.toContain(
-      "deepseek-copy",
-    );
+      await act(async () => {
+        emitTauriEvent("provider-switched", {
+          appType: "claude",
+          providerId: "claude-2",
+        });
+      });
+      expect(getProviders).not.toHaveBeenCalled();
+      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+        "codex-1",
+      );
 
-    liveIdsSpy.mockRestore();
+      emitTauriEvent("provider-switched", {
+        appType: "codex",
+        providerId: "codex-2",
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("account-current-provider"),
+        ).toHaveTextContent("codex-2"),
+      );
+      expect(getProviders).toHaveBeenCalledWith("codex");
+
+      unmount();
+      getProviders.mockClear();
+      await act(async () => {
+        emitTauriEvent("provider-switched", {
+          appType: "codex",
+          providerId: "codex-1",
+        });
+      });
+      expect(getProviders).not.toHaveBeenCalled();
+    } finally {
+      getProviders.mockRestore();
+    }
   });
 
-  it("hosts the Skills check-update action in the App toolbar", async () => {
-    localStorage.setItem("cc-switch-last-view", "skills");
+  it("refreshes profile and proxy caches after a profile is applied", async () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
     const { default: App } = await import("@/App");
-    renderApp(App);
-
-    expect(
-      await screen.findByTestId("unified-skills-panel"),
-    ).toBeInTheDocument();
-    const checkUpdatesButton = await screen.findByRole("button", {
-      name: "skills.checkUpdates",
-    });
-    await waitFor(() => expect(checkUpdatesButton).toBeEnabled());
-
-    fireEvent.click(checkUpdatesButton);
-    expect(skillsPanelMocks.checkUpdates).toHaveBeenCalledTimes(1);
-  });
-
-  it("routes the Skills discover toolbar action through the panel guard", async () => {
-    localStorage.setItem("cc-switch-last-view", "skills");
-    const { default: App } = await import("@/App");
-    renderApp(App);
-
-    expect(
-      await screen.findByTestId("unified-skills-panel"),
-    ).toBeInTheDocument();
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "skills.discover",
-      }),
+    renderApp(App, client);
+    await waitFor(() =>
+      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
     );
+    invalidate.mockClear();
 
-    expect(skillsPanelMocks.openDiscovery).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("unified-skills-panel")).toBeInTheDocument();
+    emitTauriEvent("profile-applied", {});
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: proxyKeys.status }),
+    );
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["profiles"] });
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: proxyKeys.takeoverStatus,
+    });
   });
+
+  it("refreshes providers and tray after a shared provider sync", async () => {
+    const client = new QueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const updateTray = vi.spyOn(providersApi, "updateTrayMenu");
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(App, client);
+      await waitFor(() =>
+        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+          "codex-1",
+        ),
+      );
+      invalidate.mockClear();
+      updateTray.mockClear();
+      setProviders("codex", {
+        synced: {
+          id: "synced",
+          name: "Synced configuration",
+          settingsConfig: {},
+        },
+      });
+
+      emitTauriEvent("universal-provider-synced", {});
+      await waitFor(() =>
+        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+          "Synced configuration",
+        ),
+      );
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["providers"] });
+      await waitFor(() => expect(updateTray).toHaveBeenCalledTimes(1));
+    } finally {
+      updateTray.mockRestore();
+    }
+  });
+
+  it("deletes a Codex configuration through the existing provider service", async () => {
+    setCurrentProviderId("codex", "codex-2");
+    const deleteProvider = vi.spyOn(providersApi, "delete");
+    const removeFromLiveConfig = vi.spyOn(providersApi, "removeFromLiveConfig");
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+          "codex-1",
+        ),
+      );
+      fireEvent.click(
+        screen.getByText("Connection configurations", { selector: "button" }),
+      );
+      fireEvent.click(await screen.findByText("delete"));
+      expect(screen.getByTestId("confirm-message")).toHaveTextContent(
+        "confirm.deleteProviderMessage",
+      );
+      fireEvent.click(screen.getByText("cancel-delete"));
+      expect(deleteProvider).not.toHaveBeenCalled();
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
+      fireEvent.click(screen.getByText("delete"));
+      fireEvent.click(screen.getByText("confirm-delete"));
+      await waitFor(() =>
+        expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument(),
+      );
+      expect(deleteProvider).toHaveBeenCalledWith("codex-1", "codex");
+      expect(removeFromLiveConfig).not.toHaveBeenCalled();
+      expect(screen.getByTestId("provider-list")).not.toHaveTextContent(
+        "codex-1",
+      );
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-2");
+    } finally {
+      deleteProvider.mockRestore();
+      removeFromLiveConfig.mockRestore();
+    }
+  });
+
+  it("duplicates Codex bindings and settings while preserving configuration order", async () => {
+    const original: Provider = {
+      id: "bound",
+      name: "Bound account",
+      category: "custom",
+      sortIndex: 0,
+      settingsConfig: {
+        config: 'model = "codex-test"',
+        auth: { profile: "test" },
+      },
+      meta: {
+        authBinding: {
+          source: "managed_account",
+          authProvider: "codex_oauth",
+          accountId: "acct-fixture",
+        },
+        codexFastMode: true,
+      },
+    };
+    setProviders("codex", {
+      bound: original,
+      later: { id: "later", name: "Later", settingsConfig: {}, sortIndex: 1 },
+    });
+    setCurrentProviderId("codex", original.id);
+    const add = vi.spyOn(providersApi, "add");
+    const sort = vi.spyOn(providersApi, "updateSortOrder");
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+          original.name,
+        ),
+      );
+      fireEvent.click(
+        screen.getByText("Connection configurations", { selector: "button" }),
+      );
+      fireEvent.click(await screen.findByText("duplicate"));
+      await waitFor(() =>
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
+          "Bound account copy",
+        ),
+      );
+      expect(sort).toHaveBeenCalledWith(
+        [{ id: "later", sortIndex: 2 }],
+        "codex",
+      );
+      expect(add).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Bound account copy",
+          settingsConfig: original.settingsConfig,
+          meta: original.meta,
+          sortIndex: 1,
+        }),
+        "codex",
+        undefined,
+        undefined,
+      );
+      const saved = JSON.parse(
+        screen.getByTestId("provider-list").textContent!,
+      );
+      expect(saved.bound.sortIndex).toBe(0);
+      expect(saved.later.sortIndex).toBe(2);
+      expect(
+        Object.values<Provider>(saved).find(
+          (p) => p.name === "Bound account copy",
+        )?.id,
+      ).not.toBe(original.id);
+    } finally {
+      add.mockRestore();
+      sort.mockRestore();
+    }
+  });
+
+  it("bridges tray usage refreshes into the Codex provider cache", async () => {
+    const client = new QueryClient();
+    const { default: App } = await import("@/App");
+    renderApp(App, client);
+    await waitFor(() =>
+      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
+    );
+    const updatedUsage = { success: true, data: [{ remaining: 42 }] };
+    emitTauriEvent("usage-cache-updated", {
+      kind: "script",
+      appType: "codex",
+      providerId: "codex-2",
+      data: updatedUsage,
+    });
+    expect(client.getQueryData(usageKeys.script("codex-2", "codex"))).toEqual(
+      updatedUsage,
+    );
+    expect(
+      client.getQueryData(usageKeys.script("codex-1", "codex")),
+    ).toBeUndefined();
+  });
+
   it.each(["claude", "opencode", "openclaw", "pi", "mcode", "invalid"])(
     "restores only Codex when the saved app is %s",
     async (savedApp) => {
-      shellPolicy.enforce = true;
       localStorage.setItem("cc-switch-last-app", savedApp);
       const { default: App } = await import("@/App");
       renderApp(App);
@@ -840,7 +674,6 @@ describe("App integration with MSW", () => {
     "hermesMemory",
     "invalid",
   ])("does not reopen the hidden %s view", async (savedView) => {
-    shellPolicy.enforce = true;
     localStorage.setItem("cc-switch-last-view", savedView);
     const { default: App } = await import("@/App");
     renderApp(App);
@@ -848,16 +681,12 @@ describe("App integration with MSW", () => {
       expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
     );
     expect(localStorage.getItem("cc-switch-last-view")).toBe("providers");
-    expect(
-      screen.queryByTestId("unified-skills-panel"),
-    ).not.toBeInTheDocument();
     expect(screen.queryByTitle("skills.manage")).not.toBeInTheDocument();
     expect(screen.queryByTitle("mcp.title")).not.toBeInTheDocument();
     expect(screen.queryByTitle("sessionManager.title")).not.toBeInTheDocument();
   });
 
   it("keeps Settings keyboard navigation and resets provider scroll on return", async () => {
-    shellPolicy.enforce = true;
     const { default: App } = await import("@/App");
     const { container } = renderApp(App);
     await screen.findByTestId("accounts-panel");
@@ -870,7 +699,6 @@ describe("App integration with MSW", () => {
     expect(main.scrollTop).toBe(0);
   });
   it("foregrounds accounts and keeps connection configuration actions accessible", async () => {
-    shellPolicy.enforce = true;
     const { default: App } = await import("@/App");
     renderApp(App);
     expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
@@ -894,7 +722,6 @@ describe("App integration with MSW", () => {
   });
 
   it("offers Usage without requiring local proxy takeover", async () => {
-    shellPolicy.enforce = true;
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
@@ -905,7 +732,6 @@ describe("App integration with MSW", () => {
   });
 
   it("switches an account through the existing provider action", async () => {
-    shellPolicy.enforce = true;
     setCurrentProviderId("codex", "codex-2");
     const switchSpy = vi.spyOn(providersApi, "switch");
     const { default: App } = await import("@/App");
@@ -928,7 +754,6 @@ describe("App integration with MSW", () => {
     { failover: true, loading: false, error: false, expected: "codex-2" },
     { failover: false, loading: false, error: false, expected: "codex-1" },
   ])("resolves routed current account conservatively: %j", async (state) => {
-    shellPolicy.enforce = true;
     Object.assign(routedAccountState, state, { enabled: true });
     const { default: App } = await import("@/App");
     renderApp(App);
@@ -940,7 +765,6 @@ describe("App integration with MSW", () => {
     else expect(current).toBeEmptyDOMElement();
   });
   it("supports keyboard navigation between account and configuration tabs", async () => {
-    shellPolicy.enforce = true;
     setSettings({ firstRunNoticeConfirmed: true });
     const { default: App } = await import("@/App");
     renderApp(App);
