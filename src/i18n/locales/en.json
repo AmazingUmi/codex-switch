@@ -3252,5 +3252,31 @@
     "upstreamFormatHint": "Use Responses for native Codex requests, or Chat Completions with local routing enabled.",
     "officialQuotaHint": "Quota is read from the selected Codex or ChatGPT account.",
     "reasoningModeHint": "Enable this when the upstream supports an explicit thinking mode."
+  },
+  "codexAccounts": {
+    "accountsTab": "ChatGPT accounts",
+    "configurationsTab": "Connection configurations",
+    "configurationsTitle": "Connection configurations",
+    "configurationsDescription": "OpenAI API and saved Codex connection settings.",
+    "addConfiguration": "Add configuration",
+    "title": "ChatGPT accounts",
+    "description": "View each account’s quota and reset times, and choose the account Codex uses. The default account is used for managed authentication when no account is specified. Percentages show quota used.",
+    "current": "Current",
+    "unbound": "Create a configuration for this account to switch Codex to it.",
+    "configure": "Configure account",
+    "configuration": "Account configuration",
+    "chooseConfiguration": "Choose configuration",
+    "switch": "Switch to this account",
+    "restartHint": "After switching, restart any running Codex clients to use the new account configuration.",
+    "homeTabs": "Codex management",
+    "quotaExpiredHint": "Use Re-authenticate on this account to sign in again.",
+    "reauthDescription": "Some accounts need updated sign-in information. Use Re-authenticate on the affected account.",
+    "currentConfiguration": "Current Codex configuration",
+    "nativeLogin": "Native Codex login",
+    "apiKey": "OpenAI API",
+    "managedAccount": "ChatGPT account",
+    "customConfiguration": "Custom configuration",
+    "configurationLoading": "Loading configuration…",
+    "configurationUnavailable": "Current configuration unavailable"
   }
 }

@@ -82,6 +82,21 @@ function renderAccounts(accountId = "account-a") {
 }
 
 describe("Codex account quota isolation", () => {
+  it("directs expired managed accounts to reauthentication in the app", async () => {
+    vi.spyOn(subscriptionApi, "getCodexOauthQuota").mockResolvedValue({
+      ...quota(0, 0, 2),
+      credentialStatus: "expired",
+      success: false,
+      tiers: [],
+    });
+    renderAccounts();
+    const first = within(screen.getByRole("region", { name: "First account" }));
+    expect(
+      await first.findByText(en.codexAccounts.quotaExpiredHint),
+    ).toBeInTheDocument();
+    expect(first.queryByText(/codex_oauth/)).not.toBeInTheDocument();
+  });
+
   it("keeps each account's 5h, weekly and reset values independent when refreshing", async () => {
     const getQuota = vi
       .spyOn(subscriptionApi, "getCodexOauthQuota")

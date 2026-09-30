@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2 } from "lucide-react";
 import { useCodexOauthQuotaByAccountId } from "@/lib/query/subscription";
 import { SubscriptionQuotaView } from "@/components/SubscriptionQuotaFooter";
@@ -20,6 +21,7 @@ interface CodexOauthAccountQuotaProps {
 const CodexOauthAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
   accountId,
 }) => {
+  const { t } = useTranslation();
   const {
     data: quota,
     isFetching: loading,
@@ -47,6 +49,7 @@ const CodexOauthAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
       loading={loading}
       refetch={refetch}
       appIdForExpiredHint="codex_oauth"
+      expiredHint={t("codexAccounts.quotaExpiredHint")}
       inline={false}
     />
   );

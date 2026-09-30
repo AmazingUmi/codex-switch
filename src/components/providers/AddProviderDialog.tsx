@@ -35,6 +35,7 @@ import type { ManagedAuthProvider } from "@/lib/api";
 
 interface AddProviderDialogProps {
   productShell?: boolean;
+  initialCodexAccountId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appId: AppId;
@@ -55,6 +56,7 @@ export function AddProviderDialog({
   appId,
   onSubmit,
   productShell = false,
+  initialCodexAccountId,
 }: AddProviderDialogProps) {
   const { t } = useTranslation();
   // OpenCode and OpenClaw don't support universal providers
@@ -517,6 +519,8 @@ export function AddProviderDialog({
               </div>
             ) : (
               <ProviderForm
+                key={initialCodexAccountId ?? "new-provider"}
+                initialCodexAccountId={initialCodexAccountId}
                 productShell={productShell}
                 restrictCodexCreation={productShell}
                 appId={appId}
@@ -542,6 +546,8 @@ export function AddProviderDialog({
       ) : (
         // OpenCode/OpenClaw: directly show form without tabs
         <ProviderForm
+          key={initialCodexAccountId ?? "new-provider"}
+          initialCodexAccountId={initialCodexAccountId}
           productShell={productShell}
           restrictCodexCreation={productShell}
           appId={appId}

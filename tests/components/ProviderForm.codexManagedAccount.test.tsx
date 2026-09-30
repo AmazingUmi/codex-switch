@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,6 +10,7 @@ import { createTestQueryClient } from "../utils/testQueryClient";
 
 const authState = vi.hoisted(() => ({
   codexReauthRequired: false,
+  codexStatusSuccess: true,
 }));
 const toastMocks = vi.hoisted(() => ({
   error: vi.fn(),
@@ -23,12 +25,14 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/providers/forms/CodexOAuthSection", () => ({
   CodexOAuthSection: ({
+    selectedAccountId,
     onAccountSelect,
     onSelectionConfirmed,
     onSelectionInvalidated,
     allowUnboundSelection = true,
     allowUnboundSelectionWithoutStatus = false,
   }: {
+    selectedAccountId?: string | null;
     onAccountSelect?: (accountId: string | null) => void;
     onSelectionConfirmed?: () => void;
     onSelectionInvalidated?: () => void;
@@ -36,6 +40,9 @@ vi.mock("@/components/providers/forms/CodexOAuthSection", () => ({
     allowUnboundSelectionWithoutStatus?: boolean;
   }) => (
     <div>
+      <output data-testid="selected-managed-account">
+        {selectedAccountId}
+      </output>
       <output data-testid="allow-unbound-selection">
         {allowUnboundSelection ? "true" : "false"}
       </output>
@@ -96,7 +103,7 @@ vi.mock("@/components/providers/forms/hooks", async (importOriginal) => {
     }),
     useCodexOauth: () => ({
       isAuthenticated: true,
-      isStatusSuccess: true,
+      isStatusSuccess: authState.codexStatusSuccess,
       isStatusError: false,
       defaultAccountId: "acct-managed",
       accounts: [
@@ -129,19 +136,23 @@ vi.mock("@/lib/query", async (importOriginal) => {
 function renderCodexForm(
   onSubmit: (values: ProviderFormValues) => void,
   restrictCodexCreation = false,
+  initialCodexAccountId?: string,
 ) {
   const queryClient = createTestQueryClient();
   return render(
-    <QueryClientProvider client={queryClient}>
-      <ProviderForm
-        appId="codex"
-        restrictCodexCreation={restrictCodexCreation}
-        productShell={restrictCodexCreation}
-        submitLabel="save-provider"
-        onSubmit={onSubmit}
-        onCancel={vi.fn()}
-      />
-    </QueryClientProvider>,
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <ProviderForm
+          appId="codex"
+          initialCodexAccountId={initialCodexAccountId}
+          restrictCodexCreation={restrictCodexCreation}
+          productShell={restrictCodexCreation}
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+        />
+      </QueryClientProvider>
+    </StrictMode>,
   );
 }
 
@@ -168,8 +179,44 @@ function renderClaudeCodexForm(onSubmit: (values: ProviderFormValues) => void) {
 describe("ProviderForm Codex Official managed account", () => {
   beforeEach(() => {
     authState.codexReauthRequired = false;
+    authState.codexStatusSuccess = true;
     toastMocks.error.mockReset();
   });
+
+  it("seeds a homepage account in an official configuration without overwriting later selection", async () => {
+    const onSubmit = vi.fn();
+    renderCodexForm(onSubmit, true, "acct-managed");
+    expect(
+      await screen.findByTestId("selected-managed-account"),
+    ).toHaveTextContent("acct-managed");
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].meta.authBinding.accountId).toBe(
+      "acct-managed",
+    );
+    fireEvent.click(screen.getByText("invalidate-selected-account"));
+    expect(
+      screen.getByTestId("selected-managed-account"),
+    ).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() =>
+      expect(toastMocks.error).toHaveBeenCalledWith("请先选择登录方式"),
+    );
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["acct-missing", "acct-managed"])(
+    "keeps the submit safety gate for seeded %s",
+    async (accountId) => {
+      if (accountId === "acct-managed") authState.codexStatusSuccess = false;
+      const onSubmit = vi.fn();
+      renderCodexForm(onSubmit, true, accountId);
+      await screen.findByTestId("selected-managed-account");
+      fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+      await waitFor(() => expect(toastMocks.error).toHaveBeenCalled());
+      expect(onSubmit).not.toHaveBeenCalled();
+    },
+  );
 
   it("only offers OpenAI API and ChatGPT Official creation in the product", async () => {
     const onSubmit = vi.fn();

@@ -18,6 +18,8 @@ interface SubscriptionQuotaViewProps {
   refetch: () => void;
   /** 用于 `subscription.expiredHint` 的 {tool} 插值；解耦了 hook 的 appId */
   appIdForExpiredHint: string;
+  /** Managed accounts are reauthenticated in the app rather than a CLI. */
+  expiredHint?: string;
   inline?: boolean;
 }
 
@@ -109,6 +111,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   loading,
   refetch,
   appIdForExpiredHint,
+  expiredHint,
   inline = false,
 }) => {
   const { t } = useTranslation();
@@ -155,7 +158,8 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
             <div>
               <span className="font-medium">{t("subscription.expired")}</span>
               <span className="ml-2 text-amber-500/70 dark:text-amber-400/70">
-                {t("subscription.expiredHint", { tool: appIdForExpiredHint })}
+                {expiredHint ??
+                  t("subscription.expiredHint", { tool: appIdForExpiredHint })}
               </span>
             </div>
           </div>

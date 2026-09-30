@@ -3253,5 +3253,31 @@
     "upstreamFormatHint": "Codex 原生請求使用 Responses；啟用本機路由後也可使用 Chat Completions。",
     "officialQuotaHint": "讀取所選 Codex 或 ChatGPT 帳號的額度。",
     "reasoningModeHint": "上游支援明確的思考模式時可啟用此選項。"
+  },
+  "codexAccounts": {
+    "accountsTab": "ChatGPT 帳號",
+    "configurationsTab": "連線設定",
+    "configurationsTitle": "連線設定",
+    "configurationsDescription": "管理 OpenAI API 與已儲存的 Codex 連線設定。",
+    "addConfiguration": "新增設定",
+    "title": "ChatGPT 帳號",
+    "description": "查看各帳號的額度與重設時間，並選擇 Codex 使用的帳號。未指定帳號的受管認證會使用預設帳號。 百分比表示已用額度。",
+    "current": "目前使用",
+    "unbound": "設定此帳號後，即可切換 Codex 使用的帳號。",
+    "configure": "設定帳號",
+    "configuration": "帳號設定",
+    "chooseConfiguration": "選擇設定",
+    "switch": "切換至此帳號",
+    "restartHint": "切換後，請重新啟動正在執行的 Codex 用戶端，以使用新的帳號設定。",
+    "homeTabs": "Codex 管理",
+    "quotaExpiredHint": "請點擊此帳號的「重新登入」恢復認證。",
+    "reauthDescription": "部分帳號的登入資訊需要更新，請點擊對應帳號的「重新登入」。",
+    "currentConfiguration": "目前 Codex 設定",
+    "nativeLogin": "原生 Codex 登入",
+    "apiKey": "OpenAI API",
+    "managedAccount": "ChatGPT 帳號",
+    "customConfiguration": "自訂設定",
+    "configurationLoading": "正在載入設定…",
+    "configurationUnavailable": "目前設定無法使用"
   }
 }

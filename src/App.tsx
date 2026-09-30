@@ -55,6 +55,7 @@ import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
+import { useAutoFailoverEnabled } from "@/lib/query/failover";
 import { useScanUnmanagedSkills } from "@/hooks/useSkills";
 import {
   extractErrorMessage,
@@ -72,6 +73,7 @@ import {
 import { ProfileSwitcher } from "@/components/profiles/ProfileSwitcher";
 import { AppSwitcher } from "@/components/AppSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
+import { CodexAccountsPanel } from "@/components/codex/CodexAccountsPanel";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -179,6 +181,13 @@ function App() {
     useState<SkillsPageSource>("repos");
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [homeTab, setHomeTab] = useState<"accounts" | "configurations">(
+    "accounts",
+  );
+  const [initialCodexAccountId, setInitialCodexAccountId] = useState<
+    string | undefined
+  >();
+  const [isAccountSwitching, setIsAccountSwitching] = useState(false);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [mcpManagementBusy, setMcpManagementBusy] = useState(false);
   const [skillsManagementBusy, setSkillsManagementBusy] = useState(false);
@@ -269,7 +278,7 @@ function App() {
         container.scrollLeft = 0;
       }
     }
-  }, [activeApp, currentView]);
+  }, [activeApp, currentView, homeTab]);
 
   const promptPanelRef = useRef<PromptPanelHandle>(null);
   const [promptPrimaryAction, setPromptPrimaryAction] =
@@ -303,12 +312,32 @@ function App() {
     return target?.provider_id;
   }, [proxyStatus?.active_targets, proxyAppId]);
 
-  const { data, isLoading, refetch } = useProvidersQuery(activeApp, {
+  const {
+    data,
+    isLoading,
+    isError: hasProvidersError,
+    refetch,
+  } = useProvidersQuery(activeApp, {
     isProxyRunning: currentAppUsesProxy && isProxyRunning,
   });
   const { data: piCurrentState } = usePiCurrentState(activeApp === "pi");
   const providers = useMemo(() => data?.providers ?? {}, [data]);
   const currentProviderId = data?.currentProviderId ?? "";
+  const {
+    data: isAutoFailoverEnabled,
+    isPlaceholderData: isFailoverStatusLoading,
+    isError: hasFailoverStatusError,
+  } = useAutoFailoverEnabled(activeApp, proxyAppId !== null);
+  const accountCurrentProviderId =
+    isProxyRunning && isCurrentAppTakeoverActive
+      ? isFailoverStatusLoading ||
+        hasFailoverStatusError ||
+        isAutoFailoverEnabled === undefined
+        ? ""
+        : isAutoFailoverEnabled
+          ? (activeProviderId ?? "")
+          : currentProviderId
+      : currentProviderId;
   const isOpenClawView =
     activeApp === "openclaw" &&
     (currentView === "providers" ||
@@ -1134,6 +1163,56 @@ function App() {
         default:
           return (
             <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
+              {activeApp === "codex" && (
+                <div
+                  role="tablist"
+                  aria-label={t("codexAccounts.homeTabs", "Codex management")}
+                  className="flex gap-2 border-b border-border pb-3 mb-4"
+                >
+                  {(["accounts", "configurations"] as const).map((tab) => (
+                    <Button
+                      key={tab}
+                      role="tab"
+                      aria-selected={homeTab === tab}
+                      tabIndex={homeTab === tab ? 0 : -1}
+                      aria-controls={`codex-home-${tab}`}
+                      id={`codex-tab-${tab}`}
+                      variant={homeTab === tab ? "secondary" : "ghost"}
+                      onClick={() => setHomeTab(tab)}
+                      onKeyDown={(event) => {
+                        if (
+                          !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                            event.key,
+                          )
+                        )
+                          return;
+                        event.preventDefault();
+                        const nextTab =
+                          event.key === "Home"
+                            ? "accounts"
+                            : event.key === "End"
+                              ? "configurations"
+                              : tab === "accounts"
+                                ? "configurations"
+                                : "accounts";
+                        setHomeTab(nextTab);
+                        document
+                          .getElementById(`codex-tab-${nextTab}`)
+                          ?.focus();
+                      }}
+                    >
+                      {t(
+                        tab === "accounts"
+                          ? "codexAccounts.accountsTab"
+                          : "codexAccounts.configurationsTab",
+                        tab === "accounts"
+                          ? "ChatGPT accounts"
+                          : "Connection configurations",
+                      )}
+                    </Button>
+                  ))}
+                </div>
+              )}
               <div
                 ref={providerScrollContainerRef}
                 className="flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1"
@@ -1147,60 +1226,124 @@ function App() {
                     transition={{ duration: 0.15 }}
                     className="space-y-4"
                   >
-                    <ProviderList
-                      providers={providers}
-                      currentProviderId={currentProviderId}
-                      appId={activeApp}
-                      isLoading={isLoading}
-                      isProxyRunning={currentAppUsesProxy && isProxyRunning}
-                      isProxyTakeover={
-                        isProxyRunning && isCurrentAppTakeoverActive
-                      }
-                      activeProviderId={activeProviderId}
-                      onSwitch={
-                        activeApp === "pi"
-                          ? handleEnablePiProvider
-                          : switchProvider
-                      }
-                      onEdit={(provider) => {
-                        setEditingProvider(provider);
-                      }}
-                      onDelete={(provider) =>
-                        setConfirmAction({ provider, action: "delete" })
-                      }
-                      onRemoveFromConfig={
-                        activeApp === "opencode" ||
-                        activeApp === "openclaw" ||
-                        activeApp === "hermes" ||
-                        activeApp === "pi" ||
-                        activeApp === "mcode"
-                          ? (provider) =>
-                              setConfirmAction({ provider, action: "remove" })
-                          : undefined
-                      }
-                      onDisableOmo={
-                        activeApp === "opencode" ? handleDisableOmo : undefined
-                      }
-                      onDisableOmoSlim={
-                        activeApp === "opencode"
-                          ? handleDisableOmoSlim
-                          : undefined
-                      }
-                      onDuplicate={handleDuplicateProvider}
-                      onConfigureUsage={setUsageProvider}
-                      onOpenWebsite={handleOpenWebsite}
-                      onOpenTerminal={
-                        activeApp === "claude" ? handleOpenTerminal : undefined
-                      }
-                      onCreate={() => setIsAddOpen(true)}
-                      onSetAsDefault={
-                        activeApp === "openclaw"
-                          ? setAsDefaultModel
-                          : activeApp === "hermes"
-                            ? switchProvider
+                    {activeApp === "codex" && homeTab === "accounts" ? (
+                      <div
+                        role="tabpanel"
+                        id="codex-home-accounts"
+                        aria-labelledby="codex-tab-accounts"
+                      >
+                        <CodexAccountsPanel
+                          providers={Object.values(providers)}
+                          currentProviderId={accountCurrentProviderId}
+                          isSwitching={isAccountSwitching}
+                          isLoadingProviders={isLoading}
+                          isProvidersError={hasProvidersError}
+                          onSwitchProvider={async (provider) => {
+                            setIsAccountSwitching(true);
+                            try {
+                              await switchProvider(provider);
+                            } finally {
+                              setIsAccountSwitching(false);
+                            }
+                          }}
+                          onCreateConfiguration={(accountId) => {
+                            setInitialCodexAccountId(accountId);
+                            setIsAddOpen(true);
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        role={activeApp === "codex" ? "tabpanel" : undefined}
+                        id="codex-home-configurations"
+                        aria-labelledby={
+                          activeApp === "codex"
+                            ? "codex-tab-configurations"
                             : undefined
-                      }
-                    />
+                        }
+                      >
+                        {activeApp === "codex" && (
+                          <div className="mb-5 space-y-1">
+                            <h2 className="text-xl font-semibold">
+                              {t(
+                                "codexAccounts.configurationsTitle",
+                                "Connection configurations",
+                              )}
+                            </h2>
+                            <p className="text-sm text-muted-foreground">
+                              {t(
+                                "codexAccounts.configurationsDescription",
+                                "OpenAI API and saved Codex connection settings.",
+                              )}
+                            </p>
+                          </div>
+                        )}
+                        <ProviderList
+                          providers={providers}
+                          currentProviderId={currentProviderId}
+                          appId={activeApp}
+                          isLoading={isLoading}
+                          isProxyRunning={currentAppUsesProxy && isProxyRunning}
+                          isProxyTakeover={
+                            isProxyRunning && isCurrentAppTakeoverActive
+                          }
+                          activeProviderId={activeProviderId}
+                          onSwitch={
+                            activeApp === "pi"
+                              ? handleEnablePiProvider
+                              : switchProvider
+                          }
+                          onEdit={(provider) => {
+                            setEditingProvider(provider);
+                          }}
+                          onDelete={(provider) =>
+                            setConfirmAction({ provider, action: "delete" })
+                          }
+                          onRemoveFromConfig={
+                            activeApp === "opencode" ||
+                            activeApp === "openclaw" ||
+                            activeApp === "hermes" ||
+                            activeApp === "pi" ||
+                            activeApp === "mcode"
+                              ? (provider) =>
+                                  setConfirmAction({
+                                    provider,
+                                    action: "remove",
+                                  })
+                              : undefined
+                          }
+                          onDisableOmo={
+                            activeApp === "opencode"
+                              ? handleDisableOmo
+                              : undefined
+                          }
+                          onDisableOmoSlim={
+                            activeApp === "opencode"
+                              ? handleDisableOmoSlim
+                              : undefined
+                          }
+                          onDuplicate={handleDuplicateProvider}
+                          onConfigureUsage={setUsageProvider}
+                          onOpenWebsite={handleOpenWebsite}
+                          onOpenTerminal={
+                            activeApp === "claude"
+                              ? handleOpenTerminal
+                              : undefined
+                          }
+                          onCreate={() => {
+                            setInitialCodexAccountId(undefined);
+                            setIsAddOpen(true);
+                          }}
+                          onSetAsDefault={
+                            activeApp === "openclaw"
+                              ? setAsDefaultModel
+                              : activeApp === "hermes"
+                                ? switchProvider
+                                : undefined
+                          }
+                        />
+                      </div>
+                    )}
                   </motion.div>
                 </AnimatePresence>
               </div>
@@ -1395,7 +1538,7 @@ function App() {
                     setCurrentView("settings");
                   }}
                 />
-                {isCurrentAppTakeoverActive && (
+                {(activeApp === "codex" || isCurrentAppTakeoverActive) && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1784,15 +1927,35 @@ function App() {
                       </div>
                     )}
 
-                    <Button
-                      onClick={() => setIsAddOpen(true)}
-                      size="icon"
-                      className={`ml-2 ${addActionButtonClass}`}
-                      aria-label={t("provider.addNewProvider")}
-                      title={t("provider.addNewProvider")}
-                    >
-                      <Plus className="w-5 h-5" />
-                    </Button>
+                    {(activeApp !== "codex" ||
+                      homeTab === "configurations") && (
+                      <Button
+                        onClick={() => {
+                          setInitialCodexAccountId(undefined);
+                          setIsAddOpen(true);
+                        }}
+                        size="icon"
+                        className={`ml-2 ${addActionButtonClass}`}
+                        aria-label={
+                          activeApp === "codex"
+                            ? t(
+                                "codexAccounts.addConfiguration",
+                                "Add configuration",
+                              )
+                            : t("provider.addNewProvider")
+                        }
+                        title={
+                          activeApp === "codex"
+                            ? t(
+                                "codexAccounts.addConfiguration",
+                                "Add configuration",
+                              )
+                            : t("provider.addNewProvider")
+                        }
+                      >
+                        <Plus className="w-5 h-5" />
+                      </Button>
+                    )}
                   </>
                 )}
               </div>
@@ -1813,6 +1976,7 @@ function App() {
 
       <AddProviderDialog
         open={isAddOpen}
+        initialCodexAccountId={initialCodexAccountId}
         onOpenChange={setIsAddOpen}
         appId={activeApp}
         onSubmit={addProvider}

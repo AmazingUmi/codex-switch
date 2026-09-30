@@ -9,6 +9,7 @@ import {
   setCurrentProviderId,
   setLiveProviderIds,
   setProviders,
+  setSettings,
 } from "../msw/state";
 import { emitTauriEvent } from "../msw/tauriMocks";
 import { server } from "../msw/server";
@@ -34,9 +35,52 @@ vi.mock("@/config/productShell", async (importOriginal) => {
         : view || "providers",
   };
 });
+const routedAccountState = vi.hoisted(() => ({
+  enabled: false,
+  failover: undefined as boolean | undefined,
+  loading: false,
+  error: false,
+}));
+vi.mock("@/hooks/useProxyStatus", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/hooks/useProxyStatus")>();
+  return {
+    ...actual,
+    useProxyStatus: () =>
+      routedAccountState.enabled
+        ? {
+            isRunning: true,
+            takeoverStatus: { codex: true },
+            status: {
+              active_targets: [{ app_type: "codex", provider_id: "codex-2" }],
+            },
+          }
+        : actual.useProxyStatus(),
+  };
+});
+vi.mock("@/lib/query/failover", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/query/failover")>();
+  return {
+    ...actual,
+    useAutoFailoverEnabled: (
+      ...args: Parameters<typeof actual.useAutoFailoverEnabled>
+    ) =>
+      routedAccountState.enabled
+        ? {
+            data: routedAccountState.failover,
+            isPlaceholderData: routedAccountState.loading,
+            isError: routedAccountState.error,
+          }
+        : actual.useAutoFailoverEnabled(...args),
+  };
+});
+
 vi.mock("@/components/settings/SettingsPage", () => ({
-  SettingsPage: ({ onOpenChange }: any) => (
-    <button onClick={() => onOpenChange(false)}>close-settings</button>
+  SettingsPage: ({ onOpenChange, defaultTab }: any) => (
+    <div>
+      <output data-testid="settings-tab">{defaultTab}</output>
+      <button onClick={() => onOpenChange(false)}>close-settings</button>
+    </div>
   ),
 }));
 
@@ -50,6 +94,28 @@ vi.mock("sonner", () => ({
     success: (...args: unknown[]) => toastSuccessMock(...args),
     error: (...args: unknown[]) => toastErrorMock(...args),
   },
+}));
+
+vi.mock("@/components/codex/CodexAccountsPanel", () => ({
+  CodexAccountsPanel: ({
+    providers,
+    currentProviderId,
+    onSwitchProvider,
+    onCreateConfiguration,
+  }: any) => (
+    <div data-testid="accounts-panel">
+      <output>{JSON.stringify(providers)}</output>
+      <output data-testid="account-current-provider">
+        {currentProviderId}
+      </output>
+      <button onClick={() => onSwitchProvider(providers[0])}>
+        switch-account-configuration
+      </button>
+      <button onClick={() => onCreateConfiguration("acct-selected")}>
+        create-account-configuration
+      </button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/providers/ProviderList", () => ({
@@ -93,9 +159,18 @@ vi.mock("@/components/providers/ProviderList", () => ({
 }));
 
 vi.mock("@/components/providers/AddProviderDialog", () => ({
-  AddProviderDialog: ({ open, onOpenChange, onSubmit, appId }: any) =>
+  AddProviderDialog: ({
+    open,
+    onOpenChange,
+    onSubmit,
+    appId,
+    initialCodexAccountId,
+  }: any) =>
     open ? (
       <div data-testid="add-provider-dialog">
+        <output data-testid="initial-codex-account">
+          {initialCodexAccountId}
+        </output>
         <button
           onClick={() =>
             onSubmit({
@@ -225,6 +300,10 @@ const renderApp = (AppComponent: ComponentType) => {
 describe("App integration with MSW", () => {
   beforeEach(() => {
     shellPolicy.enforce = false;
+    routedAccountState.enabled = false;
+    routedAccountState.failover = undefined;
+    routedAccountState.loading = false;
+    routedAccountState.error = false;
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
@@ -245,6 +324,11 @@ describe("App integration with MSW", () => {
     );
 
     fireEvent.click(screen.getByText("switch-codex"));
+    fireEvent.click(
+      await screen.findByText("Connection configurations", {
+        selector: "button",
+      }),
+    );
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
@@ -318,6 +402,11 @@ describe("App integration with MSW", () => {
     providerScrollContainer!.scrollLeft = 24;
 
     fireEvent.click(screen.getByText("switch-codex"));
+    fireEvent.click(
+      await screen.findByText("Connection configurations", {
+        selector: "button",
+      }),
+    );
 
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -720,19 +809,19 @@ describe("App integration with MSW", () => {
       const { default: App } = await import("@/App");
       renderApp(App);
       await waitFor(() =>
-        expect(screen.getByTestId("provider-list")).toHaveTextContent(
+        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
           "codex-1",
         ),
       );
       expect(localStorage.getItem("cc-switch-last-app")).toBe("codex");
       fireEvent.click(screen.getByText("switch-openclaw"));
       fireEvent.click(screen.getByText("switch-claude"));
-      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
+      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1");
       emitTauriEvent("provider-switched", {
         appType: "claude",
         providerId: "claude-2",
       });
-      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
+      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1");
     },
   );
 
@@ -756,7 +845,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
+      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
     );
     expect(localStorage.getItem("cc-switch-last-view")).toBe("providers");
     expect(
@@ -771,13 +860,108 @@ describe("App integration with MSW", () => {
     shellPolicy.enforce = true;
     const { default: App } = await import("@/App");
     const { container } = renderApp(App);
-    await screen.findByTestId("provider-list");
+    await screen.findByTestId("accounts-panel");
     const main = container.querySelector("main")!;
     main.scrollTop = 320;
     fireEvent.keyDown(window, { key: ",", metaKey: true });
     expect(await screen.findByText("close-settings")).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(await screen.findByTestId("provider-list")).toBeInTheDocument();
+    expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
     expect(main.scrollTop).toBe(0);
+  });
+  it("foregrounds accounts and keeps connection configuration actions accessible", async () => {
+    shellPolicy.enforce = true;
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
+    expect(
+      screen.getByText("ChatGPT accounts", { selector: "button" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("provider-list")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("create-account-configuration"));
+    expect(screen.getByTestId("initial-codex-account")).toHaveTextContent(
+      "acct-selected",
+    );
+    fireEvent.click(screen.getByText("close-add"));
+    fireEvent.click(
+      screen.getByText("Connection configurations", { selector: "button" }),
+    );
+    expect(await screen.findByTestId("provider-list")).toHaveTextContent(
+      "codex-1",
+    );
+    fireEvent.click(screen.getByText("create"));
+    expect(screen.getByTestId("initial-codex-account")).toBeEmptyDOMElement();
+  });
+
+  it("offers Usage without requiring local proxy takeover", async () => {
+    shellPolicy.enforce = true;
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await screen.findByTestId("accounts-panel");
+    fireEvent.click(screen.getByTitle("使用统计"));
+    expect(await screen.findByTestId("settings-tab")).toHaveTextContent(
+      "usage",
+    );
+  });
+
+  it("switches an account through the existing provider action", async () => {
+    shellPolicy.enforce = true;
+    setCurrentProviderId("codex", "codex-2");
+    const switchSpy = vi.spyOn(providersApi, "switch");
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await waitFor(() =>
+      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+        "codex-2",
+      ),
+    );
+    fireEvent.click(screen.getByText("switch-account-configuration"));
+    await waitFor(() =>
+      expect(switchSpy).toHaveBeenCalledWith("codex-1", "codex"),
+    );
+    switchSpy.mockRestore();
+  });
+  it.each([
+    { failover: undefined, loading: true, error: false, expected: "" },
+    { failover: false, loading: true, error: false, expected: "" },
+    { failover: undefined, loading: false, error: true, expected: "" },
+    { failover: true, loading: false, error: false, expected: "codex-2" },
+    { failover: false, loading: false, error: false, expected: "codex-1" },
+  ])("resolves routed current account conservatively: %j", async (state) => {
+    shellPolicy.enforce = true;
+    Object.assign(routedAccountState, state, { enabled: true });
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await waitFor(() =>
+      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
+    );
+    const current = screen.getByTestId("account-current-provider");
+    if (state.expected) expect(current).toHaveTextContent(state.expected);
+    else expect(current).toBeEmptyDOMElement();
+  });
+  it("supports keyboard navigation between account and configuration tabs", async () => {
+    shellPolicy.enforce = true;
+    setSettings({ firstRunNoticeConfirmed: true });
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await screen.findByTestId("accounts-panel");
+    const accounts = screen.getByText("ChatGPT accounts", {
+      selector: "button",
+    });
+    const configurations = screen.getByText("Connection configurations", {
+      selector: "button",
+    });
+    expect(accounts).toHaveAttribute("tabindex", "0");
+    expect(configurations).toHaveAttribute("tabindex", "-1");
+    fireEvent.keyDown(accounts, { key: "ArrowRight" });
+    expect(configurations).toHaveAttribute("aria-selected", "true");
+    expect(configurations).toHaveFocus();
+    fireEvent.keyDown(configurations, { key: "Home" });
+    expect(accounts).toHaveAttribute("aria-selected", "true");
+    expect(accounts).toHaveFocus();
+    fireEvent.keyDown(accounts, { key: "End" });
+    expect(configurations).toHaveFocus();
+    fireEvent.keyDown(configurations, { key: "ArrowLeft" });
+    expect(accounts).toHaveFocus();
   });
 });

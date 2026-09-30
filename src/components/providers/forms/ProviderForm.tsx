@@ -245,6 +245,8 @@ type LocalProxyRequestOverridesBuildResult = ReturnType<
 
 export interface ProviderFormProps {
   productShell?: boolean;
+  /** Account chosen explicitly on the homepage when creating an official configuration. */
+  initialCodexAccountId?: string;
   /** Restrict the product's new-provider chooser; existing providers keep their full editor. */
   restrictCodexCreation?: boolean;
   appId: AppId;
@@ -316,6 +318,7 @@ function ProviderFormFull({
   onEditorBaseChange,
   restrictCodexCreation = false,
   productShell = false,
+  initialCodexAccountId,
 }: ProviderFormProps) {
   if (appId === "claude-desktop") {
     throw new Error("ProviderFormFull should not receive claude-desktop");
@@ -408,7 +411,10 @@ function ProviderFormFull({
       resolveManagedAccountId(initialData?.meta, "github_copilot"),
     );
     setSelectedCodexAccountId(
-      resolveManagedAccountId(initialData?.meta, "codex_oauth"),
+      resolveManagedAccountId(initialData?.meta, "codex_oauth") ??
+        (appId === "codex" && !initialData
+          ? (initialCodexAccountId ?? null)
+          : null),
     );
     setHasValidCodexOfficialSelection(true);
     setCodexFastMode(initialData?.meta?.codexFastMode ?? false);
@@ -425,7 +431,7 @@ function ProviderFormFull({
         initialData?.meta?.localProxyRequestOverrides?.body,
       ),
     );
-  }, [appId, initialData, supportsFullUrl]);
+  }, [appId, initialData, supportsFullUrl, initialCodexAccountId]);
 
   const defaultValues: ProviderFormData = useMemo(
     () => ({
@@ -603,7 +609,13 @@ function ProviderFormFull({
   // 选中的 ChatGPT 账号 ID（Codex OAuth 多账号支持）
   const [selectedCodexAccountId, setSelectedCodexAccountId] = useState<
     string | null
-  >(() => resolveManagedAccountId(initialData?.meta, "codex_oauth"));
+  >(
+    () =>
+      resolveManagedAccountId(initialData?.meta, "codex_oauth") ??
+      (appId === "codex" && !initialData
+        ? (initialCodexAccountId ?? null)
+        : null),
+  );
   const [hasValidCodexOfficialSelection, setHasValidCodexOfficialSelection] =
     useState(true);
   const [selectedXaiAccountId, setSelectedXaiAccountId] = useState<
@@ -2116,6 +2128,30 @@ function ProviderFormFull({
       iconColor: preset.iconColor ?? "",
     });
   };
+
+  const seededCodexAccountRef = useRef(false);
+  useEffect(() => {
+    if (
+      seededCodexAccountRef.current ||
+      appId !== "codex" ||
+      initialData ||
+      !initialCodexAccountId
+    )
+      return;
+    const officialPreset = presetEntries.find(
+      (entry) =>
+        entry.preset.category === "official" &&
+        getPresetProviderType(entry.preset) === "codex_oauth",
+    );
+    if (!officialPreset) return;
+    seededCodexAccountRef.current = true;
+    handlePresetChange(officialPreset.id);
+    // React StrictMode replays the mount effects, including the form reset.
+    // Allow the seed to replay too, without reapplying it on ordinary renders.
+    return () => {
+      seededCodexAccountRef.current = false;
+    };
+  }, [appId, initialData, initialCodexAccountId, presetEntries]);
 
   const settingsConfigErrorField = (
     <FormField

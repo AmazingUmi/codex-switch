@@ -3252,5 +3252,31 @@
     "upstreamFormatHint": "Codex のネイティブリクエストには Responses を使用します。ローカルルーティングが有効な場合は Chat Completions も利用できます。",
     "officialQuotaHint": "選択した Codex または ChatGPT アカウントの利用枠を取得します。",
     "reasoningModeHint": "上流が明示的な思考モードに対応している場合に有効にします。"
+  },
+  "codexAccounts": {
+    "accountsTab": "ChatGPT アカウント",
+    "configurationsTab": "接続設定",
+    "configurationsTitle": "接続設定",
+    "configurationsDescription": "OpenAI API と保存済みの Codex 接続設定を管理します。",
+    "addConfiguration": "設定を追加",
+    "title": "ChatGPT アカウント",
+    "description": "各アカウントの利用枠とリセット時刻を確認し、Codex で使用するアカウントを選択します。アカウント未指定の管理認証にはデフォルトが使われます。 パーセンテージは使用済みの割合です。",
+    "current": "現在使用中",
+    "unbound": "このアカウントの接続設定を作成すると、Codex の使用アカウントを切り替えられます。",
+    "configure": "アカウントを設定",
+    "configuration": "アカウント設定",
+    "chooseConfiguration": "設定を選択",
+    "switch": "このアカウントに切り替え",
+    "restartHint": "切り替え後は、実行中の Codex クライアントを再起動して新しいアカウント設定を適用してください。",
+    "homeTabs": "Codex の管理",
+    "quotaExpiredHint": "このアカウントの「再ログイン」から認証をやり直してください。",
+    "reauthDescription": "一部のアカウントのログイン情報を更新する必要があります。該当するアカウントで再ログインしてください。",
+    "currentConfiguration": "現在の Codex 設定",
+    "nativeLogin": "Codex のネイティブログイン",
+    "apiKey": "OpenAI API",
+    "managedAccount": "ChatGPT アカウント",
+    "customConfiguration": "カスタム設定",
+    "configurationLoading": "設定を読み込み中…",
+    "configurationUnavailable": "現在の設定を取得できません"
   }
 }

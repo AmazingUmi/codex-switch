@@ -3252,5 +3252,31 @@
     "upstreamFormatHint": "Codex 原生请求使用 Responses；启用本地路由后也可使用 Chat Completions。",
     "officialQuotaHint": "读取所选 Codex 或 ChatGPT 账号的额度。",
     "reasoningModeHint": "上游支持显式思考模式时可启用此选项。"
+  },
+  "codexAccounts": {
+    "accountsTab": "ChatGPT 账号",
+    "configurationsTab": "连接配置",
+    "configurationsTitle": "连接配置",
+    "configurationsDescription": "管理 OpenAI API 和已保存的 Codex 连接设置。",
+    "addConfiguration": "添加配置",
+    "title": "ChatGPT 账号",
+    "description": "查看每个账号的额度与重置时间，并选择 Codex 使用的账号。默认账号用于未指定账号的托管认证。 百分比表示已用额度。",
+    "current": "当前使用",
+    "unbound": "配置此账号后即可切换 Codex 使用的账号。",
+    "configure": "配置账号",
+    "configuration": "账号配置",
+    "chooseConfiguration": "选择配置",
+    "switch": "切换到此账号",
+    "restartHint": "切换后，请重启正在运行的 Codex 客户端以使用新的账号配置。",
+    "homeTabs": "Codex 管理",
+    "quotaExpiredHint": "请点击此账号的“重新登录”恢复认证。",
+    "reauthDescription": "部分账号的登录信息需要更新，请点击对应账号的“重新登录”。",
+    "currentConfiguration": "当前 Codex 配置",
+    "nativeLogin": "原生 Codex 登录",
+    "apiKey": "OpenAI API",
+    "managedAccount": "ChatGPT 账号",
+    "customConfiguration": "自定义配置",
+    "configurationLoading": "正在加载配置…",
+    "configurationUnavailable": "当前配置不可用"
   }
 }

@@ -29,9 +29,15 @@ import { useCodexOauth } from "./hooks/useCodexOauth";
 import { copyText } from "@/lib/clipboard";
 import CodexOauthAccountQuota from "@/components/CodexOauthAccountQuota";
 import { cn } from "@/lib/utils";
+import type { ManagedAuthAccount } from "@/lib/api/auth";
 
 interface CodexOAuthSectionProps {
   className?: string;
+  /** Account-focused home presentation; lifecycle remains shared with settings. */
+  presentation?: "list" | "cards";
+  /** Explicit effective Codex account; independent of the OAuth default. */
+  currentAccountId?: string | null;
+  renderAccountActions?: (account: ManagedAuthAccount) => React.ReactNode;
   /** select 模式只展示账号选择和管理入口；manage 模式展示完整账号管理 */
   mode?: "manage" | "select";
   /** 是否展示每个账号的订阅额度 */
@@ -74,6 +80,9 @@ interface CodexOAuthSectionProps {
  */
 export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
   className,
+  presentation = "list",
+  currentAccountId,
+  renderAccountActions,
   mode = "manage",
   showAccountQuota = false,
   selectedAccountId,
@@ -403,8 +412,12 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
             </p>
             <p className="text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/80">
               {t(
-                "codexOauth.reauthDescription",
-                "为与浏览器登录行为保持一致，这些账号需要重新登录以补全所需的登录凭据（id_token）。重新登录后即可正常用于托管绑定。",
+                presentation === "cards"
+                  ? "codexAccounts.reauthDescription"
+                  : "codexOauth.reauthDescription",
+                presentation === "cards"
+                  ? "部分账号的登录信息需要更新，请点击对应账号的“重新登录”。"
+                  : "为与浏览器登录行为保持一致，这些账号需要重新登录以补全所需的登录凭据（id_token）。重新登录后即可正常用于托管绑定。",
               )}
             </p>
           </div>
@@ -460,28 +473,53 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
       {/* 已登录账号列表 */}
       {mode === "manage" && isStatusSuccess && hasAnyAccount && (
         <div className="space-y-2">
-          <Label className="text-sm text-muted-foreground">
-            {t("codexOauth.loggedInAccounts", "已登录账号")}
-          </Label>
-          <div className="space-y-1">
+          {presentation === "list" && (
+            <Label className="text-sm text-muted-foreground">
+              {t("codexOauth.loggedInAccounts", "已登录账号")}
+            </Label>
+          )}
+          <div
+            className={
+              presentation === "cards"
+                ? "grid grid-cols-1 gap-4 min-[900px]:grid-cols-2"
+                : "space-y-1"
+            }
+          >
             {accounts.map((account) => (
               <div
                 key={account.id}
-                className={`space-y-2 rounded-md border p-2 ${
+                data-account-id={account.id}
+                className={`min-w-0 space-y-2 border ${presentation === "cards" ? "rounded-xl bg-card p-4 shadow-sm" : "rounded-md p-2"} ${
                   account.reauth_required
                     ? "border-amber-300/70 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-950/30"
-                    : "bg-muted/30"
+                    : presentation === "cards"
+                      ? "border-border-default"
+                      : "bg-muted/30"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <User className="h-5 w-5 text-muted-foreground" />
-                    <span className="truncate text-sm font-medium">
+                <div
+                  className={
+                    presentation === "cards"
+                      ? "space-y-3"
+                      : "flex items-center justify-between gap-2"
+                  }
+                >
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <User className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <span
+                      className="min-w-0 truncate text-sm font-medium"
+                      title={account.login}
+                    >
                       {account.login}
                     </span>
                     {defaultAccountId === account.id && (
                       <Badge variant="secondary" className="shrink-0 text-xs">
                         {t("codexOauth.defaultAccount", "默认")}
+                      </Badge>
+                    )}
+                    {currentAccountId === account.id && (
+                      <Badge className="shrink-0 bg-green-600 text-xs hover:bg-green-600">
+                        {t("codexAccounts.current", "当前使用")}
                       </Badge>
                     )}
                     {selectedAccountId === account.id && (
@@ -499,7 +537,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                       </Badge>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 flex-wrap items-center gap-1">
                     <Button
                       type="button"
                       variant="outline"
@@ -535,6 +573,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                       onClick={(e) => handleRemoveAccount(account.id, e)}
                       disabled={isRemovingAccount}
                       title={t("codexOauth.removeAccount", "移除账号")}
+                      aria-label={`${t("codexOauth.removeAccount", "移除账号")}: ${account.login}`}
                     >
                       <X className="h-4 w-4" />
                     </Button>
@@ -543,6 +582,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                 {showAccountQuota && (
                   <CodexOauthAccountQuota accountId={account.id} />
                 )}
+                {renderAccountActions?.(account)}
               </div>
             ))}
           </div>
@@ -640,6 +680,11 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
       )}
 
       {/* 错误状态 */}
+      {presentation === "cards" && pollingState !== "error" && error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
       {mode === "manage" && pollingState === "error" && error && (
         <div className="space-y-2">
           <p className="text-sm text-red-500">{error}</p>
