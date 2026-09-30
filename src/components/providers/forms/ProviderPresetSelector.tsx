@@ -144,6 +144,7 @@ export function getVisiblePresetEntries(
 }
 
 interface ProviderPresetSelectorProps {
+  customLabel?: string;
   selectedPresetId: string | null;
   presetEntries: PresetEntry[];
   presetCategoryLabels: Record<string, string>;
@@ -163,6 +164,7 @@ export function ProviderPresetSelector({
   onManageUniversalProviders,
   category,
   categoryHint,
+  customLabel,
 }: Readonly<ProviderPresetSelectorProps>) {
   const { t } = useTranslation();
   const [searchOpen, setSearchOpen] = useState(false);
@@ -411,7 +413,9 @@ export function ProviderPresetSelector({
           }`}
         >
           <span className="inline-block w-4 h-4 flex-shrink-0" aria-hidden />
-          <span className="truncate">{t("providerPreset.custom")}</span>
+          <span className="truncate">
+            {customLabel ?? t("providerPreset.custom")}
+          </span>
         </button>
 
         {visiblePresetEntries.length === 0 && (

@@ -8,6 +8,7 @@ import {
 } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { usageApi } from "@/lib/api/usage";
 import { UsageDashboard } from "@/components/usage/UsageDashboard";
 
 const useProviderStatsMock = vi.hoisted(() => vi.fn());
@@ -124,26 +125,59 @@ describe("UsageDashboard", () => {
     expect(screen.getByTestId("select-5000")).toBeInTheDocument();
   });
 
-  it("filters usage queries to Pi", async () => {
+  it("scopes every usage view and filter query to Codex on first render", () => {
     renderDashboard();
-
-    fireEvent.click(screen.getByRole("button", { name: "usage.appFilter.pi" }));
-
-    await waitFor(() =>
-      expect(useProviderStatsMock).toHaveBeenLastCalledWith(
-        expect.anything(),
-        { appType: "pi" },
-        expect.anything(),
-      ),
+    expect(useProviderStatsMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      { appType: "codex" },
+      expect.anything(),
     );
     expect(useModelStatsMock).toHaveBeenLastCalledWith(
       expect.anything(),
-      { appType: "pi", providerName: undefined },
+      { appType: "codex", providerName: undefined },
       expect.anything(),
     );
     expect(usageHeroMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ appType: "pi" }),
+      expect.objectContaining({ appType: "codex" }),
     );
+    for (const app of [
+      "all",
+      "claude",
+      "gemini",
+      "grokbuild",
+      "opencode",
+      "pi",
+      "mcode",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: `usage.appFilter.${app}` }),
+      ).not.toBeInTheDocument();
+    }
+  });
+
+  it("preserves manual session sync for users with automatic scanning disabled", async () => {
+    const sync = vi.spyOn(usageApi, "syncSessionUsage").mockResolvedValue({
+      imported: 1,
+      skipped: 0,
+      filesScanned: 1,
+      suspectedDuplicates: 0,
+      deferredFiles: 0,
+      errors: [],
+    });
+    try {
+      renderDashboard({ sessionAutoSyncEnabled: false });
+      fireEvent.click(
+        screen.getByRole("button", { name: "usage.sessionSync.syncNow" }),
+      );
+      await waitFor(() => expect(sync).toHaveBeenCalledTimes(1));
+      expect(useProviderStatsMock).toHaveBeenLastCalledWith(
+        expect.anything(),
+        { appType: "codex" },
+        expect.anything(),
+      );
+    } finally {
+      sync.mockRestore();
+    }
   });
 
   it("persists refresh interval changes", async () => {

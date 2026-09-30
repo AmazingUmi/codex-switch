@@ -69,6 +69,7 @@ interface EndpointCandidate {
 }
 
 interface CodexFormFieldsProps {
+  productShell?: boolean;
   appId?: AppId;
   providerId?: string;
   // xAI OAuth 托管预设（Grok 订阅）：隐藏 API Key / 端点输入，挂账号选择区块
@@ -365,6 +366,7 @@ function ReasoningLevelsEditor({
 }
 
 export function CodexFormFields({
+  productShell = false,
   appId = "codex",
   providerId,
   isXaiOauthPreset,
@@ -745,7 +747,7 @@ export function CodexFormFields({
       )}
 
       {/* xAI OAuth 认证（Grok 订阅托管账号） */}
-      {isXaiOauthPreset && (
+      {isXaiOauthPreset && !productShell && (
         <XaiOAuthSection
           selectedAccountId={selectedXaiAccountId}
           onAccountSelect={onXaiAccountSelect}
@@ -941,22 +943,35 @@ export function CodexFormFields({
                           defaultValue: "Responses（原生）",
                         })}
                       </SelectItem>
-                      <SelectItem value="anthropic">
-                        {t("codexConfig.upstreamFormatAnthropic", {
-                          defaultValue: "Anthropic Messages（需开启路由）",
-                        })}
-                      </SelectItem>
+                      {(!productShell || apiFormat === "anthropic") && (
+                        <SelectItem value="anthropic" disabled={productShell}>
+                          {productShell
+                            ? t(
+                                "productShell.storedUpstreamFormat",
+                                "Stored upstream format",
+                              )
+                            : t("codexConfig.upstreamFormatAnthropic", {
+                                defaultValue:
+                                  "Anthropic Messages（需开启路由）",
+                              })}
+                        </SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                   <p className="text-xs leading-relaxed text-muted-foreground">
-                    {t("codexConfig.upstreamFormatHint", {
-                      defaultValue:
-                        "供应商原生是 Responses API 就选 Responses（直连，不转换格式）；使用 Chat Completions 协议就选 Chat；供应商只提供原生 Anthropic Messages 协议就选 Anthropic Messages。Chat 与 Anthropic Messages 均需开启路由接管才能转换为 Responses。",
-                    })}
+                    {productShell
+                      ? t(
+                          "productShell.upstreamFormatHint",
+                          "Use Responses for native Codex requests, or Chat Completions with local routing enabled.",
+                        )
+                      : t("codexConfig.upstreamFormatHint", {
+                          defaultValue:
+                            "供应商原生是 Responses API 就选 Responses（直连，不转换格式）；使用 Chat Completions 协议就选 Chat；供应商只提供原生 Anthropic Messages 协议就选 Anthropic Messages。Chat 与 Anthropic Messages 均需开启路由接管才能转换为 Responses。",
+                        })}
                   </p>
                 </div>
 
-                {isAnthropicFormat && (
+                {isAnthropicFormat && !productShell && (
                   <div className="space-y-1.5">
                     <FormLabel htmlFor="codex-anthropic-auth-field">
                       {t("codexConfig.anthropicAuthFieldLabel", {
@@ -998,7 +1013,7 @@ export function CodexFormFields({
                   </div>
                 )}
 
-                {isAnthropicFormat && (
+                {isAnthropicFormat && !productShell && (
                   <div className="flex items-center justify-between gap-4 border-t border-border-default pt-3">
                     <div className="space-y-1">
                       <FormLabel>
@@ -1023,7 +1038,7 @@ export function CodexFormFields({
                   </div>
                 )}
 
-                {isAnthropicFormat && (
+                {isAnthropicFormat && !productShell && (
                   <div className="space-y-1.5 border-t border-border-default pt-3">
                     <FormLabel htmlFor="codex-anthropic-max-output-tokens">
                       {t("codexConfig.maxOutputTokensLabel", {
@@ -1133,10 +1148,15 @@ export function CodexFormFields({
                       })}
                     </FormLabel>
                     <p className="text-xs leading-relaxed text-muted-foreground">
-                      {t("codexConfig.reasoningModeHint", {
-                        defaultValue:
-                          "上游 Chat Completions 接口支持开启或关闭 thinking 时启用。Kimi、GLM、Qwen 等通常属于这一类。",
-                      })}
+                      {productShell
+                        ? t(
+                            "productShell.reasoningModeHint",
+                            "Enable this when the upstream supports an explicit thinking mode.",
+                          )
+                        : t("codexConfig.reasoningModeHint", {
+                            defaultValue:
+                              "上游 Chat Completions 接口支持开启或关闭 thinking 时启用。Kimi、GLM、Qwen 等通常属于这一类。",
+                          })}
                     </p>
                   </div>
                   <Switch
@@ -1357,6 +1377,7 @@ export function CodexFormFields({
               )}
             >
               <CustomUserAgentField
+                productShell={productShell}
                 id="codex-custom-user-agent"
                 value={customUserAgent}
                 onChange={onCustomUserAgentChange}

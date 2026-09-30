@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "CC Switch",
-    "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
+    "description": "Account management and usage monitoring for OpenAI Codex and ChatGPT Codex"
   },
   "common": {
     "add": "Add",
@@ -47,8 +47,8 @@
   },
   "firstRunNotice": {
     "title": "Welcome to CC Switch",
-    "bodyDefault": "CC Switch lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, CC Switch has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
-    "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. CC Switch automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how CC Switch works 😊",
+    "bodyDefault": "Manage your ChatGPT accounts, switch the current Codex account, and monitor each account’s quota. Existing Codex configuration is retained by the current provider workflow.",
+    "bodyOfficial": "Add or reauthenticate ChatGPT accounts in Settings → Auth. The default OAuth account and the currently active Codex account are managed separately.",
     "confirm": "Got it"
   },
   "apiKeyInput": {
@@ -336,7 +336,7 @@
     "tabProxy": "Routing",
     "authCenter": {
       "title": "OAuth Authentication Center",
-      "description": "Use your other subscriptions in Claude Code — please be mindful of compliance risks.",
+      "description": "Manage ChatGPT accounts for Codex CLI and Codex Desktop.",
       "beta": "Beta",
       "copilotDescription": "Manage GitHub Copilot accounts",
       "codexOauthDescription": "Manage ChatGPT accounts",
@@ -345,7 +345,7 @@
     "advanced": {
       "configDir": {
         "title": "Configuration Directory",
-        "description": "Manage storage paths for Claude, Codex and Gemini configurations"
+        "description": "Manage storage paths for Codex configurations"
       },
       "proxy": {
         "title": "Local Routing",
@@ -807,7 +807,7 @@
     "github": "GitHub",
     "starPrompt": "If CC Switch has helped you, please star us on GitHub — it means a lot to us",
     "manualInstallCommands": "Manual Install Commands",
-    "oneClickInstallHint": "Install or upgrade Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code",
+    "oneClickInstallHint": "Install or upgrade Codex CLI",
     "localEnvCheck": "Local environment check",
     "updateAllTools": "Update All ({{count}})",
     "currentVersion": "Current Version",
@@ -3228,5 +3228,29 @@
     "expiredHint": "Run the {{tool}} command to refresh your login",
     "queryFailed": "Query failed",
     "refresh": "Refresh"
+  },
+  "productShell": {
+    "openAiApi": "OpenAI API",
+    "unsupportedImport": "Only Codex provider imports are available in this app.",
+    "proxy": {
+      "globalHint": "Configure the shared HTTP proxy for external API requests."
+    },
+    "settings": {
+      "codexDirectoryDescription": "Override the Codex configuration directory, including paths in WSL.",
+      "configDirDescription": "Manage Codex configuration and app storage paths.",
+      "codexInstallHint": "Install or upgrade Codex CLI."
+    },
+    "auth": {
+      "description": "Manage your ChatGPT accounts for Codex."
+    },
+    "usage": {
+      "commonModelsDescription": "Select {{count}} recent Codex models.",
+      "modelIdPlaceholder": "e.g. gpt-5-codex",
+      "displayNamePlaceholder": "e.g. GPT-5 Codex"
+    },
+    "storedUpstreamFormat": "Stored upstream format",
+    "upstreamFormatHint": "Use Responses for native Codex requests, or Chat Completions with local routing enabled.",
+    "officialQuotaHint": "Quota is read from the selected Codex or ChatGPT account.",
+    "reasoningModeHint": "Enable this when the upstream supports an explicit thinking mode."
   }
 }

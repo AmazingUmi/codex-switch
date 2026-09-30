@@ -34,6 +34,7 @@ import type { UniversalProviderPreset } from "@/config/universalProviderPresets"
 import type { ManagedAuthProvider } from "@/lib/api";
 
 interface AddProviderDialogProps {
+  productShell?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appId: AppId;
@@ -53,10 +54,12 @@ export function AddProviderDialog({
   onOpenChange,
   appId,
   onSubmit,
+  productShell = false,
 }: AddProviderDialogProps) {
   const { t } = useTranslation();
   // OpenCode and OpenClaw don't support universal providers
   const showUniversalTab =
+    !productShell &&
     appId !== "opencode" &&
     appId !== "openclaw" &&
     appId !== "hermes" &&
@@ -514,6 +517,8 @@ export function AddProviderDialog({
               </div>
             ) : (
               <ProviderForm
+                productShell={productShell}
+                restrictCodexCreation={productShell}
                 appId={appId}
                 submitLabel={t("common.add")}
                 onSubmit={handleSubmit}
@@ -537,6 +542,8 @@ export function AddProviderDialog({
       ) : (
         // OpenCode/OpenClaw: directly show form without tabs
         <ProviderForm
+          productShell={productShell}
+          restrictCodexCreation={productShell}
           appId={appId}
           submitLabel={t("common.add")}
           onSubmit={handleSubmit}

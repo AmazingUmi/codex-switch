@@ -44,7 +44,6 @@ import appIcon from "@/assets/icons/app-icon.png";
 import { APP_ICON_MAP } from "@/config/appConfig";
 import type { AppId } from "@/lib/api/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
-import { isWindows } from "@/lib/platform";
 import { isUpdateAvailable } from "@/lib/version";
 import { ToolUpgradeConfirmDialog } from "./ToolUpgradeConfirmDialog";
 import { ToolInstallRow } from "./ToolInstallRow";
@@ -66,17 +65,7 @@ interface ToolVersion {
   wsl_distro: string | null;
 }
 
-const TOOL_NAMES = [
-  "claude",
-  "codex",
-  "gemini",
-  "grok",
-  "opencode",
-  "openclaw",
-  "hermes",
-  "pi",
-  "mcode",
-] as const;
+const TOOL_NAMES = ["codex"] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 type ToolLifecycleAction = "install" | "update";
 
@@ -122,87 +111,9 @@ const ENV_BADGE_CONFIG: Record<
   },
 };
 
-const posixScriptInstallCommand = (url: string) =>
-  `bash -c 'tmp=$(mktemp) && curl -fsSL ${url} -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'`;
+const ONE_CLICK_INSTALL_COMMANDS = "npm i -g @openai/codex@latest";
 
-const HERMES_WINDOWS_INSTALL_SCRIPT =
-  "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex";
-
-const powershellEncodedCommand = (script: string): string => {
-  let binary = "";
-  for (let i = 0; i < script.length; i += 1) {
-    const code = script.charCodeAt(i);
-    binary += String.fromCharCode(code & 0xff, code >> 8);
-  }
-  return btoa(binary);
-};
-
-const HERMES_WINDOWS_INSTALL_COMMAND = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(
-  HERMES_WINDOWS_INSTALL_SCRIPT,
-)}`;
-
-const MCODE_WINDOWS_INSTALL_COMMAND = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(
-  "irm https://filecdn.minimax.chat/public/install.ps1 | iex",
-)}`;
-
-// 与后端 npm_install_command_for("mcode") 保持一致：npm 12 默认拦截依赖的 install
-// 脚本，不放行 better-sqlite3 时 SQLite 不可用。
-const MCODE_NPM_INSTALL_COMMAND =
-  'npm i -g @minimax-ai/code@latest --ignore-scripts=false --include=optional "--allow-scripts=@minimax-ai/code,better-sqlite3"';
-
-const POSIX_ONE_CLICK_INSTALL_COMMANDS = `# Claude Code
-${posixScriptInstallCommand("https://claude.ai/install.sh")} || npm i -g @anthropic-ai/claude-code@latest
-# Codex
-npm i -g @openai/codex@latest
-# Gemini CLI
-npm i -g @google/gemini-cli@latest
-# Grok Build
-npm i -g @xai-official/grok@latest
-# OpenCode
-${posixScriptInstallCommand("https://opencode.ai/install")} || npm i -g opencode-ai@latest
-# OpenClaw
-npm i -g openclaw@latest
-# Hermes
-${posixScriptInstallCommand("https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh")}
-# Pi
-npm i -g @earendil-works/pi-coding-agent@latest
-# MiniMax Code
-${posixScriptInstallCommand("https://filecdn.minimax.chat/public/install.sh")} || ${MCODE_NPM_INSTALL_COMMAND}`;
-
-const WINDOWS_ONE_CLICK_INSTALL_COMMANDS = `# Claude Code
-npm i -g @anthropic-ai/claude-code@latest
-# Codex
-npm i -g @openai/codex@latest
-# Gemini CLI
-npm i -g @google/gemini-cli@latest
-# Grok Build
-npm i -g @xai-official/grok@latest
-# OpenCode
-npm i -g opencode-ai@latest
-# OpenClaw
-npm i -g openclaw@latest
-# Hermes
-${HERMES_WINDOWS_INSTALL_COMMAND}
-# Pi
-npm i -g @earendil-works/pi-coding-agent@latest
-# MiniMax Code
-${MCODE_WINDOWS_INSTALL_COMMAND}`;
-
-const ONE_CLICK_INSTALL_COMMANDS = isWindows()
-  ? WINDOWS_ONE_CLICK_INSTALL_COMMANDS
-  : POSIX_ONE_CLICK_INSTALL_COMMANDS;
-
-const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  gemini: "Gemini CLI",
-  grok: "Grok Build",
-  opencode: "OpenCode",
-  openclaw: "OpenClaw",
-  hermes: "Hermes",
-  pi: "Pi",
-  mcode: "MiniMax Code",
-};
+const TOOL_DISPLAY_NAMES: Record<ToolName, string> = { codex: "Codex" };
 
 // 后端返回的 tool 是 string；这里收敛唯一的 ToolName 断言与兜底，供升级确认
 // 对话框按工具名展示（避免在 JSX 里内联 cast、且每次渲染都新建闭包）。
@@ -210,17 +121,7 @@ function toolDisplayName(tool: string): string {
   return TOOL_DISPLAY_NAMES[tool as ToolName] ?? tool;
 }
 
-const TOOL_APP_IDS: Record<ToolName, AppId> = {
-  claude: "claude",
-  codex: "codex",
-  gemini: "gemini",
-  grok: "grokbuild",
-  opencode: "opencode",
-  openclaw: "openclaw",
-  hermes: "hermes",
-  pi: "pi",
-  mcode: "mcode",
-};
+const TOOL_APP_IDS: Record<ToolName, AppId> = { codex: "codex" };
 
 // 工具版本探测代价高：每个工具一次 `--version` 子进程 + 一次 npm/github/pypi 网络请求。
 // 设置页用 Radix Tabs，非激活 Tab 会被卸载——每次切回「关于」都重挂 AboutSection，若都
@@ -994,9 +895,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           <div className="flex items-center gap-8">
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-2">
-                <img src={appIcon} alt="CC Switch" className="h-5 w-5" />
+                <img src={appIcon} alt="Codex Switch" className="h-5 w-5" />
                 <h4 className="text-lg font-semibold text-foreground">
-                  CC Switch
+                  Codex Switch
                 </h4>
               </div>
               <div className="flex items-center gap-2">
@@ -1118,11 +1019,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                 version: updateInfo.availableVersion,
               })}
             </p>
-            {updateInfo.notes && (
-              <p className="text-muted-foreground line-clamp-3 leading-relaxed">
-                {updateInfo.notes}
-              </p>
-            )}
           </motion.div>
         )}
       </motion.div>
@@ -1425,7 +1321,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           <div className="rounded-xl border border-border bg-gradient-to-br from-card/80 to-card/40 p-4 space-y-3 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                {t("settings.oneClickInstallHint")}
+                {t("settings.oneClickInstallHint", {
+                  defaultValue: "Install or upgrade Codex CLI.",
+                })}
               </p>
               <Button
                 size="sm"

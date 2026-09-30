@@ -1,3 +1,4 @@
+import { isCodexCatalogEntry } from "./codexPricing";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
@@ -78,7 +79,10 @@ export function ModelsDevPickerDialog({
     retry: 1,
   });
 
-  const entries = useMemo(() => (data ? flattenModels(data) : []), [data]);
+  const entries = useMemo(
+    () => (data ? flattenModels(data).filter(isCodexCatalogEntry) : []),
+    [data],
+  );
 
   const providers = useMemo(() => {
     const map = new Map<string, string>();

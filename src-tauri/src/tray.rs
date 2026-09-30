@@ -153,36 +153,18 @@ pub struct TrayAppSection {
 
 pub const TRAY_ID: &str = "cc-switch";
 
-pub const TRAY_SECTIONS: [TrayAppSection; 4] = [
-    TrayAppSection {
-        app_type: AppType::Claude,
-        prefix: "claude_",
-        empty_id: "claude_empty",
-        header_label: "Claude",
-        log_name: "Claude",
-    },
-    TrayAppSection {
-        app_type: AppType::Codex,
-        prefix: "codex_",
-        empty_id: "codex_empty",
-        header_label: "Codex",
-        log_name: "Codex",
-    },
-    TrayAppSection {
-        app_type: AppType::Gemini,
-        prefix: "gemini_",
-        empty_id: "gemini_empty",
-        header_label: "Gemini",
-        log_name: "Gemini",
-    },
-    TrayAppSection {
-        app_type: AppType::GrokBuild,
-        prefix: "grokbuild_",
-        empty_id: "grokbuild_empty",
-        header_label: "Grok Build",
-        log_name: "Grok Build",
-    },
-];
+// Product-shell allowlist. Keep the provider switch and quota machinery shared,
+// but never restore other harnesses from a legacy visibility preference.
+pub const TRAY_SECTIONS: [TrayAppSection; 1] = [TrayAppSection {
+    app_type: AppType::Codex,
+    prefix: "codex_",
+    empty_id: "codex_empty",
+    header_label: "Codex",
+    log_name: "Codex",
+}];
+
+const TRAY_PROFILE_SCOPES: [crate::services::profile::ProfileScope; 1] =
+    [crate::services::profile::ProfileScope::Codex];
 
 /// 配色阈值（与前端 `utilizationColor` 语义一致）。
 const UTIL_WARN_PCT: f64 = 70.0;
@@ -441,6 +423,9 @@ pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool
             log::error!("未知的项目分组托盘事件: {event_id}");
             return true;
         };
+        if !TRAY_PROFILE_SCOPES.contains(&scope) {
+            return true;
+        }
         if let Some(app_state) = app.try_state::<AppState>() {
             if let Err(e) = app_state.db.set_current_profile_id(scope.as_str(), None) {
                 log::error!("清除当前项目失败: {e}");
@@ -466,6 +451,9 @@ pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool
         log::error!("未知的项目分组托盘事件: {event_id}");
         return true;
     };
+    if !TRAY_PROFILE_SCOPES.contains(&scope) {
+        return true;
+    }
 
     log::info!("应用项目: {profile_id}（{scope_str} 组）");
     let app_handle = app.clone();
@@ -574,9 +562,6 @@ pub fn create_tray_menu(
     };
     let tray_texts = TrayTexts::from_language(language);
 
-    // Get visible apps setting, default to all visible
-    let visible_apps = app_settings.visible_apps.unwrap_or_default();
-
     let mut menu_builder = MenuBuilder::new(app);
     let mut section_handles: std::collections::HashMap<AppType, Submenu<tauri::Wry>> =
         std::collections::HashMap::new();
@@ -600,10 +585,6 @@ pub fn create_tray_menu(
 
     // 每个应用类型折叠为子菜单，避免供应商过多时菜单过长
     for section in TRAY_SECTIONS.iter() {
-        if !visible_apps.is_visible(&section.app_type) {
-            continue;
-        }
-
         let app_type_str = section.app_type.as_str();
         let providers = app_state.db.get_all_providers(app_type_str)?;
 
@@ -687,26 +668,11 @@ pub fn create_tray_menu(
     {
         use crate::services::profile::ProfileScope;
 
-        let any_scope_visible = ProfileScope::ALL.iter().any(|scope| {
-            scope
-                .apps()
-                .iter()
-                .any(|app_type| visible_apps.is_visible(app_type))
-        });
-        let profiles = if any_scope_visible {
-            app_state.db.get_all_profiles()?
-        } else {
-            Vec::new()
-        };
+        let profiles = app_state.db.get_all_profiles()?;
 
         let mut scope_submenus = Vec::new();
-        for scope in ProfileScope::ALL {
-            if profiles.is_empty()
-                || !scope
-                    .apps()
-                    .iter()
-                    .any(|app_type| visible_apps.is_visible(app_type))
-            {
+        for scope in TRAY_PROFILE_SCOPES {
+            if profiles.is_empty() {
                 continue;
             }
             let current_profile_id = app_state
@@ -983,19 +949,10 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
         return;
     };
 
-    // 与 `create_tray_menu` 保持一致：用户隐藏的 app 不参与外部 API 查询，
-    // 避免在未使用的 app 上浪费请求、撞 rate limit 或反复触发鉴权失败日志。
-    let visible_apps = crate::settings::get_settings()
-        .visible_apps
-        .unwrap_or_default();
-
+    // Refresh exactly the Codex section shown by the product shell.
     let mut usage_futures = Vec::new();
 
     for section in TRAY_SECTIONS.iter() {
-        if !visible_apps.is_visible(&section.app_type) {
-            continue;
-        }
-
         let app_type_str = section.app_type.as_str();
         let log_name = section.log_name;
 
@@ -1280,15 +1237,17 @@ mod tests {
     }
 
     #[test]
-    fn tray_sections_include_grokbuild_provider_switching() {
-        let section = TRAY_SECTIONS
-            .iter()
-            .find(|section| section.app_type == AppType::GrokBuild)
-            .expect("Grok Build tray section should exist");
-
-        assert_eq!(section.prefix, "grokbuild_");
-        assert_eq!(section.empty_id, "grokbuild_empty");
-        assert_eq!(section.header_label, "Grok Build");
+    fn tray_shell_only_exposes_codex_switching_and_profiles() {
+        assert_eq!(TRAY_SECTIONS.len(), 1);
+        let section = &TRAY_SECTIONS[0];
+        assert_eq!(section.app_type, AppType::Codex);
+        assert_eq!(section.prefix, "codex_");
+        assert_eq!(section.empty_id, "codex_empty");
+        assert_eq!(section.header_label, "Codex");
+        assert_eq!(
+            super::TRAY_PROFILE_SCOPES,
+            [crate::services::profile::ProfileScope::Codex]
+        );
     }
 
     fn make_quota(tool: &str, success: bool, tiers: Vec<QuotaTier>) -> SubscriptionQuota {

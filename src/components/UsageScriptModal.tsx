@@ -45,6 +45,7 @@ const VOLCENGINE_KEY_CONSOLE_URL =
 const ZHIPU_TEAM_USAGE_URL = "https://bigmodel.cn/coding-plan/team/usage-stats";
 
 interface UsageScriptModalProps {
+  productShell?: boolean;
   provider: Provider;
   appId: AppId;
   isOpen: boolean;
@@ -206,6 +207,7 @@ const NATIVE_USAGE_TEMPLATES = new Set<string>([
 ]);
 
 const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
+  productShell = false,
   provider,
   appId,
   isOpen,
@@ -920,6 +922,12 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             <div className="flex gap-2 flex-wrap">
               {Object.keys(PRESET_TEMPLATES)
                 .filter((name) => {
+                  if (
+                    productShell &&
+                    (name === TEMPLATE_TYPES.TOKEN_PLAN ||
+                      name === TEMPLATE_TYPES.GITHUB_COPILOT)
+                  )
+                    return false;
                   const isCopilotProvider =
                     provider.meta?.providerType === "github_copilot";
                   // Copilot 供应商只显示 copilot 模板
@@ -1027,13 +1035,14 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             )}
 
             {/* Copilot 模式：自动认证提示 */}
-            {selectedTemplate === TEMPLATE_TYPES.GITHUB_COPILOT && (
-              <div className="space-y-2 border-t border-white/10 pt-3">
-                <p className="text-sm text-muted-foreground">
-                  {t("usageScript.copilotAutoAuth")}
-                </p>
-              </div>
-            )}
+            {selectedTemplate === TEMPLATE_TYPES.GITHUB_COPILOT &&
+              !productShell && (
+                <div className="space-y-2 border-t border-white/10 pt-3">
+                  <p className="text-sm text-muted-foreground">
+                    {t("usageScript.copilotAutoAuth")}
+                  </p>
+                </div>
+              )}
 
             {/* 官方余额查询模式：自动提示 */}
             {selectedTemplate === TEMPLATE_TYPES.BALANCE && (
@@ -1042,8 +1051,10 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                   {t("usageScript.balanceHint")}
                 </p>
                 <div className="flex gap-2 flex-wrap">
-                  {BALANCE_PROVIDERS.filter((bp) =>
-                    bp.pattern.test(providerCredentials.baseUrl || ""),
+                  {BALANCE_PROVIDERS.filter(
+                    (bp) =>
+                      !productShell &&
+                      bp.pattern.test(providerCredentials.baseUrl || ""),
                   ).map((bp) => (
                     <span
                       key={bp.id}
@@ -1060,241 +1071,88 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
             {selectedTemplate === TEMPLATE_TYPES.OFFICIAL_SUBSCRIPTION && (
               <div className="space-y-2 border-t border-white/10 pt-3">
                 <p className="text-sm text-muted-foreground">
-                  {t("usageScript.officialSubscriptionHint")}
+                  {productShell
+                    ? t(
+                        "productShell.officialQuotaHint",
+                        "Quota is read from the selected Codex or ChatGPT account.",
+                      )
+                    : t("usageScript.officialSubscriptionHint")}
                 </p>
               </div>
             )}
 
             {/* Coding Plan 模式：供应商选择 */}
-            {selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN && (
-              <div className="space-y-3 border-t border-white/10 pt-3">
-                <p className="text-sm text-muted-foreground">
-                  {t("usageScript.tokenPlanHint")}
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  {CODING_PLAN_PROVIDERS.map((cp) => (
-                    <Button
-                      key={cp.id}
-                      type="button"
-                      variant={
-                        script.codingPlanProvider === cp.id
-                          ? "default"
-                          : "outline"
-                      }
-                      size="sm"
-                      className={cn(
-                        "rounded-lg border",
-                        script.codingPlanProvider === cp.id
-                          ? "shadow-sm"
-                          : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                      )}
-                      onClick={() =>
-                        setScript({
-                          ...script,
-                          codingPlanProvider: cp.id,
-                        })
-                      }
-                    >
-                      {cp.label}
-                    </Button>
-                  ))}
+            {selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN &&
+              !productShell && (
+                <div className="space-y-3 border-t border-white/10 pt-3">
+                  <p className="text-sm text-muted-foreground">
+                    {t("usageScript.tokenPlanHint")}
+                  </p>
+                  <div className="flex gap-2 flex-wrap">
+                    {CODING_PLAN_PROVIDERS.map((cp) => (
+                      <Button
+                        key={cp.id}
+                        type="button"
+                        variant={
+                          script.codingPlanProvider === cp.id
+                            ? "default"
+                            : "outline"
+                        }
+                        size="sm"
+                        className={cn(
+                          "rounded-lg border",
+                          script.codingPlanProvider === cp.id
+                            ? "shadow-sm"
+                            : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                        )}
+                        onClick={() =>
+                          setScript({
+                            ...script,
+                            codingPlanProvider: cp.id,
+                          })
+                        }
+                      >
+                        {cp.label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {/* 凭证配置 */}
-            {shouldShowCredentialsConfig && (
-              <div className="space-y-4">
-                <div className="flex items-start justify-between">
-                  <h4 className="text-sm font-medium text-foreground">
-                    {t("usageScript.credentialsConfig")}
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    {t("usageScript.credentialsHint")}
-                  </p>
-                </div>
+            {shouldShowCredentialsConfig &&
+              !(
+                productShell && selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN
+              ) && (
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between">
+                    <h4 className="text-sm font-medium text-foreground">
+                      {t("usageScript.credentialsConfig")}
+                    </h4>
+                    <p className="text-xs text-muted-foreground">
+                      {t("usageScript.credentialsHint")}
+                    </p>
+                  </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  {selectedTemplate === TEMPLATE_TYPES.GENERAL && (
-                    <>
-                      <div className="space-y-2">
-                        <Label htmlFor="usage-api-key">
-                          API Key{" "}
-                          <span className="text-xs text-muted-foreground font-normal">
-                            ({t("usageScript.optional")})
-                          </span>
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            id="usage-api-key"
-                            type={showApiKey ? "text" : "password"}
-                            value={script.apiKey || ""}
-                            onChange={(e) =>
-                              setScript({ ...script, apiKey: e.target.value })
-                            }
-                            placeholder={t("usageScript.apiKeyPlaceholder")}
-                            autoComplete="off"
-                            className="border-white/10"
-                          />
-                          {script.apiKey && (
-                            <button
-                              type="button"
-                              onClick={() => setShowApiKey(!showApiKey)}
-                              className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
-                              aria-label={
-                                showApiKey
-                                  ? t("apiKeyInput.hide")
-                                  : t("apiKeyInput.show")
-                              }
-                            >
-                              {showApiKey ? (
-                                <EyeOff size={16} />
-                              ) : (
-                                <Eye size={16} />
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="usage-base-url">
-                          {t("usageScript.baseUrl")}{" "}
-                          <span className="text-xs text-muted-foreground font-normal">
-                            ({t("usageScript.optional")})
-                          </span>
-                        </Label>
-                        <Input
-                          id="usage-base-url"
-                          type="text"
-                          value={script.baseUrl || ""}
-                          onChange={(e) =>
-                            setScript({ ...script, baseUrl: e.target.value })
-                          }
-                          placeholder={t("usageScript.baseUrlPlaceholder")}
-                          autoComplete="off"
-                          className="border-white/10"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {selectedTemplate === TEMPLATE_TYPES.NEW_API && (
-                    <>
-                      <div className="space-y-2">
-                        <Label htmlFor="usage-newapi-base-url">
-                          {t("usageScript.baseUrl")}
-                        </Label>
-                        <Input
-                          id="usage-newapi-base-url"
-                          type="text"
-                          value={script.baseUrl || ""}
-                          onChange={(e) =>
-                            setScript({ ...script, baseUrl: e.target.value })
-                          }
-                          placeholder="https://api.newapi.com"
-                          autoComplete="off"
-                          className="border-white/10"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="usage-access-token">
-                          {t("usageScript.accessToken")}
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            id="usage-access-token"
-                            type={showAccessToken ? "text" : "password"}
-                            value={script.accessToken || ""}
-                            onChange={(e) =>
-                              setScript({
-                                ...script,
-                                accessToken: e.target.value,
-                              })
-                            }
-                            placeholder={t(
-                              "usageScript.accessTokenPlaceholder",
-                            )}
-                            autoComplete="off"
-                            className="border-white/10"
-                          />
-                          {script.accessToken && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setShowAccessToken(!showAccessToken)
-                              }
-                              className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
-                              aria-label={
-                                showAccessToken
-                                  ? t("apiKeyInput.hide")
-                                  : t("apiKeyInput.show")
-                              }
-                            >
-                              {showAccessToken ? (
-                                <EyeOff size={16} />
-                              ) : (
-                                <Eye size={16} />
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="usage-user-id">
-                          {t("usageScript.userId")}
-                        </Label>
-                        <Input
-                          id="usage-user-id"
-                          type="text"
-                          value={script.userId || ""}
-                          onChange={(e) =>
-                            setScript({ ...script, userId: e.target.value })
-                          }
-                          placeholder={t("usageScript.userIdPlaceholder")}
-                          autoComplete="off"
-                          className="border-white/10"
-                        />
-                      </div>
-                    </>
-                  )}
-
-                  {selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN &&
-                    script.codingPlanProvider === "zenmux" && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {selectedTemplate === TEMPLATE_TYPES.GENERAL && (
                       <>
                         <div className="space-y-2">
-                          <Label htmlFor="usage-zenmux-base-url">
-                            {t("usageScript.baseUrl")}
+                          <Label htmlFor="usage-api-key">
+                            API Key{" "}
+                            <span className="text-xs text-muted-foreground font-normal">
+                              ({t("usageScript.optional")})
+                            </span>
                           </Label>
-                          <Input
-                            id="usage-zenmux-base-url"
-                            type="text"
-                            value={script.baseUrl || ""}
-                            onChange={(e) =>
-                              setScript({ ...script, baseUrl: e.target.value })
-                            }
-                            placeholder="https://api.zenmux.com/v1/..."
-                            autoComplete="off"
-                            className="border-white/10"
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label htmlFor="usage-zenmux-api-key">API Key</Label>
                           <div className="relative">
                             <Input
-                              id="usage-zenmux-api-key"
+                              id="usage-api-key"
                               type={showApiKey ? "text" : "password"}
                               value={script.apiKey || ""}
                               onChange={(e) =>
-                                setScript({
-                                  ...script,
-                                  apiKey: e.target.value,
-                                })
+                                setScript({ ...script, apiKey: e.target.value })
                               }
-                              placeholder="sk-..."
+                              placeholder={t("usageScript.apiKeyPlaceholder")}
                               autoComplete="off"
                               className="border-white/10"
                             />
@@ -1318,14 +1176,183 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                             )}
                           </div>
                         </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="usage-base-url">
+                            {t("usageScript.baseUrl")}{" "}
+                            <span className="text-xs text-muted-foreground font-normal">
+                              ({t("usageScript.optional")})
+                            </span>
+                          </Label>
+                          <Input
+                            id="usage-base-url"
+                            type="text"
+                            value={script.baseUrl || ""}
+                            onChange={(e) =>
+                              setScript({ ...script, baseUrl: e.target.value })
+                            }
+                            placeholder={t("usageScript.baseUrlPlaceholder")}
+                            autoComplete="off"
+                            className="border-white/10"
+                          />
+                        </div>
                       </>
                     )}
+
+                    {selectedTemplate === TEMPLATE_TYPES.NEW_API && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="usage-newapi-base-url">
+                            {t("usageScript.baseUrl")}
+                          </Label>
+                          <Input
+                            id="usage-newapi-base-url"
+                            type="text"
+                            value={script.baseUrl || ""}
+                            onChange={(e) =>
+                              setScript({ ...script, baseUrl: e.target.value })
+                            }
+                            placeholder="https://api.newapi.com"
+                            autoComplete="off"
+                            className="border-white/10"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="usage-access-token">
+                            {t("usageScript.accessToken")}
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              id="usage-access-token"
+                              type={showAccessToken ? "text" : "password"}
+                              value={script.accessToken || ""}
+                              onChange={(e) =>
+                                setScript({
+                                  ...script,
+                                  accessToken: e.target.value,
+                                })
+                              }
+                              placeholder={t(
+                                "usageScript.accessTokenPlaceholder",
+                              )}
+                              autoComplete="off"
+                              className="border-white/10"
+                            />
+                            {script.accessToken && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setShowAccessToken(!showAccessToken)
+                                }
+                                className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
+                                aria-label={
+                                  showAccessToken
+                                    ? t("apiKeyInput.hide")
+                                    : t("apiKeyInput.show")
+                                }
+                              >
+                                {showAccessToken ? (
+                                  <EyeOff size={16} />
+                                ) : (
+                                  <Eye size={16} />
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="usage-user-id">
+                            {t("usageScript.userId")}
+                          </Label>
+                          <Input
+                            id="usage-user-id"
+                            type="text"
+                            value={script.userId || ""}
+                            onChange={(e) =>
+                              setScript({ ...script, userId: e.target.value })
+                            }
+                            placeholder={t("usageScript.userIdPlaceholder")}
+                            autoComplete="off"
+                            className="border-white/10"
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN &&
+                      !productShell &&
+                      script.codingPlanProvider === "zenmux" && (
+                        <>
+                          <div className="space-y-2">
+                            <Label htmlFor="usage-zenmux-base-url">
+                              {t("usageScript.baseUrl")}
+                            </Label>
+                            <Input
+                              id="usage-zenmux-base-url"
+                              type="text"
+                              value={script.baseUrl || ""}
+                              onChange={(e) =>
+                                setScript({
+                                  ...script,
+                                  baseUrl: e.target.value,
+                                })
+                              }
+                              placeholder="https://api.zenmux.com/v1/..."
+                              autoComplete="off"
+                              className="border-white/10"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="usage-zenmux-api-key">
+                              API Key
+                            </Label>
+                            <div className="relative">
+                              <Input
+                                id="usage-zenmux-api-key"
+                                type={showApiKey ? "text" : "password"}
+                                value={script.apiKey || ""}
+                                onChange={(e) =>
+                                  setScript({
+                                    ...script,
+                                    apiKey: e.target.value,
+                                  })
+                                }
+                                placeholder="sk-..."
+                                autoComplete="off"
+                                className="border-white/10"
+                              />
+                              {script.apiKey && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowApiKey(!showApiKey)}
+                                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-muted-foreground hover:text-foreground transition-colors"
+                                  aria-label={
+                                    showApiKey
+                                      ? t("apiKeyInput.hide")
+                                      : t("apiKeyInput.show")
+                                  }
+                                >
+                                  {showApiKey ? (
+                                    <EyeOff size={16} />
+                                  ) : (
+                                    <Eye size={16} />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
             {/* 火山方舟：控制面用量查询需账号 AK/SK（与推理 Key 是两套凭据） */}
             {selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN &&
+              !productShell &&
               script.codingPlanProvider === "volcengine" && (
                 <div className="space-y-4">
                   <div>
@@ -1416,6 +1443,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
 
             {/* 智谱团队套餐：需组织 ID + 项目 ID（api_key 沿用供应商推理凭据） */}
             {selectedTemplate === TEMPLATE_TYPES.TOKEN_PLAN &&
+              !productShell &&
               script.codingPlanProvider === "zhipu_team" && (
                 <div className="space-y-4">
                   <div>

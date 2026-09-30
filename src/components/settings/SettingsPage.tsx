@@ -36,9 +36,6 @@ import { settingsApi } from "@/lib/api";
 import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
-import { AppVisibilitySettings } from "@/components/settings/AppVisibilitySettings";
-import { SkillStorageLocationSettings } from "@/components/settings/SkillStorageLocationSettings";
-import { SkillSyncMethodSettings } from "@/components/settings/SkillSyncMethodSettings";
 import { TerminalSettings } from "@/components/settings/TerminalSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
@@ -50,7 +47,6 @@ import { UsageDashboard } from "@/components/usage/UsageDashboard";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
-import { useInstalledSkills } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -102,8 +98,6 @@ export function SettingsPage({
     clearSelection,
     resetStatus,
   } = useImportExport({ onImportSuccess });
-
-  const { data: installedSkills } = useInstalledSkills();
 
   const [activeTab, setActiveTab] = useState<string>("general");
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
@@ -255,23 +249,6 @@ export function SettingsPage({
                       onChange={(lang) => handleAutoSave({ language: lang })}
                     />
                     <ThemeSettings />
-                    <AppVisibilitySettings
-                      settings={settings}
-                      onChange={handleAutoSave}
-                    />
-                    <SkillStorageLocationSettings
-                      value={settings.skillStorageLocation ?? "cc_switch"}
-                      installedCount={installedSkills?.length ?? 0}
-                      onMigrated={(location) =>
-                        updateSettings({ skillStorageLocation: location })
-                      }
-                    />
-                    <SkillSyncMethodSettings
-                      value={settings.skillSyncMethod ?? "auto"}
-                      onChange={(method) =>
-                        handleAutoSave({ skillSyncMethod: method })
-                      }
-                    />
                     <CodexAuthSettings
                       settings={settings}
                       onChange={handleAutoSave}
@@ -335,7 +312,10 @@ export function SettingsPage({
                                 {t("settings.advanced.configDir.title")}
                               </h3>
                               <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.configDir.description")}
+                                {t("settings.advanced.configDir.description", {
+                                  defaultValue:
+                                    "Manage Codex configuration and app storage paths.",
+                                })}
                               </p>
                             </div>
                           </div>
@@ -347,14 +327,7 @@ export function SettingsPage({
                             onAppConfigChange={updateAppConfigDir}
                             onBrowseAppConfig={browseAppConfigDir}
                             onResetAppConfig={resetAppConfigDir}
-                            claudeDir={settings.claudeConfigDir}
                             codexDir={settings.codexConfigDir}
-                            geminiDir={settings.geminiConfigDir}
-                            grokDir={settings.grokConfigDir}
-                            opencodeDir={settings.opencodeConfigDir}
-                            openclawDir={settings.openclawConfigDir}
-                            hermesDir={settings.hermesConfigDir}
-                            piDir={settings.piConfigDir}
                             onDirectoryChange={updateDirectory}
                             onBrowseDirectory={browseDirectory}
                             onResetDirectory={resetDirectory}

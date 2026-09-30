@@ -47,7 +47,6 @@ interface RequestLogTableProps {
 export function RequestLogTable({
   range,
   rangeLabel,
-  appType: dashboardAppType,
   providerName,
   model,
   refreshIntervalMs,
@@ -63,10 +62,7 @@ export function RequestLogTable({
   const pageSize = 20;
 
   const effectiveFilters: LogFilters = {
-    appType:
-      dashboardAppType && dashboardAppType !== "all"
-        ? dashboardAppType
-        : undefined,
+    appType: "codex",
     providerName,
     model,
     statusCode,
@@ -89,7 +85,6 @@ export function RequestLogTable({
   useEffect(() => {
     setPage(0);
   }, [
-    dashboardAppType,
     providerName,
     model,
     range.customEndDate,

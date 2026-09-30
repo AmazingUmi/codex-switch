@@ -1,3 +1,4 @@
+import { isCodexCatalogEntry } from "./codexPricing";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -79,11 +80,18 @@ function AutoSyncDialog({ state, onClose, onSaved }: AutoSyncDialogProps) {
     staleTime: MODELS_DEV_STALE_TIME_MS,
     retry: 1,
   });
-  const entries = useMemo(() => (data ? flattenModels(data) : []), [data]);
+  const entries = useMemo(
+    () => (data ? flattenModels(data).filter(isCodexCatalogEntry) : []),
+    [data],
+  );
   const commonModelKeys = useMemo(() => getCommonModelKeys(entries), [entries]);
 
   const effectiveSelectedKeys = useMemo(() => {
-    const selected = new Set(selectedModelKeys);
+    const selected = new Set(
+      entries
+        .filter((entry) => selectedModelKeys.has(entry.key))
+        .map((entry) => entry.key),
+    );
     if (includeCommonModels) {
       for (const key of commonModelKeys) {
         if (!excludedCommonModelKeys.has(key)) selected.add(key);
@@ -92,6 +100,7 @@ function AutoSyncDialog({ state, onClose, onSaved }: AutoSyncDialogProps) {
     return selected;
   }, [
     commonModelKeys,
+    entries,
     excludedCommonModelKeys,
     includeCommonModels,
     selectedModelKeys,
@@ -230,7 +239,8 @@ function AutoSyncDialog({ state, onClose, onSaved }: AutoSyncDialogProps) {
                 {t("usage.modelsDevAutoSync.commonModels")}
               </div>
               <div className="text-xs text-muted-foreground">
-                {t("usage.modelsDevAutoSync.commonModelsDescription", {
+                {t("productShell.usage.commonModelsDescription", {
+                  defaultValue: "Select {{count}} recent Codex models.",
                   count: commonModelKeys.size,
                 })}
               </div>

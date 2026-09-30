@@ -21,7 +21,6 @@ interface ModelStatsTableProps {
 
 export function ModelStatsTable({
   range,
-  appType,
   providerName,
   model,
   refreshIntervalMs,
@@ -29,7 +28,7 @@ export function ModelStatsTable({
   const { t } = useTranslation();
   const { data: stats, isLoading } = useModelStats(
     range,
-    { appType, providerName, model },
+    { appType: "codex", providerName, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },

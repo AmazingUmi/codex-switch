@@ -69,6 +69,7 @@ import {
   setCodexModelName as setCodexModelNameInConfig,
 } from "@/utils/providerConfigUtils";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
+import { generateThirdPartyConfig } from "@/config/codexProviderPresets";
 import CodexConfigEditor from "./CodexConfigEditor";
 import { CommonConfigEditor } from "./CommonConfigEditor";
 import GeminiConfigEditor from "./GeminiConfigEditor";
@@ -243,6 +244,9 @@ type LocalProxyRequestOverridesBuildResult = ReturnType<
 >;
 
 export interface ProviderFormProps {
+  productShell?: boolean;
+  /** Restrict the product's new-provider chooser; existing providers keep their full editor. */
+  restrictCodexCreation?: boolean;
   appId: AppId;
   providerId?: string;
   submitLabel: string;
@@ -310,6 +314,8 @@ function ProviderFormFull({
   inactiveFields,
   claudeLiveBase,
   onEditorBaseChange,
+  restrictCodexCreation = false,
+  productShell = false,
 }: ProviderFormProps) {
   if (appId === "claude-desktop") {
     throw new Error("ProviderFormFull should not receive claude-desktop");
@@ -317,6 +323,21 @@ function ProviderFormFull({
 
   const { t } = useTranslation();
   const isEditMode = Boolean(initialData);
+  const useOpenAiCreation =
+    restrictCodexCreation && appId === "codex" && !initialData;
+  const getCreationTemplate = useCallback(
+    () =>
+      useOpenAiCreation
+        ? {
+            auth: { OPENAI_API_KEY: "" },
+            config: generateThirdPartyConfig(
+              "OpenAI API",
+              "https://api.openai.com/v1",
+            ),
+          }
+        : getCodexCustomTemplate(),
+    [useOpenAiCreation],
+  );
   const initialCodexOfficialIdentity =
     appId === "codex" && initialData
       ? resolveCodexOfficialIdentity(appId, {
@@ -710,7 +731,7 @@ function ProviderFormFull({
 
   useEffect(() => {
     if (appId === "codex" && !initialData && selectedPresetId === "custom") {
-      const template = getCodexCustomTemplate();
+      const template = getCreationTemplate();
       resetCodexConfig(template.auth, template.config);
       setCodexChatReasoning({});
       setPromptCacheRouting("auto");
@@ -722,6 +743,7 @@ function ProviderFormFull({
     selectedPresetId,
     resetCodexConfig,
     projectCodexDraft,
+    getCreationTemplate,
   ]);
 
   useEffect(() => {
@@ -749,10 +771,17 @@ function ProviderFormFull({
 
   const presetEntries = useMemo(() => {
     if (appId === "codex") {
-      return codexProviderPresets.map<PresetEntry>((preset, index) => ({
-        id: `codex-${index}`,
-        preset,
-      }));
+      return codexProviderPresets
+        .map<PresetEntry>((preset, index) => ({
+          id: `codex-${index}`,
+          preset,
+        }))
+        .filter(
+          (entry) =>
+            !useOpenAiCreation ||
+            (entry.preset.category === "official" &&
+              getPresetProviderType(entry.preset) === "codex_oauth"),
+        );
     } else if (appId === "gemini") {
       return geminiProviderPresets.map<PresetEntry>((preset, index) => ({
         id: `gemini-${index}`,
@@ -780,7 +809,7 @@ function ProviderFormFull({
         id: `claude-${index}`,
         preset,
       }));
-  }, [appId]);
+  }, [appId, useOpenAiCreation]);
 
   const selectedPresetEntry = useMemo(
     () =>
@@ -1901,7 +1930,7 @@ function ProviderFormFull({
       form.reset(defaultValues);
 
       if (appId === "codex") {
-        const template = getCodexCustomTemplate();
+        const template = getCreationTemplate();
         resetCodexConfig(template.auth, template.config);
         setCodexChatReasoning({});
         setPromptCacheRouting("auto");
@@ -2110,6 +2139,11 @@ function ProviderFormFull({
         >
           {!initialData && (
             <ProviderPresetSelector
+              customLabel={
+                useOpenAiCreation
+                  ? t("productShell.openAiApi", "OpenAI API")
+                  : undefined
+              }
               selectedPresetId={selectedPresetId}
               presetEntries={presetEntries}
               presetCategoryLabels={presetCategoryLabels}
@@ -2404,6 +2438,7 @@ function ProviderFormFull({
 
           {appId === "codex" && (
             <CodexFormFields
+              productShell={productShell}
               providerId={providerId}
               isXaiOauthPreset={
                 presetProviderType === "xai_oauth" ||

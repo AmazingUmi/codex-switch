@@ -1,7 +1,14 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
+import { deeplinkApi, type DeepLinkImportRequest } from "@/lib/api/deeplink";
 import { emitTauriEvent } from "../msw/tauriMocks";
 
 vi.mock("@/components/ui/dialog", () => ({
@@ -98,5 +105,135 @@ describe("DeepLinkImportDialog", () => {
       ),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("脚本代码")).not.toBeInTheDocument();
+  });
+});
+
+describe("Codex product deeplink boundary", () => {
+  it.each([
+    { app: "claude", resource: "provider" },
+    { app: "gemini", resource: "provider" },
+    { app: "codex", resource: "skill" },
+    { app: "codex", resource: "mcp" },
+    { app: "codex", resource: "prompt" },
+    { resource: "provider" },
+  ])(
+    "rejects unsupported requests before fetching or importing: %j",
+    async (scope) => {
+      const merge = vi.spyOn(deeplinkApi, "mergeDeeplinkConfig");
+      const importRequest = vi.spyOn(deeplinkApi, "importFromDeeplink");
+      try {
+        render(<DeepLinkImportDialog productShell />, { wrapper: Wrapper });
+        await act(async () => {
+          emitTauriEvent("deeplink-import", {
+            ...scope,
+            version: "v1",
+            name: "Unsupported import",
+            configUrl: "https://example.com/config",
+          });
+        });
+        expect(
+          screen.queryByText("Unsupported import"),
+        ).not.toBeInTheDocument();
+        expect(merge).not.toHaveBeenCalled();
+        expect(importRequest).not.toHaveBeenCalled();
+      } finally {
+        merge.mockRestore();
+        importRequest.mockRestore();
+      }
+    },
+  );
+
+  it("rejects a merged request that changes the allowed app", async () => {
+    const merge = vi
+      .spyOn(deeplinkApi, "mergeDeeplinkConfig")
+      .mockResolvedValue({
+        version: "v1",
+        app: "claude",
+        resource: "provider",
+        name: "Merged unsupported import",
+      });
+    const importRequest = vi.spyOn(deeplinkApi, "importFromDeeplink");
+    try {
+      render(<DeepLinkImportDialog productShell />, { wrapper: Wrapper });
+      await act(async () => {
+        emitTauriEvent("deeplink-import", {
+          version: "v1",
+          app: "codex",
+          resource: "provider",
+          config: "e30=",
+        });
+      });
+      expect(merge).toHaveBeenCalledTimes(1);
+      expect(
+        screen.queryByText("Merged unsupported import"),
+      ).not.toBeInTheDocument();
+      expect(importRequest).not.toHaveBeenCalled();
+    } finally {
+      merge.mockRestore();
+      importRequest.mockRestore();
+    }
+  });
+
+  it("does not reopen an older merge after a newer unsupported request", async () => {
+    let resolveMerge!: (request: DeepLinkImportRequest) => void;
+    const merge = vi
+      .spyOn(deeplinkApi, "mergeDeeplinkConfig")
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveMerge = resolve;
+          }),
+      );
+    try {
+      render(<DeepLinkImportDialog productShell />, { wrapper: Wrapper });
+      await act(async () => {
+        emitTauriEvent("deeplink-import", {
+          version: "v1",
+          app: "codex",
+          resource: "provider",
+          config: "e30=",
+        });
+      });
+      await act(async () => {
+        emitTauriEvent("deeplink-import", {
+          version: "v1",
+          app: "codex",
+          resource: "mcp",
+        });
+        resolveMerge({
+          version: "v1",
+          app: "codex",
+          resource: "provider",
+          name: "Outdated provider",
+        });
+      });
+      expect(screen.queryByText("Outdated provider")).not.toBeInTheDocument();
+    } finally {
+      merge.mockRestore();
+    }
+  });
+
+  it("still imports an allowed Codex provider", async () => {
+    const importRequest = vi
+      .spyOn(deeplinkApi, "importFromDeeplink")
+      .mockResolvedValue({ type: "provider", id: "imported-codex" });
+    try {
+      render(<DeepLinkImportDialog productShell />, { wrapper: Wrapper });
+      const request = {
+        version: "v1",
+        app: "codex",
+        resource: "provider",
+        name: "OpenAI import",
+        endpoint: "https://api.openai.com/v1",
+      } as const;
+      await act(async () => {
+        emitTauriEvent("deeplink-import", request);
+      });
+      expect(screen.getByText("OpenAI import")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "deeplink.import" }));
+      await waitFor(() => expect(importRequest).toHaveBeenCalledWith(request));
+    } finally {
+      importRequest.mockRestore();
+    }
   });
 });

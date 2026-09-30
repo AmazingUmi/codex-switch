@@ -15,6 +15,31 @@ import { server } from "../msw/server";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
+// Keep the shared multi-app action regressions while separately testing the
+// actual product policy below. No legacy mode is exposed by production App.
+const shellPolicy = vi.hoisted(() => ({ enforce: false }));
+vi.mock("@/config/productShell", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/config/productShell")>();
+  return {
+    ...actual,
+    isProductApp: (app: unknown) =>
+      shellPolicy.enforce ? actual.isProductApp(app) : typeof app === "string",
+    isProductView: (view: unknown) =>
+      shellPolicy.enforce ? actual.isProductView(view) : true,
+    normalizeProductApp: (app: unknown) =>
+      shellPolicy.enforce ? actual.normalizeProductApp(app) : app || "claude",
+    normalizeProductView: (view: unknown) =>
+      shellPolicy.enforce
+        ? actual.normalizeProductView(view)
+        : view || "providers",
+  };
+});
+vi.mock("@/components/settings/SettingsPage", () => ({
+  SettingsPage: ({ onOpenChange }: any) => (
+    <button onClick={() => onOpenChange(false)}>close-settings</button>
+  ),
+}));
+
 const skillsPanelMocks = vi.hoisted(() => ({
   checkUpdates: vi.fn(),
   openDiscovery: vi.fn(),
@@ -199,6 +224,7 @@ const renderApp = (AppComponent: ComponentType) => {
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
+    shellPolicy.enforce = false;
     resetProviderState();
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
@@ -685,5 +711,73 @@ describe("App integration with MSW", () => {
 
     expect(skillsPanelMocks.openDiscovery).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("unified-skills-panel")).toBeInTheDocument();
+  });
+  it.each(["claude", "opencode", "openclaw", "pi", "mcode", "invalid"])(
+    "restores only Codex when the saved app is %s",
+    async (savedApp) => {
+      shellPolicy.enforce = true;
+      localStorage.setItem("cc-switch-last-app", savedApp);
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
+          "codex-1",
+        ),
+      );
+      expect(localStorage.getItem("cc-switch-last-app")).toBe("codex");
+      fireEvent.click(screen.getByText("switch-openclaw"));
+      fireEvent.click(screen.getByText("switch-claude"));
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
+      emitTauriEvent("provider-switched", {
+        appType: "claude",
+        providerId: "claude-2",
+      });
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
+    },
+  );
+
+  it.each([
+    "prompts",
+    "skills",
+    "skillsDiscovery",
+    "mcp",
+    "agents",
+    "universal",
+    "sessions",
+    "workspace",
+    "openclawEnv",
+    "openclawTools",
+    "openclawAgents",
+    "hermesMemory",
+    "invalid",
+  ])("does not reopen the hidden %s view", async (savedView) => {
+    shellPolicy.enforce = true;
+    localStorage.setItem("cc-switch-last-view", savedView);
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
+    );
+    expect(localStorage.getItem("cc-switch-last-view")).toBe("providers");
+    expect(
+      screen.queryByTestId("unified-skills-panel"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTitle("skills.manage")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("mcp.title")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("sessionManager.title")).not.toBeInTheDocument();
+  });
+
+  it("keeps Settings keyboard navigation and resets provider scroll on return", async () => {
+    shellPolicy.enforce = true;
+    const { default: App } = await import("@/App");
+    const { container } = renderApp(App);
+    await screen.findByTestId("provider-list");
+    const main = container.querySelector("main")!;
+    main.scrollTop = 320;
+    fireEvent.keyDown(window, { key: ",", metaKey: true });
+    expect(await screen.findByText("close-settings")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(await screen.findByTestId("provider-list")).toBeInTheDocument();
+    expect(main.scrollTop).toBe(0);
   });
 });

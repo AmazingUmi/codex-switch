@@ -32,23 +32,24 @@ import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { proxyApi } from "@/lib/api/proxy";
 import { ModelsDevAutoSyncPanel } from "./ModelsDevAutoSyncPanel";
+import { isCodexPricingModel } from "./codexPricing";
 
-const PRICING_APPS = ["claude", "codex", "gemini", "grokbuild"] as const;
+const PRICING_APPS = ["codex"] as const;
 type PricingApp = (typeof PRICING_APPS)[number];
 type PricingModelSource = "request" | "response";
 
 type SourceState = Record<PricingApp, PricingModelSource>;
 
 const DEFAULT_SOURCES: SourceState = {
-  claude: "response",
   codex: "response",
-  gemini: "response",
-  grokbuild: "response",
 };
 
 export function PricingConfigPanel() {
   const { t } = useTranslation();
-  const { data: pricing, isLoading, error } = useModelPricing();
+  const { data: allPricing, isLoading, error } = useModelPricing();
+  const pricing = allPricing?.filter((entry) =>
+    isCodexPricingModel(entry.modelId, entry.displayName),
+  );
   const deleteMutation = useDeleteModelPricing();
   const [editingModel, setEditingModel] = useState<ModelPricing | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);

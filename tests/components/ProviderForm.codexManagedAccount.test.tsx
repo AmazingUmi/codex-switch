@@ -126,12 +126,17 @@ vi.mock("@/lib/query", async (importOriginal) => {
   };
 });
 
-function renderCodexForm(onSubmit: (values: ProviderFormValues) => void) {
+function renderCodexForm(
+  onSubmit: (values: ProviderFormValues) => void,
+  restrictCodexCreation = false,
+) {
   const queryClient = createTestQueryClient();
   return render(
     <QueryClientProvider client={queryClient}>
       <ProviderForm
         appId="codex"
+        restrictCodexCreation={restrictCodexCreation}
+        productShell={restrictCodexCreation}
         submitLabel="save-provider"
         onSubmit={onSubmit}
         onCancel={vi.fn()}
@@ -164,6 +169,99 @@ describe("ProviderForm Codex Official managed account", () => {
   beforeEach(() => {
     authState.codexReauthRequired = false;
     toastMocks.error.mockReset();
+  });
+
+  it("only offers OpenAI API and ChatGPT Official creation in the product", async () => {
+    const onSubmit = vi.fn();
+    renderCodexForm(onSubmit, true);
+    expect(
+      screen.getByRole("button", { name: "OpenAI API" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /OpenAI Official/ }),
+    ).toBeInTheDocument();
+    for (const name of [/MiniMax/i, /Grok/i, /Kimi/i, /Gemini/i]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    fireEvent.click(screen.getByRole("button", { name: /OpenAI Official/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "select-managed-account" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].meta.authBinding.accountId).toBe(
+      "acct-managed",
+    );
+    expect(JSON.parse(onSubmit.mock.calls[0][0].settingsConfig).auth).toEqual(
+      {},
+    );
+  });
+
+  it("uses the official OpenAI endpoint for the API creation template", async () => {
+    renderCodexForm(vi.fn(), true);
+    fireEvent.click(screen.getByRole("button", { name: "OpenAI API" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("codexConfig.apiUrlLabel")).toHaveValue(
+        "https://api.openai.com/v1",
+      ),
+    );
+  });
+
+  it("hides legacy client options without changing an existing provider's saved settings", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ProviderForm
+          appId="codex"
+          productShell
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+          initialData={{
+            name: "Saved API provider",
+            category: "custom",
+            settingsConfig: {
+              auth: { OPENAI_API_KEY: "saved-key" },
+              config:
+                'model_provider = "custom"\nmodel = "model-a"\n[model_providers.custom]\nname = "Saved API"\nbase_url = "https://api.example.com/v1"\nwire_api = "responses"\nrequires_openai_auth = true',
+            },
+            meta: {
+              apiFormat: "anthropic",
+              apiKeyField: "ANTHROPIC_API_KEY",
+              impersonateClaudeCode: true,
+              maxOutputTokens: 4096,
+              customUserAgent: "saved-client/1.0",
+            },
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    // Saved advanced values expand this section automatically. Clicking the
+    // trigger here would close the fields this regression needs to inspect.
+    expect(screen.getByRole("button", { name: "高级选项" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.queryByText("模拟 Claude Code 客户端"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("ANTHROPIC_API_KEY（x-api-key）"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByDisplayValue("saved-client/1.0")).toHaveValue(
+      "saved-client/1.0",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(onSubmit.mock.calls[0][0].meta).toEqual(
+      expect.objectContaining({
+        apiFormat: "anthropic",
+        apiKeyField: "ANTHROPIC_API_KEY",
+        impersonateClaudeCode: true,
+        maxOutputTokens: 4096,
+        customUserAgent: "saved-client/1.0",
+      }),
+    );
   });
 
   it("persists the selected managed account while stripping OAuth secrets", async () => {

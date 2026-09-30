@@ -158,7 +158,6 @@ export function formatUsageTrendTokenTickLabel(
 export function UsageTrendChart({
   range,
   rangeLabel,
-  appType,
   providerName,
   model,
   refreshIntervalMs,
@@ -167,7 +166,7 @@ export function UsageTrendChart({
   const { startDate, endDate } = resolveUsageRange(range);
   const { data: trends, isLoading } = useUsageTrends(
     range,
-    { appType, providerName, model },
+    { appType: "codex", providerName, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },

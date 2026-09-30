@@ -26,6 +26,7 @@ import { toastEditorViewFailed } from "@/components/providers/forms/hooks/useDra
 import { usesEditorView } from "@/config/appConfig";
 
 interface EditProviderDialogProps {
+  productShell?: boolean;
   open: boolean;
   provider: Provider | null;
   onOpenChange: (open: boolean) => void;
@@ -44,6 +45,7 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
     : null;
 
 export function EditProviderDialog({
+  productShell = false,
   open,
   provider,
   onOpenChange,
@@ -335,6 +337,7 @@ export function EditProviderDialog({
         </div>
       ) : (
         <ProviderForm
+          productShell={productShell}
           appId={appId}
           providerId={provider.id}
           submitLabel={t("common.save")}

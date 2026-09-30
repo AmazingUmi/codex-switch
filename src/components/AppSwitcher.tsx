@@ -23,6 +23,7 @@ interface AppSwitcherProps {
   activeApp: AppId;
   onSwitch: (app: AppId) => void;
   visibleApps?: VisibleApps;
+  allowedApps?: readonly AppId[];
 }
 
 const STORAGE_KEY = "cc-switch-last-app";
@@ -103,12 +104,14 @@ export function AppSwitcher({
   activeApp,
   onSwitch,
   visibleApps,
+  allowedApps = APP_IDS,
 }: AppSwitcherProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
   const [moreOpen, setMoreOpen] = useState(false);
 
   const handleSwitch = (app: AppId) => {
+    if (!allowedApps.includes(app)) return;
     if (app === activeApp) return;
     localStorage.setItem(STORAGE_KEY, app);
     onSwitch(app);
@@ -116,6 +119,7 @@ export function AppSwitcher({
 
   // Filter apps based on visibility settings (default all visible)
   const appsToShow = APP_IDS.filter((app) => {
+    if (!allowedApps.includes(app)) return false;
     if (!visibleApps) return true;
     return visibleApps[app];
   });

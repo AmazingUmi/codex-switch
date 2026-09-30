@@ -1,5 +1,6 @@
+import { PRODUCT_PROXY_APP_IDS } from "@/config/productShell";
 import { useState } from "react";
-import { Server, Activity, Zap, Globe, ShieldAlert } from "lucide-react";
+import { Server, Activity, Globe, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
@@ -13,20 +14,19 @@ import { Badge } from "@/components/ui/badge";
 import { ProxyPanel } from "@/components/proxy";
 import { AutoFailoverConfigPanel } from "@/components/proxy/AutoFailoverConfigPanel";
 import { FailoverQueueManager } from "@/components/proxy/FailoverQueueManager";
-import { RectifierConfigPanel } from "@/components/settings/RectifierConfigPanel";
 import { GlobalProxySettings } from "@/components/settings/GlobalProxySettings";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ToggleRow } from "@/components/ui/toggle-row";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import type { SettingsFormState } from "@/hooks/useSettings";
-import { getAppLabel, PROXY_APP_IDS } from "@/config/appConfig";
+import { getAppLabel } from "@/config/appConfig";
 
 interface ProxyTabContentProps {
   settings: SettingsFormState;
   onAutoSave: (updates: Partial<SettingsFormState>) => Promise<boolean | void>;
 }
 
-export const FAILOVER_APPS = PROXY_APP_IDS.map((id) => ({
+export const FAILOVER_APPS = PRODUCT_PROXY_APP_IDS.map((id) => ({
   id,
   label: getAppLabel(id),
 }));
@@ -177,8 +177,8 @@ export function ProxyTabContent({
                 </div>
               )}
 
-              <Tabs defaultValue="claude" className="w-full">
-                <TabsList className="grid w-full grid-cols-4">
+              <Tabs defaultValue="codex" className="w-full">
+                <TabsList className="grid w-full grid-cols-1">
                   {FAILOVER_APPS.map(({ id, label }) => (
                     <TabsTrigger key={id} value={id}>
                       {label}
@@ -219,29 +219,6 @@ export function ProxyTabContent({
                 })}
               </Tabs>
             </div>
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Rectifier */}
-        <AccordionItem
-          value="rectifier"
-          className="rounded-xl glass-card overflow-hidden"
-        >
-          <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
-            <div className="flex items-center gap-3">
-              <Zap className="h-5 w-5 text-purple-500" />
-              <div className="text-left">
-                <h3 className="text-base font-semibold">
-                  {t("settings.advanced.rectifier.title")}
-                </h3>
-                <p className="text-sm text-muted-foreground font-normal">
-                  {t("settings.advanced.rectifier.description")}
-                </p>
-              </div>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
-            <RectifierConfigPanel />
           </AccordionContent>
         </AccordionItem>
 

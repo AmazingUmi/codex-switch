@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "CC Switch",
-    "description": "Claude Code / Codex / Gemini CLI 全方位辅助工具"
+    "description": "面向 OpenAI Codex / ChatGPT Codex 的多账号管理与用量监控工具"
   },
   "common": {
     "add": "添加",
@@ -47,8 +47,8 @@
   },
   "firstRunNotice": {
     "title": "欢迎使用 CC Switch",
-    "bodyDefault": "CC Switch 可以帮你在 Claude Code / Codex / Gemini CLI 的多个供应商之间一键切换。如果你之前已经配置过这些工具，CC Switch 会自动把现有设置保存为名为 “default” 的供应商，保证你的配置不会丢失。",
-    "bodyOfficial": "列表里还预置了 “官方（Official）” 供应商，随时点一下即可切回官方默认配置。切换前 CC Switch 会自动把当前配置备份回 default，可以放心来回切。CC Switch 就是这样工作的 😊",
+    "bodyDefault": "管理多个 ChatGPT 账号，一键切换当前 Codex 账号，并查看每个账号独立的额度。现有 Codex 配置继续由原有供应商管理流程保留。",
+    "bodyOfficial": "在“设置 → 认证”中添加或重新认证 ChatGPT 账号。默认 OAuth 账号与当前正在使用的 Codex 账号分别管理。",
     "confirm": "我知道了"
   },
   "apiKeyInput": {
@@ -336,7 +336,7 @@
     "tabProxy": "路由",
     "authCenter": {
       "title": "OAuth 认证中心",
-      "description": "在 Claude Code 中使用您的其他订阅，请注意合规风险。",
+      "description": "管理用于 Codex CLI 和 Codex Desktop 的 ChatGPT 账号。",
       "beta": "Beta",
       "copilotDescription": "管理 GitHub Copilot 账号",
       "codexOauthDescription": "管理 ChatGPT 账号",
@@ -345,7 +345,7 @@
     "advanced": {
       "configDir": {
         "title": "配置文件目录",
-        "description": "管理 Claude、Codex 和 Gemini 的配置存储路径"
+        "description": "管理 Codex 配置的存储路径"
       },
       "proxy": {
         "title": "本地路由",
@@ -807,7 +807,7 @@
     "github": "GitHub",
     "starPrompt": "如果 CC Switch 帮到了你，请在 GitHub 点个 Star，这对我们意义重大",
     "manualInstallCommands": "手动安装命令",
-    "oneClickInstallHint": "安装或升级 Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code",
+    "oneClickInstallHint": "安装或升级 Codex CLI",
     "localEnvCheck": "本地环境检查",
     "updateAllTools": "全部升级（{{count}}）",
     "currentVersion": "当前版本",
@@ -3228,5 +3228,29 @@
     "expiredHint": "请运行 {{tool}} 命令刷新登录",
     "queryFailed": "查询失败",
     "refresh": "刷新"
+  },
+  "productShell": {
+    "openAiApi": "OpenAI API",
+    "unsupportedImport": "此应用仅支持导入 Codex 供应商配置。",
+    "proxy": {
+      "globalHint": "配置访问外部 API 时使用的全局 HTTP 代理。"
+    },
+    "settings": {
+      "codexDirectoryDescription": "自定义 Codex 配置目录，也支持 WSL 路径。",
+      "configDirDescription": "管理 Codex 配置目录和应用数据存储路径。",
+      "codexInstallHint": "安装或升级 Codex CLI。"
+    },
+    "auth": {
+      "description": "管理用于 Codex 的 ChatGPT 账号。"
+    },
+    "usage": {
+      "commonModelsDescription": "选择 {{count}} 个近期 Codex 模型。",
+      "modelIdPlaceholder": "例如：gpt-5-codex",
+      "displayNamePlaceholder": "例如：GPT-5 Codex"
+    },
+    "storedUpstreamFormat": "已保存的上游格式",
+    "upstreamFormatHint": "Codex 原生请求使用 Responses；启用本地路由后也可使用 Chat Completions。",
+    "officialQuotaHint": "读取所选 Codex 或 ChatGPT 账号的额度。",
+    "reasoningModeHint": "上游支持显式思考模式时可启用此选项。"
   }
 }

@@ -89,6 +89,22 @@ vi.mock("@/components/providers/AuthSettingsPanel", () => ({
 }));
 
 describe("AddProviderDialog", () => {
+  it("does not expose Universal providers in the product creation dialog", () => {
+    render(
+      <AddProviderDialog
+        open
+        productShell
+        appId="codex"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "manage-auth" }),
+    ).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     mockFormReady = true;
     mockProjectedBase = null;
@@ -185,7 +201,7 @@ describe("AddProviderDialog", () => {
     "%s 新增时带上表单投影出的底，和编辑器同一套保存规则",
     async (appId) => {
       const handleSubmit = vi.fn().mockResolvedValue(undefined);
-      const projected = { config: "[ui]\ntheme = \"dark\"\n" };
+      const projected = { config: '[ui]\ntheme = "dark"\n' };
       const draft = { config: "" };
       mockProjectedBase = projected;
       mockProjectedDraft = draft;

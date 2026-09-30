@@ -13,6 +13,7 @@ import { isValidUserAgentHeader } from "@/lib/userAgent";
 import { USER_AGENT_PRESETS } from "@/config/userAgentPresets";
 
 interface CustomUserAgentFieldProps {
+  productShell?: boolean;
   /** 输入框的 id（用于 label htmlFor）；两个表单需传入各自唯一值。 */
   id: string;
   value: string;
@@ -27,12 +28,16 @@ interface CustomUserAgentFieldProps {
  * （运行时仍会静默忽略）。
  */
 export function CustomUserAgentField({
+  productShell = false,
   id,
   value,
   onChange,
 }: CustomUserAgentFieldProps) {
   const { t } = useTranslation();
   const valid = isValidUserAgentHeader(value);
+  const presets = USER_AGENT_PRESETS.filter(
+    (preset) => !productShell || preset.startsWith("codex"),
+  );
 
   return (
     <div className="space-y-2">
@@ -51,30 +56,36 @@ export function CustomUserAgentField({
           autoComplete="off"
           className="flex-1"
         />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" variant="outline" className="shrink-0 gap-1">
-              {t("providerForm.customUserAgentPresets", {
-                defaultValue: "预设",
-              })}
-              <ChevronDown className="h-3.5 w-3.5 opacity-60" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="max-h-64 overflow-y-auto z-[200]"
-          >
-            {USER_AGENT_PRESETS.map((preset) => (
-              <DropdownMenuItem
-                key={preset}
-                onSelect={() => onChange(preset)}
-                className="font-mono text-xs"
+        {presets.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="outline"
+                className="shrink-0 gap-1"
               >
-                {preset}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                {t("providerForm.customUserAgentPresets", {
+                  defaultValue: "预设",
+                })}
+                <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              className="max-h-64 overflow-y-auto z-[200]"
+            >
+              {presets.map((preset) => (
+                <DropdownMenuItem
+                  key={preset}
+                  onSelect={() => onChange(preset)}
+                  className="font-mono text-xs"
+                >
+                  {preset}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       {valid ? (
         <p className="text-xs text-muted-foreground">

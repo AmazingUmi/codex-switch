@@ -151,7 +151,10 @@ export function GlobalProxySettings() {
     <div className="space-y-3">
       {/* 描述 */}
       <p className="text-sm text-muted-foreground">
-        {t("settings.globalProxy.hint")}
+        {t("productShell.proxy.globalHint", {
+          defaultValue:
+            "Configure the shared HTTP proxy for external API requests.",
+        })}
       </p>
 
       {/* 代理地址输入框和按钮 */}

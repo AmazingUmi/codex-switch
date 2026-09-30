@@ -118,7 +118,7 @@ describe("RequestLogTable", () => {
     });
   });
 
-  it("resets pagination when the dashboard app filter changes", async () => {
+  it("keeps Codex scope with legacy app props and resets pagination when provider changes", async () => {
     const range: UsageRangeSelection = { preset: "today" };
     const { rerender } = render(
       <RequestLogTable
@@ -136,6 +136,7 @@ describe("RequestLogTable", () => {
         expect.objectContaining({
           page: 1,
           range,
+          filters: expect.objectContaining({ appType: "codex" }),
         }),
       );
     });
@@ -145,6 +146,7 @@ describe("RequestLogTable", () => {
         range={range}
         rangeLabel="Today"
         appType="claude"
+        providerName="Codex account"
         refreshIntervalMs={0}
       />,
     );
@@ -154,6 +156,7 @@ describe("RequestLogTable", () => {
         expect.objectContaining({
           page: 0,
           range,
+          filters: expect.objectContaining({ appType: "codex" }),
         }),
       );
     });

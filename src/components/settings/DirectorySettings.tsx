@@ -14,14 +14,7 @@ interface DirectorySettingsProps {
   onAppConfigChange: (value?: string) => void;
   onBrowseAppConfig: () => Promise<void>;
   onResetAppConfig: () => Promise<void>;
-  claudeDir?: string;
   codexDir?: string;
-  geminiDir?: string;
-  grokDir?: string;
-  opencodeDir?: string;
-  openclawDir?: string;
-  hermesDir?: string;
-  piDir?: string;
   onDirectoryChange: (app: DirectoryAppId, value?: string) => void;
   onBrowseDirectory: (app: DirectoryAppId) => Promise<void>;
   onResetDirectory: (app: DirectoryAppId) => Promise<void>;
@@ -33,14 +26,7 @@ export function DirectorySettings({
   onAppConfigChange,
   onBrowseAppConfig,
   onResetAppConfig,
-  claudeDir,
   codexDir,
-  geminiDir,
-  grokDir,
-  opencodeDir,
-  openclawDir,
-  hermesDir,
-  piDir,
   onDirectoryChange,
   onBrowseDirectory,
   onResetDirectory,
@@ -86,27 +72,19 @@ export function DirectorySettings({
         </div>
       </section>
 
-      {/* Claude/Codex 配置目录 - 独立区块 */}
+      {/* Codex 配置目录 - 独立区块 */}
       <section className="space-y-4">
         <header className="space-y-1">
           <h3 className="text-sm font-medium">
             {t("settings.configDirectoryOverride")}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {t("settings.configDirectoryDescription")}
+            {t("productShell.settings.codexDirectoryDescription", {
+              defaultValue:
+                "Override the Codex configuration directory, including paths in WSL.",
+            })}
           </p>
         </header>
-
-        <DirectoryInput
-          label={t("settings.claudeConfigDir")}
-          description={undefined}
-          value={claudeDir}
-          resolvedValue={resolvedDirs.claude}
-          placeholder={t("settings.browsePlaceholderClaude")}
-          onChange={(val) => onDirectoryChange("claude", val)}
-          onBrowse={() => onBrowseDirectory("claude")}
-          onReset={() => onResetDirectory("claude")}
-        />
 
         <DirectoryInput
           label={t("settings.codexConfigDir")}
@@ -117,72 +95,6 @@ export function DirectorySettings({
           onChange={(val) => onDirectoryChange("codex", val)}
           onBrowse={() => onBrowseDirectory("codex")}
           onReset={() => onResetDirectory("codex")}
-        />
-
-        <DirectoryInput
-          label={t("settings.geminiConfigDir")}
-          description={undefined}
-          value={geminiDir}
-          resolvedValue={resolvedDirs.gemini}
-          placeholder={t("settings.browsePlaceholderGemini")}
-          onChange={(val) => onDirectoryChange("gemini", val)}
-          onBrowse={() => onBrowseDirectory("gemini")}
-          onReset={() => onResetDirectory("gemini")}
-        />
-
-        <DirectoryInput
-          label={t("settings.grokConfigDir")}
-          description={undefined}
-          value={grokDir}
-          resolvedValue={resolvedDirs.grokbuild}
-          placeholder={t("settings.browsePlaceholderGrok")}
-          onChange={(val) => onDirectoryChange("grokbuild", val)}
-          onBrowse={() => onBrowseDirectory("grokbuild")}
-          onReset={() => onResetDirectory("grokbuild")}
-        />
-
-        <DirectoryInput
-          label={t("settings.opencodeConfigDir")}
-          description={undefined}
-          value={opencodeDir}
-          resolvedValue={resolvedDirs.opencode}
-          placeholder={t("settings.browsePlaceholderOpencode")}
-          onChange={(val) => onDirectoryChange("opencode", val)}
-          onBrowse={() => onBrowseDirectory("opencode")}
-          onReset={() => onResetDirectory("opencode")}
-        />
-
-        <DirectoryInput
-          label={t("settings.openclawConfigDir")}
-          description={undefined}
-          value={openclawDir}
-          resolvedValue={resolvedDirs.openclaw}
-          placeholder={t("settings.browsePlaceholderOpenclaw")}
-          onChange={(val) => onDirectoryChange("openclaw", val)}
-          onBrowse={() => onBrowseDirectory("openclaw")}
-          onReset={() => onResetDirectory("openclaw")}
-        />
-
-        <DirectoryInput
-          label={t("settings.hermesConfigDir")}
-          description={undefined}
-          value={hermesDir}
-          resolvedValue={resolvedDirs.hermes}
-          placeholder={t("settings.browsePlaceholderHermes")}
-          onChange={(val) => onDirectoryChange("hermes", val)}
-          onBrowse={() => onBrowseDirectory("hermes")}
-          onReset={() => onResetDirectory("hermes")}
-        />
-
-        <DirectoryInput
-          label={t("settings.piConfigDir")}
-          description={undefined}
-          value={piDir}
-          resolvedValue={resolvedDirs.pi}
-          placeholder={t("settings.browsePlaceholderPi")}
-          onChange={(val) => onDirectoryChange("pi", val)}
-          onBrowse={() => onBrowseDirectory("pi")}
-          onReset={() => onResetDirectory("pi")}
         />
       </section>
     </div>
