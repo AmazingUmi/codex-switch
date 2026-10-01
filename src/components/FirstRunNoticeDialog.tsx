@@ -44,7 +44,7 @@ export function FirstRunNoticeDialog() {
       <DialogContent className="max-w-md" zIndex="top">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <CodexSwitchMark className="h-5 w-5 text-zinc-900 dark:text-zinc-700" />
+            <CodexSwitchMark className="h-5 w-5 text-zinc-900 dark:text-zinc-100" />
             {t("firstRunNotice.title")}
           </DialogTitle>
         </DialogHeader>

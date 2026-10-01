@@ -805,7 +805,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           <div className="flex items-center gap-8">
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-2">
-                <CodexSwitchMark className="h-7 w-7 text-zinc-900 dark:text-zinc-700" />
+                <CodexSwitchMark className="h-7 w-7 text-zinc-900 dark:text-zinc-100" />
                 <h4 className="text-lg font-semibold text-foreground">
                   Codex Switch
                 </h4>

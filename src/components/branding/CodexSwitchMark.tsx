@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-/** Original terminal prompt mark shared by the app shell and app icon. */
+/** Outlined Codex cloud and terminal prompt, matching the app and tray icons. */
 export function CodexSwitchMark(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
@@ -11,14 +11,15 @@ export function CodexSwitchMark(props: SVGProps<SVGSVGElement>) {
       focusable="false"
       {...props}
     >
-      <rect x="2" y="2" width="60" height="60" rx="15" fill="currentColor" />
-      <path
-        d="m17 21 12 11-12 11m19 0h11"
-        stroke="var(--codex-mark-foreground, #fafafa)"
-        strokeWidth="5"
+      <g
+        stroke="currentColor"
+        strokeWidth="3.8"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
+      >
+        <path d="M28 9C35 5 43 8 46 15C54 14 60 22 56 31C61 39 56 49 47 49C43 58 32 61 25 54C15 58 7 50 10 41C3 34 5 23 14 20C13 12 21 6 28 9Z" />
+        <path d="m23 24 5 8-5 8m12 0h9" />
+      </g>
     </svg>
   );
 }
