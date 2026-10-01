@@ -3,148 +3,102 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderActions } from "@/components/providers/ProviderActions";
 
-function renderPiActions({
-  isCurrent = false,
-  isInConfig = false,
-  isRemovalProtected = false,
-  isStateChangeProtected = false,
-  isAutoFailoverEnabled = false,
-  isInFailoverQueue = false,
-  onSwitch = vi.fn(),
-  onEdit = vi.fn(),
-  onRemoveFromConfig = vi.fn(),
-  onDelete = vi.fn(),
-  onSetAsDefault = vi.fn(),
-  onToggleFailover,
-}: {
-  isCurrent?: boolean;
-  isInConfig?: boolean;
-  isRemovalProtected?: boolean;
-  isStateChangeProtected?: boolean;
-  isAutoFailoverEnabled?: boolean;
-  isInFailoverQueue?: boolean;
-  onSwitch?: ReturnType<typeof vi.fn>;
-  onEdit?: ReturnType<typeof vi.fn>;
-  onRemoveFromConfig?: ReturnType<typeof vi.fn>;
-  onDelete?: ReturnType<typeof vi.fn>;
-  onSetAsDefault?: ReturnType<typeof vi.fn>;
-  onToggleFailover?: ReturnType<typeof vi.fn>;
-}) {
+function renderActions(
+  props: Partial<React.ComponentProps<typeof ProviderActions>> = {},
+) {
+  const callbacks = {
+    onSwitch: vi.fn(),
+    onEdit: vi.fn(),
+    onDuplicate: vi.fn(),
+    onTest: vi.fn(),
+    onConfigureUsage: vi.fn(),
+    onDelete: vi.fn(),
+    onOpenTerminal: vi.fn(),
+  };
   render(
     <ProviderActions
-      appId="pi"
-      isCurrent={isCurrent}
-      isInConfig={isInConfig}
-      isRemovalProtected={isRemovalProtected}
-      isStateChangeProtected={isStateChangeProtected}
-      isAutoFailoverEnabled={isAutoFailoverEnabled}
-      isInFailoverQueue={isInFailoverQueue}
-      onToggleFailover={onToggleFailover}
-      onSwitch={onSwitch}
-      onRemoveFromConfig={onRemoveFromConfig}
-      onSetAsDefault={onSetAsDefault}
-      onEdit={onEdit}
-      onDuplicate={vi.fn()}
-      onDelete={onDelete}
+      appId="codex"
+      isCurrent={false}
+      {...callbacks}
+      {...props}
     />,
   );
-  return { onSwitch, onEdit, onRemoveFromConfig, onDelete, onSetAsDefault };
+  return callbacks;
 }
 
-describe("ProviderActions Pi provider switching", () => {
-  it("omits duplication when the caller disallows it", () => {
-    render(
-      <ProviderActions
-        appId="codex"
-        isCurrent={false}
-        onSwitch={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-      />,
-    );
-
-    expect(screen.queryByTitle("provider.duplicate")).not.toBeInTheDocument();
+describe("Codex provider actions", () => {
+  it("forwards ordinary provider actions without changing their meaning", async () => {
+    const user = userEvent.setup();
+    const callbacks = renderActions();
+    await user.click(screen.getByRole("button", { name: "provider.enable" }));
+    await user.click(screen.getByRole("button", { name: "common.edit" }));
+    await user.click(screen.getByTitle("provider.duplicate"));
+    await user.click(screen.getByTitle("检测连通"));
+    await user.click(screen.getByTitle("provider.configureUsage"));
+    await user.click(screen.getByTitle("打开终端"));
+    await user.click(screen.getByRole("button", { name: "common.delete" }));
+    for (const callback of Object.values(callbacks))
+      expect(callback).toHaveBeenCalledOnce();
   });
 
-  it("enables a provider that is not in Pi", async () => {
+  it("protects the current provider from switching and deletion while allowing edits", async () => {
     const user = userEvent.setup();
-    const { onSwitch } = renderPiActions({});
-
-    await user.click(screen.getByRole("button", { name: "启用" }));
-
-    expect(onSwitch).toHaveBeenCalledTimes(1);
+    const callbacks = renderActions({ isCurrent: true });
     expect(
-      screen.queryByRole("button", { name: "provider.setAsDefault" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("offers removal without a default-selection action", async () => {
-    const user = userEvent.setup();
-    const { onRemoveFromConfig, onSetAsDefault, onSwitch } = renderPiActions({
-      isInConfig: true,
-    });
-
-    await user.click(screen.getByRole("button", { name: "移除" }));
-
-    expect(onRemoveFromConfig).toHaveBeenCalledTimes(1);
-    expect(onSetAsDefault).not.toHaveBeenCalled();
-    expect(onSwitch).not.toHaveBeenCalled();
+      screen.getByRole("button", { name: "provider.inUse" }),
+    ).toBeDisabled();
     expect(
-      screen.queryByRole("button", { name: "设为默认" }),
-    ).not.toBeInTheDocument();
+      screen.getByRole("button", { name: "common.delete" }),
+    ).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "common.edit" }));
+    expect(callbacks.onEdit).toHaveBeenCalledOnce();
+    expect(callbacks.onSwitch).not.toHaveBeenCalled();
+    expect(callbacks.onDelete).not.toHaveBeenCalled();
   });
 
-  it("does not turn Pi's current selection into a UI state", () => {
-    renderPiActions({
-      isCurrent: true,
-      isInConfig: true,
-    });
+  it.each([false, true])(
+    "toggles queue membership instead of switching while failover is active (%s)",
+    async (isInFailoverQueue) => {
+      const user = userEvent.setup();
+      const onToggleFailover = vi.fn();
+      const callbacks = renderActions({
+        isAutoFailoverEnabled: true,
+        isInFailoverQueue,
+        onToggleFailover,
+      });
+      await user.click(
+        screen.getByRole("button", {
+          name: isInFailoverQueue ? "已加入" : "加入",
+        }),
+      );
+      expect(onToggleFailover).toHaveBeenCalledWith(!isInFailoverQueue);
+      expect(callbacks.onSwitch).not.toHaveBeenCalled();
+    },
+  );
 
-    expect(screen.getByRole("button", { name: "移除" })).toBeEnabled();
-    expect(
-      screen.queryByRole("button", { name: "当前默认" }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "common.delete" })).toBeEnabled();
-  });
-
-  it("fails closed while Pi's authoritative state is unavailable", async () => {
+  it("lets supported official accounts switch in failover mode without a queue callback", async () => {
     const user = userEvent.setup();
-    const { onSwitch, onEdit, onDelete } = renderPiActions({
-      isStateChangeProtected: true,
-    });
-
-    const enableButton = screen.getByRole("button", { name: "启用" });
-    const deleteButton = screen.getByRole("button", {
-      name: "common.delete",
-    });
-    const editButton = screen.getByRole("button", { name: "common.edit" });
-    expect(enableButton).toBeDisabled();
-    expect(deleteButton).toBeDisabled();
-    expect(editButton).toBeEnabled();
-
-    await user.click(enableButton);
-    await user.click(editButton);
-    await user.click(deleteButton);
-    expect(onSwitch).not.toHaveBeenCalled();
-    expect(onEdit).toHaveBeenCalledTimes(1);
-    expect(onDelete).not.toHaveBeenCalled();
-  });
-
-  it("keeps Pi in membership mode even if stale failover props are supplied", async () => {
-    const user = userEvent.setup();
-    const onToggleFailover = vi.fn();
-    const { onSwitch } = renderPiActions({
+    const callbacks = renderActions({
       isAutoFailoverEnabled: true,
-      isInFailoverQueue: false,
-      onToggleFailover,
+      isProxyTakeover: true,
     });
+    await user.click(screen.getByRole("button", { name: "provider.enable" }));
+    expect(callbacks.onSwitch).toHaveBeenCalledOnce();
+  });
 
-    await user.click(screen.getByRole("button", { name: "启用" }));
+  it("explains why an official API provider cannot switch into unsupported routing", () => {
+    renderActions({ isOfficialBlockedByProxy: true });
+    const enable = screen.getByRole("button", { name: "provider.enable" });
+    expect(enable).toBeDisabled();
+    expect(enable.parentElement).toHaveAttribute(
+      "title",
+      "provider.blockedByProxyHint",
+    );
+  });
 
-    expect(onSwitch).toHaveBeenCalledTimes(1);
-    expect(onToggleFailover).not.toHaveBeenCalled();
-    expect(
-      screen.queryByRole("button", { name: "failover.addQueue" }),
-    ).not.toBeInTheDocument();
+  it("omits duplication when the caller disallows it and keeps testing disabled during checks", () => {
+    renderActions({ onDuplicate: undefined, isTesting: true });
+    expect(screen.queryByTitle("provider.duplicate")).not.toBeInTheDocument();
+    expect(screen.getByTitle("检测连通")).toBeDisabled();
   });
 });

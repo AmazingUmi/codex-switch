@@ -777,7 +777,7 @@ function App() {
                         <ProviderList
                           providers={providers}
                           currentProviderId={currentProviderId}
-                          appId={activeApp}
+                          appId="codex"
                           isLoading={isLoading}
                           isProxyRunning={currentAppUsesProxy && isProxyRunning}
                           isProxyTakeover={

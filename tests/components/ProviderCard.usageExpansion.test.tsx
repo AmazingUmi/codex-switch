@@ -37,7 +37,8 @@ function renderCard({
     name: "Usage provider",
     category: official ? "official" : "custom",
     settingsConfig: {
-      env: { ANTHROPIC_BASE_URL: "https://example.com" },
+      auth: { OPENAI_API_KEY: "test-key" },
+      config: 'base_url = "https://example.com"',
     },
     meta: {
       usage_script: { enabled, language: "javascript", code: "", templateType },
@@ -45,7 +46,7 @@ function renderCard({
   };
   const queryClient = createTestQueryClient();
   // A disabled React Query observer still receives existing cache entries.
-  queryClient.setQueryData(usageKeys.script(provider.id, "claude"), {
+  queryClient.setQueryData(usageKeys.script(provider.id, "codex"), {
     success: true,
     data: [
       { planName: "five_hour", total: 100, used: 0, remaining: 100, unit: "%" },
@@ -57,7 +58,7 @@ function renderCard({
     <QueryClientProvider client={queryClient}>
       <ProviderCard
         provider={provider}
-        appId="claude"
+        appId="codex"
         isCurrent={true}
         isProxyRunning={false}
         onSwitch={vi.fn()}

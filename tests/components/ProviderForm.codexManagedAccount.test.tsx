@@ -11,6 +11,7 @@ import { createTestQueryClient } from "../utils/testQueryClient";
 const authState = vi.hoisted(() => ({
   codexReauthRequired: false,
   codexStatusSuccess: true,
+  xaiAuthenticated: false,
 }));
 const toastMocks = vi.hoisted(() => ({
   error: vi.fn(),
@@ -117,8 +118,10 @@ vi.mock("@/components/providers/forms/hooks", async (importOriginal) => {
       ],
     }),
     useXaiOauth: () => ({
-      isAuthenticated: false,
-      accounts: [],
+      isAuthenticated: authState.xaiAuthenticated,
+      accounts: authState.xaiAuthenticated
+        ? [{ id: "xai-legacy", requires_reauth: false }]
+        : [],
     }),
   };
 });
@@ -156,30 +159,11 @@ function renderCodexForm(
   );
 }
 
-function renderClaudeCodexForm(onSubmit: (values: ProviderFormValues) => void) {
-  const queryClient = createTestQueryClient();
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <ProviderForm
-        appId="claude"
-        submitLabel="save-provider"
-        onSubmit={onSubmit}
-        onCancel={vi.fn()}
-        initialData={{
-          name: "Claude via Codex OAuth",
-          category: "third_party",
-          settingsConfig: { env: {} },
-          meta: { providerType: "codex_oauth" },
-        }}
-      />
-    </QueryClientProvider>,
-  );
-}
-
 describe("ProviderForm Codex Official managed account", () => {
   beforeEach(() => {
     authState.codexReauthRequired = false;
     authState.codexStatusSuccess = true;
+    authState.xaiAuthenticated = false;
     toastMocks.error.mockReset();
   });
 
@@ -626,19 +610,136 @@ describe("ProviderForm Codex Official managed account", () => {
     );
     expect(onSubmit).not.toHaveBeenCalled();
   });
+  it.each(["anthropic", "openai_chat"] as const)(
+    "preserves existing %s routes, model defaults, catalog fields and unknown TOML",
+    async (apiFormat) => {
+      const onSubmit = vi.fn();
+      const config =
+        'model_provider = "custom"\nmodel = "kept-default"\nfuture_global = "keep-global"\n[model_providers.custom]\nname = "Legacy"\nbase_url = "https://legacy.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nfuture_provider = "keep-provider"\n[ui]\nfuture_option = true';
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ProviderForm
+            appId="codex"
+            productShell
+            submitLabel="save-provider"
+            onSubmit={onSubmit}
+            onCancel={vi.fn()}
+            initialData={{
+              name: "Legacy API route",
+              category: "custom",
+              settingsConfig: {
+                auth: { OPENAI_API_KEY: "kept-key" },
+                config,
+                modelCatalog: {
+                  models: [
+                    {
+                      model: "catalog-model",
+                      inputModalities: ["text"],
+                      baseInstructions: "kept instructions",
+                      supportsParallelToolCalls: false,
+                    },
+                  ],
+                },
+              },
+              meta: {
+                apiFormat,
+                customUserAgent: "legacy-agent",
+                codexChatReasoning: {
+                  supportsThinking: true,
+                  supportsEffort: true,
+                },
+                promptCacheRouting: "enabled",
+              },
+            }}
+          />
+        </QueryClientProvider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const values = onSubmit.mock.calls[0][0] as ProviderFormValues;
+      const saved = JSON.parse(values.settingsConfig);
+      expect(saved.config).toBe(config);
+      expect(saved.auth).toEqual({ OPENAI_API_KEY: "kept-key" });
+      expect(saved.modelCatalog.models).toEqual([
+        {
+          model: "catalog-model",
+          inputModalities: ["text"],
+          baseInstructions: "kept instructions",
+          supportsParallelToolCalls: false,
+        },
+      ]);
+      expect(values.meta?.apiFormat).toBe(apiFormat);
+      expect(values.meta?.customUserAgent).toBe("legacy-agent");
+      if (apiFormat === "openai_chat") {
+        expect(values.meta?.codexChatReasoning).toMatchObject({
+          supportsThinking: true,
+          supportsEffort: true,
+        });
+        expect(values.meta?.promptCacheRouting).toBe("enabled");
+      }
+      expect(values.meta?.authBinding).toBeUndefined();
+    },
+  );
 
-  it("blocks the reauth-required default account when no account is selected", async () => {
-    authState.codexReauthRequired = true;
+  it("preserves a legacy Codex xAI managed binding without requiring a static API key", async () => {
+    authState.xaiAuthenticated = true;
     const onSubmit = vi.fn();
-    renderClaudeCodexForm(onSubmit);
-
-    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
-
-    await waitFor(() =>
-      expect(toastMocks.error).toHaveBeenCalledWith(
-        "已绑定账号不存在或需要重新登录",
-      ),
+    const config =
+      'model_provider = "custom"\nmodel = "grok-legacy"\n[model_providers.custom]\nname = "Legacy xAI"\nbase_url = "https://api.x.ai/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nfuture_option = "keep"';
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ProviderForm
+          appId="codex"
+          productShell
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+          initialData={{
+            name: "Legacy xAI",
+            category: "third_party",
+            settingsConfig: { auth: {}, config },
+            meta: {
+              providerType: "xai_oauth",
+              authBinding: {
+                source: "managed_account",
+                authProvider: "xai_oauth",
+                accountId: "xai-legacy",
+              },
+              apiFormat: "openai_responses",
+            },
+          }}
+        />
+      </QueryClientProvider>,
     );
-    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const values = onSubmit.mock.calls[0][0] as ProviderFormValues;
+    expect(values.meta?.authBinding).toEqual({
+      source: "managed_account",
+      authProvider: "xai_oauth",
+      accountId: "xai-legacy",
+    });
+    expect(values.meta?.providerType).toBe("xai_oauth");
+    expect(values.meta?.apiFormat).toBe("openai_responses");
+    expect(JSON.parse(values.settingsConfig).config).toBe(config);
+    expect(toastMocks.error).not.toHaveBeenCalled();
   });
+
+  it.each(["claude", "gemini", "grokbuild", "pi"] as const)(
+    "rejects the unsupported %s form entry before mounting its editor",
+    (appId) => {
+      const { container } = render(
+        <ProviderForm
+          appId={appId}
+          submitLabel="save-provider"
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      expect(container).toBeEmptyDOMElement();
+      expect(
+        screen.queryByTestId("codex-config-editor"),
+      ).not.toBeInTheDocument();
+    },
+  );
 });

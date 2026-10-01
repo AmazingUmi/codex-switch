@@ -5,7 +5,7 @@
  * 填 API Key（有模板变量的一并填上）、提交，把 onSubmit 收到的载荷做稳定化后存快照：
  * - 先 JSON 往返一次（与 Tauri IPC 序列化一致：值为 undefined 的键不会进 DB）；
  * - settingsConfig 从 JSON 字符串解析成对象，便于读 diff；
- * - presetId 是按预设列表下标生成的（claude-N / codex-N），下标替换成 <index>，
+ * - presetId 是按预设列表下标生成的（codex-N），下标替换成 <index>，
  *   另行断言它仍指回被点中的预设，避免新增预设导致无关的快照抖动；
  * - meta 原样保留（commonConfigEnabled / apiFormat / endpointAutoSelect 等都在快照里）；
  * - apiKeyLocations 列出测试 Key 在行里出现的所有位置（含 TOML 字符串内），审 Key 落点用。
@@ -27,15 +27,14 @@
  *   apiFormat=openai_responses、目录带原生 Responses 专用字段）；
  * - Codex「openai_chat + 模型目录」：Nvidia（另带 codexChatReasoning）。
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ProviderForm,
   type ProviderFormValues,
 } from "@/components/providers/forms/ProviderForm";
-import { providerPresets } from "@/config/claudeProviderPresets";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestQueryClient } from "../utils/testQueryClient";
 
 const TEST_API_KEY = "sk-golden-test";
@@ -109,7 +108,7 @@ vi.mock("@/lib/query", async (importOriginal) => {
   };
 });
 
-type GoldenAppId = "claude" | "codex";
+type GoldenAppId = "codex";
 
 interface GoldenCase {
   /** 预设显示名（即预设选择器里的按钮文本） */
@@ -120,19 +119,6 @@ interface GoldenCase {
   templateValues?: Record<string, string>;
 }
 
-const CLAUDE_CASES: GoldenCase[] = [
-  { preset: "Claude Official", fillApiKey: false },
-  { preset: "RelaxyCode", fillApiKey: true },
-  {
-    preset: "AWS Bedrock (API Key)",
-    fillApiKey: true,
-    templateValues: { AWS_REGION: "us-east-1" },
-  },
-  { preset: "Nvidia", fillApiKey: true },
-  { preset: "Kimi For Coding", fillApiKey: true },
-  { preset: "E-FlowCode", fillApiKey: true },
-];
-
 const CODEX_CASES: GoldenCase[] = [
   { preset: "OpenAI Official", fillApiKey: false },
   { preset: "xAI (Grok)", fillApiKey: true },
@@ -141,15 +127,11 @@ const CODEX_CASES: GoldenCase[] = [
 ];
 
 const API_KEY_INPUT_ID: Record<GoldenAppId, string> = {
-  claude: "apiKey",
   codex: "codexApiKey",
 };
 
-function presetNameAt(appId: GoldenAppId, index: number): string | undefined {
-  // 与 ProviderForm 的 presetEntries 生成方式一致：Claude 先滤掉 hidden 再编号
-  return appId === "claude"
-    ? providerPresets.filter((preset) => !preset.hidden)[index]?.name
-    : codexProviderPresets[index]?.name;
+function presetNameAt(index: number): string | undefined {
+  return codexProviderPresets[index]?.name;
 }
 
 function renderForm(
@@ -248,9 +230,9 @@ async function submitPresetRow(appId: GoldenAppId, testCase: GoldenCase) {
 
   const values = onSubmit.mock.calls[0][0] as ProviderFormValues;
 
-  // presetId 必须指回被点中的预设（快照里只保留形如 claude-<index> 的格式）
+  // presetId 必须指回被点中的预设（快照里只保留形如 codex-<index> 的格式）
   const presetIndex = Number(values.presetId?.replace(`${appId}-`, ""));
-  expect(presetNameAt(appId, presetIndex)).toBe(testCase.preset);
+  expect(presetNameAt(presetIndex)).toBe(testCase.preset);
 
   return toGoldenRow(appId, values);
 }
@@ -260,16 +242,16 @@ describe("ProviderForm 预设新增行金标", () => {
     toastMocks.error.mockReset();
   });
 
-  describe.each<[GoldenAppId, GoldenCase[]]>([
-    ["claude", CLAUDE_CASES],
-    ["codex", CODEX_CASES],
-  ])("%s", (appId, cases) => {
-    it.each(cases.map((testCase) => [testCase.preset, testCase] as const))(
-      "%s",
-      async (_presetName, testCase) => {
-        const golden = await submitPresetRow(appId, testCase);
-        expect(golden).toMatchSnapshot();
-      },
-    );
-  });
+  describe.each<[GoldenAppId, GoldenCase[]]>([["codex", CODEX_CASES]])(
+    "%s",
+    (appId, cases) => {
+      it.each(cases.map((testCase) => [testCase.preset, testCase] as const))(
+        "%s",
+        async (_presetName, testCase) => {
+          const golden = await submitPresetRow(appId, testCase);
+          expect(golden).toMatchSnapshot();
+        },
+      );
+    },
+  );
 });

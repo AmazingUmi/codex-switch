@@ -11,8 +11,7 @@ import type {
   DraggableAttributes,
   DraggableSyntheticListeners,
 } from "@dnd-kit/core";
-import type { OpenClawProviderConfig, Provider } from "@/types";
-import type { AppId } from "@/lib/api";
+import type { Provider } from "@/types";
 import { authApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ProviderActions } from "@/components/providers/ProviderActions";
@@ -23,7 +22,6 @@ import CopilotQuotaFooter from "@/components/CopilotQuotaFooter";
 import CodexOauthQuotaFooter from "@/components/CodexOauthQuotaFooter";
 import XaiOauthQuotaFooter from "@/components/XaiOauthQuotaFooter";
 import { PROVIDER_TYPES, TEMPLATE_TYPES } from "@/config/constants";
-import { isHermesReadOnlyProvider } from "@/config/hermesProviderPresets";
 import { ProviderHealthBadge } from "@/components/providers/ProviderHealthBadge";
 import { FailoverPriorityBadge } from "@/components/providers/FailoverPriorityBadge";
 import {
@@ -40,7 +38,6 @@ import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
 import { resolveProviderIcon } from "@/utils/providerIcon";
 import { ProviderStatusBadge } from "@/components/providers/ProviderStatusBadge";
-import { isAdditiveAppId, isProxyAppId } from "@/config/appConfig";
 
 interface DragHandleProps {
   attributes: DraggableAttributes;
@@ -51,16 +48,10 @@ interface DragHandleProps {
 interface ProviderCardProps {
   provider: Provider;
   isCurrent: boolean;
-  appId: AppId;
-  isInConfig?: boolean; // OpenCode: 是否已添加到 opencode.json
-  isOmo?: boolean;
-  isOmoSlim?: boolean;
+  appId: "codex";
   onSwitch: (provider: Provider) => void;
   onEdit: (provider: Provider) => void;
   onDelete: (provider: Provider) => void;
-  onRemoveFromConfig?: (provider: Provider) => void;
-  onDisableOmo?: () => void;
-  onDisableOmoSlim?: () => void;
   onConfigureUsage: (provider: Provider) => void;
   onOpenWebsite: (url: string) => void;
   onDuplicate: (provider: Provider) => void;
@@ -76,46 +67,25 @@ interface ProviderCardProps {
   isInFailoverQueue?: boolean; // 是否在故障转移队列中
   onToggleFailover?: (enabled: boolean) => void; // 切换故障转移队列
   activeProviderId?: string; // 代理当前实际使用的供应商 ID（用于故障转移模式下标注绿色边框）
-  // OpenClaw: default model
-  isDefaultModel?: boolean;
-  isRemovalProtected?: boolean;
-  isStateChangeProtected?: boolean;
-  onSetAsDefault?: (modelId?: string) => void;
 }
 
 /** 判断是否为官方供应商（无自定义 base URL / API key，直连官方 API） */
-function isOfficialProvider(provider: Provider, appId: AppId): boolean {
+function isOfficialProvider(provider: Provider): boolean {
   if (provider.category === "official") {
     return true;
   }
 
   const config = provider.settingsConfig as Record<string, any>;
-  if (appId === "claude") {
-    const baseUrl = config?.env?.ANTHROPIC_BASE_URL;
-    return !baseUrl || (typeof baseUrl === "string" && baseUrl.trim() === "");
-  }
-  if (appId === "codex") {
-    // 无 OPENAI_API_KEY → 使用 Codex CLI 内置 OAuth（官方）
-    const apiKey = config?.auth?.OPENAI_API_KEY;
-    const bearerToken =
-      typeof config?.config === "string"
-        ? extractCodexExperimentalBearerToken(config.config)
-        : undefined;
-    return (
-      !bearerToken &&
-      (!apiKey || (typeof apiKey === "string" && apiKey.trim() === ""))
-    );
-  }
-  if (appId === "gemini") {
-    // 无 GEMINI_API_KEY 且无 GOOGLE_GEMINI_BASE_URL → Google OAuth 官方模式
-    const apiKey = config?.env?.GEMINI_API_KEY;
-    const baseUrl = config?.env?.GOOGLE_GEMINI_BASE_URL;
-    return (
-      (!apiKey || (typeof apiKey === "string" && apiKey.trim() === "")) &&
-      (!baseUrl || (typeof baseUrl === "string" && baseUrl.trim() === ""))
-    );
-  }
-  return false;
+  // 无 OPENAI_API_KEY → 使用 Codex CLI 内置 OAuth（官方）
+  const apiKey = config?.auth?.OPENAI_API_KEY;
+  const bearerToken =
+    typeof config?.config === "string"
+      ? extractCodexExperimentalBearerToken(config.config)
+      : undefined;
+  return (
+    !bearerToken &&
+    (!apiKey || (typeof apiKey === "string" && apiKey.trim() === ""))
+  );
 }
 
 const extractApiUrl = (provider: Provider, fallbackText: string) => {
@@ -170,15 +140,9 @@ export function ProviderCard({
   provider,
   isCurrent,
   appId,
-  isInConfig = true,
-  isOmo = false,
-  isOmoSlim = false,
   onSwitch,
   onEdit,
   onDelete,
-  onRemoveFromConfig,
-  onDisableOmo,
-  onDisableOmoSlim,
   onConfigureUsage,
   onOpenWebsite,
   onDuplicate,
@@ -194,11 +158,6 @@ export function ProviderCard({
   isInFailoverQueue = false,
   onToggleFailover,
   activeProviderId,
-  // OpenClaw: default model
-  isDefaultModel,
-  isRemovalProtected,
-  isStateChangeProtected,
-  onSetAsDefault,
 }: ProviderCardProps) {
   const { t } = useTranslation();
   const codexOfficialIdentity = resolveCodexOfficialIdentity(appId, provider);
@@ -229,17 +188,7 @@ export function ProviderCard({
           `OpenAI Official (${managedCodexAccount.login})`),
   );
 
-  // OMO and OMO Slim share the same card behavior
-  const isAnyOmo = isOmo || isOmoSlim;
-  const handleDisableAnyOmo = isOmoSlim ? onDisableOmoSlim : onDisableOmo;
-  const isAdditiveMode =
-    (appId === "opencode" && !isAnyOmo) || appId === "pi" || appId === "mcode";
-
-  const { data: health } = useProviderHealth(
-    provider.id,
-    appId,
-    isProxyAppId(appId),
-  );
+  const { data: health } = useProviderHealth(provider.id, appId, true);
 
   const fallbackUrlText = t("provider.notConfigured", {
     defaultValue: "未配置接口地址",
@@ -248,15 +197,6 @@ export function ProviderCard({
   const displayUrl = useMemo(() => {
     return extractApiUrl(provider, fallbackUrlText);
   }, [provider, fallbackUrlText]);
-
-  const openclawDefaultModelOptions = useMemo(() => {
-    if (appId !== "openclaw") return [];
-    const config = provider.settingsConfig as OpenClawProviderConfig;
-    if (!Array.isArray(config?.models)) return [];
-    return config.models
-      .filter((model) => typeof model.id === "string" && model.id.trim())
-      .map((model) => ({ id: model.id, name: model.name }));
-  }, [appId, provider.settingsConfig]);
 
   const isClickableUrl = useMemo(() => {
     if (provider.notes?.trim()) {
@@ -271,14 +211,12 @@ export function ProviderCard({
   const isBoundCodexOfficial = codexOfficialIdentity === "managed_account";
   const usageEnabled =
     provider.meta?.usage_script?.enabled ?? isBoundCodexOfficial;
-  const isOfficial = isOfficialProvider(provider, appId);
-  const supportsOfficialSubscription =
-    isOfficial && ["claude", "codex", "gemini", "grokbuild"].includes(appId);
+  const isOfficial = isOfficialProvider(provider);
   const isOfficialSubscriptionUsage =
     provider.meta?.usage_script?.templateType ===
     TEMPLATE_TYPES.OFFICIAL_SUBSCRIPTION;
   const officialSubscriptionEnabled =
-    supportsOfficialSubscription && usageEnabled && isOfficialSubscriptionUsage;
+    isOfficial && usageEnabled && isOfficialSubscriptionUsage;
   // 官方判定只认显式 category === "official"（SSOT），不回退 isOfficial 的空字段启发式。
   // 理由（此判定曾在「纯 category ↔ category+isOfficial 回退」间反复，结论钉死于此）：
   //  1) 封号保护是高代价决策，不该建立在「base_url/key 缺失」这种脆弱信号上——它无法区分
@@ -298,24 +236,14 @@ export function ProviderCard({
   const isCopilot =
     provider.meta?.providerType === PROVIDER_TYPES.GITHUB_COPILOT ||
     provider.meta?.usage_script?.templateType === "github_copilot";
-  // Hermes v12+ overlay entries live under the `providers:` dict and are
-  // read-only here — writes have to go through Hermes Web UI.
-  const isHermesReadOnly =
-    appId === "hermes" && isHermesReadOnlyProvider(provider.settingsConfig);
-  const isCodexOauth =
-    appId === "codex"
-      ? isBoundCodexOfficial
-      : provider.meta?.providerType === PROVIDER_TYPES.CODEX_OAUTH;
+  const isCodexOauth = isBoundCodexOfficial;
   // xAI OAuth (SuperGrok 反代)：额度经自管 OAuth token 自动显示，与 codex_oauth 同构
   const isXaiOauth = provider.meta?.providerType === PROVIDER_TYPES.XAI_OAUTH;
   // 统一权威谓词（详见 providerNeedsRouting）：以 providerType 为准，不受
-  // apiFormat 被改动/缺省影响。此 badge 仅在 Codex 视图渲染，故加 appId 守卫。
-  const codexNeedsRouting =
-    appId === "codex" && providerNeedsRouting(appId, provider);
+  // apiFormat 被改动/缺省影响。
+  const codexNeedsRouting = providerNeedsRouting(appId, provider);
   // 获取用量数据以判断是否有多套餐
-  // 累加模式应用：使用 isInConfig 代替 isCurrent
-  const shouldAutoQuery = isAdditiveAppId(appId) ? isInConfig : isCurrent;
-  const autoQueryInterval = shouldAutoQuery
+  const autoQueryInterval = isCurrent
     ? provider.meta?.usage_script?.autoQueryInterval || 0
     : 0;
 
@@ -353,29 +281,12 @@ export function ProviderCard({
     onOpenWebsite(displayUrl);
   };
 
-  // 判断是否是"当前使用中"的供应商
-  // - OMO/OMO Slim 供应商：使用 isCurrent
-  // - OpenClaw：使用默认模型归属的 provider 作为当前项（蓝色边框）
-  // - OpenCode（非 OMO）：不存在"当前"概念，返回 false
-  // - 故障转移模式：代理实际使用的供应商（activeProviderId）
-  // - 普通模式：isCurrent
-  const isActiveProvider = isAnyOmo
-    ? isCurrent
-    : appId === "openclaw"
-      ? Boolean(isDefaultModel)
-      : appId === "opencode" || appId === "pi" || appId === "mcode"
-        ? false
-        : isAutoFailoverEnabled
-          ? activeProviderId === provider.id
-          : isCurrent;
-
-  const shouldUseGreen = !isAnyOmo && isProxyTakeover && isActiveProvider;
-  const hasPersistentConfigHighlight = isAdditiveMode && isInConfig;
-  const shouldUseBlue =
-    (isAnyOmo && isActiveProvider) ||
-    (!isAnyOmo &&
-      !isProxyTakeover &&
-      (isActiveProvider || hasPersistentConfigHighlight));
+  // 路由故障转移时高亮实际使用的上游；直连时高亮当前配置。
+  const isActiveProvider = isAutoFailoverEnabled
+    ? activeProviderId === provider.id
+    : isCurrent;
+  const shouldUseGreen = isProxyTakeover && isActiveProvider;
+  const shouldUseBlue = !isProxyTakeover && isActiveProvider;
   const hasStateHighlight = shouldUseGreen || shouldUseBlue;
 
   return (
@@ -446,37 +357,6 @@ export function ProviderCard({
                 {provider.name}
               </h3>
 
-              {isOmo && (
-                <span className="inline-flex items-center rounded-md bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-                  OMO
-                </span>
-              )}
-
-              {isOmoSlim && (
-                <span className="inline-flex items-center rounded-md bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
-                  Slim
-                </span>
-              )}
-
-              {appId === "claude-desktop" &&
-                providerNeedsRouting(appId, provider) && (
-                  <ProviderStatusBadge
-                    tone="info"
-                    label={t("provider.needsRouting", {
-                      defaultValue: "需要路由",
-                    })}
-                  />
-                )}
-
-              {appId === "claude" && providerNeedsRouting(appId, provider) && (
-                <ProviderStatusBadge
-                  tone="info"
-                  label={t("provider.needsRouting", {
-                    defaultValue: "需要路由",
-                  })}
-                />
-              )}
-
               {codexNeedsRouting && (
                 <ProviderStatusBadge
                   tone="info"
@@ -498,14 +378,6 @@ export function ProviderCard({
                 />
               )}
 
-              {appId === "claude" && provider.category === "official" && (
-                <ProviderStatusBadge
-                  label={t("provider.noRoutingSupport", {
-                    defaultValue: "不支持路由",
-                  })}
-                />
-              )}
-
               {isProxyRunning &&
                 !supportsOfficialRouting &&
                 isInFailoverQueue &&
@@ -522,19 +394,6 @@ export function ProviderCard({
                 failoverPriority && (
                   <FailoverPriorityBadge priority={failoverPriority} />
                 )}
-
-              {isHermesReadOnly && (
-                <span
-                  className="inline-flex items-center rounded-md bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700/60 dark:text-slate-200"
-                  title={t("provider.managedByHermesHint", {
-                    defaultValue: "由 Hermes 管理，请在 Hermes Web UI 中编辑",
-                  })}
-                >
-                  {t("provider.managedByHermes", {
-                    defaultValue: "Hermes Managed",
-                  })}
-                </span>
-              )}
             </div>
 
             {codexOfficialIdentity && codexOfficialIdentity !== "api_key" ? (
@@ -677,7 +536,7 @@ export function ProviderCard({
                   appId={appId}
                   usageEnabled={usageEnabled}
                   isCurrent={isCurrent}
-                  isInConfig={isInConfig}
+                  isInConfig={true}
                   inline={true}
                 />
               )}
@@ -708,12 +567,9 @@ export function ProviderCard({
             <ProviderActions
               appId={appId}
               isCurrent={isCurrent}
-              isInConfig={isInConfig}
               isTesting={isTesting}
               isProxyTakeover={isProxyTakeover}
               isOfficialBlockedByProxy={isOfficialBlockedByProxy}
-              isReadOnly={isHermesReadOnly}
-              isOmo={isAnyOmo}
               onSwitch={() => onSwitch(provider)}
               onEdit={() => onEdit(provider)}
               onDuplicate={() => onDuplicate(provider)}
@@ -721,27 +577,17 @@ export function ProviderCard({
                 // 连通检测对第三方/自定义/Copilot/Codex-OAuth 供应商开放（这些正是旧的
                 // 真实请求探测会误报、而可达性探测能正确处理的对象）。官方供应商
                 // (category === "official") 一律隐藏：它们 base_url 故意留空、走客户端
-                // 默认/OAuth 端点，cc-switch 没有可靠的探测目标（尤其 Claude Desktop
-                // 官方是原生 1P 模式，根本不在请求路径上）。
-                onTest && appId !== "mcode" && provider.category !== "official"
+                // 默认/OAuth 端点，无法提供可靠的探测目标。
+                onTest && provider.category !== "official"
                   ? () => onTest(provider)
                   : undefined
               }
               onConfigureUsage={
-                (isOfficial && !supportsOfficialSubscription) ||
-                isCopilot ||
-                (isCodexOauth && !isBoundCodexOfficial) ||
-                isXaiOauth
+                isCopilot || isXaiOauth
                   ? undefined
                   : () => onConfigureUsage(provider)
               }
               onDelete={() => onDelete(provider)}
-              onRemoveFromConfig={
-                onRemoveFromConfig
-                  ? () => onRemoveFromConfig(provider)
-                  : undefined
-              }
-              onDisableOmo={handleDisableAnyOmo}
               onOpenTerminal={
                 onOpenTerminal ? () => onOpenTerminal(provider) : undefined
               }
@@ -750,12 +596,6 @@ export function ProviderCard({
               onToggleFailover={
                 supportsOfficialRouting ? undefined : onToggleFailover
               }
-              // OpenClaw: default model
-              isDefaultModel={isDefaultModel}
-              isRemovalProtected={isRemovalProtected}
-              isStateChangeProtected={isStateChangeProtected}
-              defaultModelOptions={openclawDefaultModelOptions}
-              onSetAsDefault={onSetAsDefault}
             />
           </div>
         </div>
@@ -769,7 +609,7 @@ export function ProviderCard({
             appId={appId}
             usageEnabled={usageEnabled}
             isCurrent={isCurrent}
-            isInConfig={isInConfig}
+            isInConfig={true}
             inline={false}
           />
         </div>

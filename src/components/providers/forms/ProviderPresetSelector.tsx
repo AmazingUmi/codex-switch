@@ -3,30 +3,10 @@ import { useTranslation } from "react-i18next";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ClaudeIcon, CodexIcon, GeminiIcon } from "@/components/BrandIcons";
-import {
-  ArrowUpAZ,
-  Search,
-  Zap,
-  Star,
-  Heart,
-  Layers,
-  Settings2,
-} from "lucide-react";
-import type { ProviderPreset } from "@/config/claudeProviderPresets";
+import { CodexIcon } from "@/components/BrandIcons";
+import { ArrowUpAZ, Search, Zap, Star, Heart } from "lucide-react";
 import type { CodexProviderPreset } from "@/config/codexProviderPresets";
-import type { GeminiProviderPreset } from "@/config/geminiProviderPresets";
-import type { ClaudeDesktopProviderPreset } from "@/config/claudeDesktopProviderPresets";
-import type { OpenCodeProviderPreset } from "@/config/opencodeProviderPresets";
-import type { OpenClawProviderPreset } from "@/config/openclawProviderPresets";
-import type { HermesProviderPreset } from "@/config/hermesProviderPresets";
-import type { McodeProviderPreset } from "@/config/mcodeProviderPresets";
-import type { PiProviderPreset } from "@/config/piProviderPresets";
 import type { ProviderCategory } from "@/types";
-import {
-  universalProviderPresets,
-  type UniversalProviderPreset,
-} from "@/config/universalProviderPresets";
 import { ProviderIcon } from "@/components/ProviderIcon";
 
 type PresetTranslator = (key: string) => unknown;
@@ -39,16 +19,19 @@ export const PresetSortMode = {
 export type PresetSortMode =
   (typeof PresetSortMode)[keyof typeof PresetSortMode];
 
-export type AnyPreset =
-  | ProviderPreset
-  | CodexProviderPreset
-  | GeminiProviderPreset
-  | ClaudeDesktopProviderPreset
-  | OpenCodeProviderPreset
-  | OpenClawProviderPreset
-  | HermesProviderPreset
-  | PiProviderPreset
-  | McodeProviderPreset;
+/** Fields used to display and sort presets; independent of their saved configuration. */
+export type AnyPreset = Pick<
+  CodexProviderPreset,
+  | "name"
+  | "nameKey"
+  | "websiteUrl"
+  | "category"
+  | "primePartner"
+  | "isPartner"
+  | "theme"
+  | "icon"
+  | "iconColor"
+>;
 
 export type PresetEntry = {
   id: string;
@@ -149,8 +132,6 @@ interface ProviderPresetSelectorProps {
   presetEntries: PresetEntry[];
   presetCategoryLabels: Record<string, string>;
   onPresetChange: (value: string) => void;
-  onUniversalPresetSelect?: (preset: UniversalProviderPreset) => void;
-  onManageUniversalProviders?: () => void;
   category?: ProviderCategory; // 当前选中的分类
   categoryHint?: ReactNode;
 }
@@ -160,8 +141,6 @@ export function ProviderPresetSelector({
   presetEntries,
   presetCategoryLabels,
   onPresetChange,
-  onUniversalPresetSelect,
-  onManageUniversalProviders,
   category,
   categoryHint,
   customLabel,
@@ -245,11 +224,6 @@ export function ProviderPresetSelector({
         return t("providerForm.customApiKeyHint", {
           defaultValue: "💡 自定义配置需手动填写所有必要字段",
         });
-      case "omo":
-        return t("providerForm.omoHint", {
-          defaultValue:
-            "💡 OMO 配置管理 Agent 模型分配，兼容 oh-my-openagent.jsonc / oh-my-opencode.jsonc",
-        });
       default:
         return t("providerPreset.hint", {
           defaultValue: "选择预设后可继续调整下方字段。",
@@ -285,12 +259,8 @@ export function ProviderPresetSelector({
     const iconType = preset.theme?.icon;
     if (iconType) {
       switch (iconType) {
-        case "claude":
-          return <ClaudeIcon size={14} />;
         case "codex":
           return <CodexIcon size={14} />;
-        case "gemini":
-          return <GeminiIcon size={14} />;
         case "generic":
           return <Zap size={14} />;
       }
@@ -464,50 +434,6 @@ export function ProviderPresetSelector({
           );
         })}
       </div>
-
-      {onUniversalPresetSelect && universalProviderPresets.length > 0 && (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-2">
-          {universalProviderPresets.map((preset) => (
-            <button
-              key={`universal-${preset.providerType}`}
-              type="button"
-              onClick={() => onUniversalPresetSelect(preset)}
-              className="inline-flex items-center justify-start gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-accent text-muted-foreground hover:bg-accent/80 relative w-full"
-              title={t("universalProvider.hint", {
-                defaultValue: "跨应用统一配置，自动同步到 Claude/Codex/Gemini",
-              })}
-            >
-              <ProviderIcon
-                icon={preset.icon}
-                name={preset.name}
-                size={14}
-                className="flex-shrink-0 text-foreground"
-              />
-              <span className="truncate">{preset.name}</span>
-              <span className="absolute -top-1 -right-1 flex items-center gap-0.5 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow-md">
-                <Layers className="h-2.5 w-2.5" />
-              </span>
-            </button>
-          ))}
-          {onManageUniversalProviders && (
-            <button
-              type="button"
-              onClick={onManageUniversalProviders}
-              className="inline-flex items-center justify-start gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-accent text-muted-foreground hover:bg-accent/80 w-full"
-              title={t("universalProvider.manage", {
-                defaultValue: "管理统一供应商",
-              })}
-            >
-              <Settings2 className="h-4 w-4 flex-shrink-0" />
-              <span className="truncate">
-                {t("universalProvider.manage", {
-                  defaultValue: "管理",
-                })}
-              </span>
-            </button>
-          )}
-        </div>
-      )}
 
       <p className="text-xs text-muted-foreground">{getCategoryHint()}</p>
     </div>

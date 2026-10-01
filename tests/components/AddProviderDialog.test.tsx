@@ -113,7 +113,7 @@ describe("AddProviderDialog", () => {
     mockFormValues = {
       name: "Test Provider",
       websiteUrl: "https://provider.example.com",
-      settingsConfig: JSON.stringify({ env: {}, config: {} }),
+      settingsConfig: JSON.stringify({ auth: {}, config: "" }),
       meta: {
         custom_endpoints: {
           "https://api.new-endpoint.com": {
@@ -133,12 +133,11 @@ describe("AddProviderDialog", () => {
       <AddProviderDialog
         open
         onOpenChange={handleOpenChange}
-        appId="claude"
+        appId="codex"
         onSubmit={handleSubmit}
       />,
     );
 
-    // Claude 的表单要等 live 底读回来才渲染。
     await screen.findByRole("button", { name: "manage-auth" });
     fireEvent.click(
       screen.getByRole("button", {
@@ -153,7 +152,7 @@ describe("AddProviderDialog", () => {
       mockFormValues.meta?.custom_endpoints,
     );
     // 保存时带上打开时的 live 底，后端据此把全局改动写进 live、三方比较。
-    expect(submitted.editorSave).toEqual({ base: {}, onConflict: "refuse" });
+    expect(submitted.editorSave).toBeUndefined();
     expect(handleOpenChange).toHaveBeenCalledWith(false);
   });
 
@@ -164,8 +163,9 @@ describe("AddProviderDialog", () => {
       name: "Base URL Provider",
       websiteUrl: "",
       settingsConfig: JSON.stringify({
-        env: { ANTHROPIC_BASE_URL: "https://claude.base" },
-        config: {},
+        auth: {},
+        config:
+          'model_provider = "custom"\n[model_providers.custom]\nbase_url = "https://codex.base/v1"',
       }),
     };
 
@@ -173,7 +173,7 @@ describe("AddProviderDialog", () => {
       <AddProviderDialog
         open
         onOpenChange={vi.fn()}
-        appId="claude"
+        appId="codex"
         onSubmit={handleSubmit}
       />,
     );
@@ -189,15 +189,15 @@ describe("AddProviderDialog", () => {
 
     const submitted = handleSubmit.mock.calls[0][0];
     expect(submitted.meta?.custom_endpoints).toEqual({
-      "https://claude.base": {
-        url: "https://claude.base",
+      "https://codex.base/v1": {
+        url: "https://codex.base/v1",
         addedAt: expect.any(Number),
         lastUsed: undefined,
       },
     });
   });
 
-  it.each(["codex", "gemini", "grokbuild"] as const)(
+  it.each(["codex"] as const)(
     "%s 新增时带上表单投影出的底，和编辑器同一套保存规则",
     async (appId) => {
       const handleSubmit = vi.fn().mockResolvedValue(undefined);
@@ -333,96 +333,10 @@ describe("AddProviderDialog", () => {
     });
   });
 
-  it("新建 Grok Build 自定义供应商时不补默认 Grok 图标", async () => {
-    const handleSubmit = vi.fn().mockResolvedValue(undefined);
-
-    mockFormValues = {
-      name: "tes 1",
-      websiteUrl: "",
-      icon: "",
-      iconColor: "",
-      settingsConfig: JSON.stringify({
-        config: `[models]
-default = "grok-4.5"
-
-[model."grok-4.5"]
-model = "grok-4.5"
-base_url = "https://grok.example.com/v1"
-name = "tes 1"
-api_key = "secret"
-api_backend = "responses"
-context_window = 500000
-`,
-      }),
-    };
-
-    render(
-      <AddProviderDialog
-        open
-        onOpenChange={vi.fn()}
-        appId="grokbuild"
-        onSubmit={handleSubmit}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "common.add" }));
-
-    await waitFor(() => expect(handleSubmit).toHaveBeenCalledTimes(1));
-
-    const submitted = handleSubmit.mock.calls[0][0];
-    expect(submitted.icon).toBeUndefined();
-    expect(submitted.iconColor).toBeUndefined();
-  });
-
-  it("Pi 添加供应商时仅提交供应商目录", async () => {
-    const handleSubmit = vi.fn().mockResolvedValue(undefined);
-    mockFormValues = {
-      name: "Pi Provider",
-      providerKey: "pi-provider",
-      websiteUrl: "",
-      settingsConfig: JSON.stringify({
-        baseUrl: "https://api.example.com/v1",
-        models: [
-          { id: "selected-model", name: "Selected" },
-          { id: "other-model", name: "Other" },
-        ],
-      }),
-      meta: {
-        isPartner: true,
-        endpointAutoSelect: true,
-        custom_endpoints: {
-          "https://failover.example.com/v1": {
-            url: "https://failover.example.com/v1",
-            addedAt: 1,
-          },
-        },
-      },
-    };
-
-    render(
-      <AddProviderDialog
-        open
-        onOpenChange={vi.fn()}
-        appId="pi"
-        onSubmit={handleSubmit}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "common.add" }));
-    await waitFor(() => expect(handleSubmit).toHaveBeenCalledTimes(1));
-    expect(handleSubmit.mock.calls[0][0]).toMatchObject({
-      providerKey: "pi-provider",
-      meta: { isPartner: true },
-    });
-    expect(handleSubmit.mock.calls[0][0]).not.toHaveProperty(
-      "piActivateModelId",
-    );
-  });
-
-  it("重新打开 Pi 表单后忽略上一轮的就绪回调", async () => {
+  it("重新打开 Codex 表单后忽略上一轮的就绪回调", async () => {
     const props = {
       onOpenChange: vi.fn(),
-      appId: "pi" as const,
+      appId: "codex" as const,
       onSubmit: vi.fn(),
     };
     const { rerender } = render(<AddProviderDialog open {...props} />);
@@ -443,4 +357,18 @@ context_window = 500000
     act(() => staleCallback?.(true));
     expect(reopenedButton).toBeDisabled();
   });
+  it.each(["claude", "gemini", "pi"] as const)(
+    "rejects unsupported %s dialog requests",
+    (appId) => {
+      const { container } = render(
+        <AddProviderDialog
+          open
+          appId={appId}
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+        />,
+      );
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
 });

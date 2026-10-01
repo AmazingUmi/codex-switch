@@ -12,6 +12,11 @@ const TAURI_ENDPOINT = "http://tauri.local";
 const useDragSortMock = vi.fn();
 const useSortableMock = vi.fn();
 const providerCardRenderSpy = vi.fn();
+const checkProviderMock = vi.fn();
+const addToQueueMock = vi.fn();
+const removeFromQueueMock = vi.fn();
+let autoFailoverEnabled: boolean | undefined = false;
+let failoverQueue: { providerId: string }[] | undefined = [];
 
 vi.mock("@/hooks/useDragSort", () => ({
   useDragSort: (...args: unknown[]) => useDragSortMock(...args),
@@ -88,16 +93,16 @@ vi.mock("@dnd-kit/sortable", async () => {
 // Mock hooks that use QueryClient
 vi.mock("@/hooks/useStreamCheck", () => ({
   useStreamCheck: () => ({
-    checkProvider: vi.fn(),
+    checkProvider: checkProviderMock,
     isChecking: () => false,
   }),
 }));
 
 vi.mock("@/lib/query/failover", () => ({
-  useAutoFailoverEnabled: () => ({ data: false }),
-  useFailoverQueue: () => ({ data: [] }),
-  useAddToFailoverQueue: () => ({ mutate: vi.fn() }),
-  useRemoveFromFailoverQueue: () => ({ mutate: vi.fn() }),
+  useAutoFailoverEnabled: () => ({ data: autoFailoverEnabled }),
+  useFailoverQueue: () => ({ data: failoverQueue }),
+  useAddToFailoverQueue: () => ({ mutate: addToQueueMock }),
+  useRemoveFromFailoverQueue: () => ({ mutate: removeFromQueueMock }),
   useReorderFailoverQueue: () => ({ mutate: vi.fn() }),
 }));
 
@@ -128,6 +133,11 @@ beforeEach(() => {
   useDragSortMock.mockReset();
   useSortableMock.mockReset();
   providerCardRenderSpy.mockClear();
+  checkProviderMock.mockClear();
+  addToQueueMock.mockClear();
+  removeFromQueueMock.mockClear();
+  autoFailoverEnabled = false;
+  failoverQueue = [];
 
   useSortableMock.mockImplementation(({ id }: { id: string }) => ({
     setNodeRef: vi.fn(),
@@ -151,7 +161,7 @@ describe("ProviderList Component", () => {
       <ProviderList
         providers={{}}
         currentProviderId=""
-        appId="claude"
+        appId="codex"
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
@@ -179,7 +189,7 @@ describe("ProviderList Component", () => {
       <ProviderList
         providers={{}}
         currentProviderId=""
-        appId="claude"
+        appId="codex"
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
@@ -218,7 +228,7 @@ describe("ProviderList Component", () => {
       <ProviderList
         providers={{ a: providerA, b: providerB }}
         currentProviderId="b"
-        appId="claude"
+        appId="codex"
         onSwitch={handleSwitch}
         onEdit={handleEdit}
         onDelete={handleDelete}
@@ -264,7 +274,7 @@ describe("ProviderList Component", () => {
     // Verify useDragSort call parameters
     expect(useDragSortMock).toHaveBeenCalledWith(
       { a: providerA, b: providerB },
-      "claude",
+      "codex",
     );
   });
 
@@ -286,7 +296,7 @@ describe("ProviderList Component", () => {
       <ProviderList
         providers={{ a: providerA, b: providerB }}
         currentProviderId="b"
-        appId="claude"
+        appId="codex"
         isProxyTakeover
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
@@ -321,7 +331,7 @@ describe("ProviderList Component", () => {
       <ProviderList
         providers={{ alpha: providerAlpha, beta: providerBeta }}
         currentProviderId=""
-        appId="claude"
+        appId="codex"
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
@@ -350,69 +360,91 @@ describe("ProviderList Component", () => {
     ).toBeInTheDocument();
   });
 
-  it("does not manufacture a Pi selection summary card", async () => {
+  it("imports the current Codex configuration through the Codex command", async () => {
+    const importCalls: unknown[] = [];
     server.use(
-      http.post(`${TAURI_ENDPOINT}/get_pi_current_state`, () =>
-        HttpResponse.json({
-          enabledProviderIds: [],
-        }),
+      http.post(
+        `${TAURI_ENDPOINT}/import_default_config`,
+        async ({ request }) => {
+          importCalls.push(await request.json());
+          return HttpResponse.json(true);
+        },
       ),
     );
-
     renderWithQueryClient(
       <ProviderList
         providers={{}}
         currentProviderId=""
-        appId="pi"
+        appId="codex"
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onDuplicate={vi.fn()}
         onOpenWebsite={vi.fn()}
-        onCreate={vi.fn()}
       />,
     );
-
-    expect(await screen.findByText("pi.empty.title")).toBeInTheDocument();
-    expect(providerCardRenderSpy).not.toHaveBeenCalled();
-    expect(
-      screen.queryByRole("button", { name: "provider.addProvider" }),
-    ).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "provider.importCurrent" }),
+    );
+    await waitFor(() => expect(importCalls).toEqual([{ app: "codex" }]));
   });
 
-  it("does not expose proxy or failover actions on Pi provider cards", async () => {
-    const currentProvider = createProvider({
-      id: "current-pi",
-      name: "Current Pi",
-    });
-    const inactiveProvider = createProvider({
-      id: "inactive-pi",
-      name: "Inactive Pi",
-    });
+  it.each([
+    { takeover: false, enabled: true, active: false },
+    { takeover: true, enabled: undefined, active: false },
+    { takeover: true, enabled: false, active: false },
+    { takeover: true, enabled: true, active: true },
+  ])(
+    "keeps failover state scoped to Codex takeover and confirmed enablement: %j",
+    ({ takeover, enabled, active }) => {
+      autoFailoverEnabled = enabled;
+      failoverQueue = [{ providerId: "b" }, { providerId: "a" }];
+      const provider = createProvider({ id: "a", name: "A" });
+      useDragSortMock.mockReturnValue({
+        sortedProviders: [provider],
+        sensors: [],
+        handleDragEnd: vi.fn(),
+      });
+      renderWithQueryClient(
+        <ProviderList
+          providers={{ a: provider }}
+          currentProviderId="a"
+          appId="codex"
+          isProxyRunning
+          isProxyTakeover={takeover}
+          activeProviderId="b"
+          onSwitch={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onDuplicate={vi.fn()}
+          onOpenWebsite={vi.fn()}
+        />,
+      );
+      const card = providerCardRenderSpy.mock.calls.at(-1)![0];
+      expect(card.isAutoFailoverEnabled).toBe(active);
+      expect(card.isInFailoverQueue).toBe(active);
+      expect(card.failoverPriority).toBe(active ? 2 : undefined);
+      expect(card.activeProviderId).toBe("b");
+      expect(card.isCurrent).toBe(true);
+    },
+  );
+
+  it("forwards stream checks, terminal opening and queue mutations for the selected Codex provider", () => {
+    autoFailoverEnabled = true;
+    const provider = createProvider({ id: "a", name: "Codex connection" });
+    const onOpenTerminal = vi.fn();
     useDragSortMock.mockReturnValue({
-      sortedProviders: [currentProvider, inactiveProvider],
+      sortedProviders: [provider],
       sensors: [],
       handleDragEnd: vi.fn(),
     });
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_pi_current_state`, () =>
-        HttpResponse.json({
-          enabledProviderIds: ["current-pi", "inactive-pi"],
-        }),
-      ),
-    );
-
     renderWithQueryClient(
       <ProviderList
-        providers={{
-          [currentProvider.id]: currentProvider,
-          [inactiveProvider.id]: inactiveProvider,
-        }}
-        currentProviderId="current-pi"
-        appId="pi"
-        isProxyRunning
+        providers={{ a: provider }}
+        currentProviderId=""
+        appId="codex"
         isProxyTakeover
-        activeProviderId="current-pi"
+        onOpenTerminal={onOpenTerminal}
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
@@ -420,228 +452,20 @@ describe("ProviderList Component", () => {
         onOpenWebsite={vi.fn()}
       />,
     );
-
-    await waitFor(() => {
-      const currentCards = providerCardRenderSpy.mock.calls
-        .map(([props]) => props)
-        .filter((props) => props.provider.id === "current-pi");
-      const inactiveCards = providerCardRenderSpy.mock.calls
-        .map(([props]) => props)
-        .filter((props) => props.provider.id === "inactive-pi");
-      expect(currentCards).not.toHaveLength(0);
-      expect(inactiveCards).not.toHaveLength(0);
-      expect(currentCards.at(-1)).toMatchObject({
-        isCurrent: false,
-        isRemovalProtected: false,
-        isProxyRunning: false,
-        isProxyTakeover: false,
-        isAutoFailoverEnabled: false,
-        activeProviderId: undefined,
-        onToggleFailover: undefined,
-      });
-      expect(inactiveCards.at(-1)).toMatchObject({
-        isCurrent: false,
-        isProxyRunning: false,
-        isProxyTakeover: false,
-      });
-      expect(currentCards.at(-1)).not.toHaveProperty("piCurrentRoute");
+    const card = providerCardRenderSpy.mock.calls.at(-1)![0];
+    card.onTest(provider);
+    card.onOpenTerminal(provider);
+    card.onToggleFailover(true);
+    card.onToggleFailover(false);
+    expect(checkProviderMock).toHaveBeenCalledWith(provider.id, provider.name);
+    expect(onOpenTerminal).toHaveBeenCalledWith(provider);
+    expect(addToQueueMock).toHaveBeenCalledWith({
+      appType: "codex",
+      providerId: "a",
     });
-  });
-
-  it("derives Pi membership only from the native provider ID list", async () => {
-    const provider = createProvider({
-      id: "drifted-pi",
-      name: "Saved Pi",
-      settingsConfig: { models: [{ id: "saved-model" }] },
+    expect(removeFromQueueMock).toHaveBeenCalledWith({
+      appType: "codex",
+      providerId: "a",
     });
-    useDragSortMock.mockReturnValue({
-      sortedProviders: [provider],
-      sensors: [],
-      handleDragEnd: vi.fn(),
-    });
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_pi_current_state`, () =>
-        HttpResponse.json({
-          enabledProviderIds: ["drifted-pi"],
-        }),
-      ),
-    );
-
-    renderWithQueryClient(
-      <ProviderList
-        providers={{ [provider.id]: provider }}
-        currentProviderId=""
-        appId="pi"
-        onSwitch={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onDuplicate={vi.fn()}
-        onOpenWebsite={vi.fn()}
-      />,
-    );
-
-    await waitFor(() => {
-      const latestCardProps = providerCardRenderSpy.mock.calls
-        .map(([props]) => props)
-        .filter((props) => props.provider.id === provider.id)
-        .at(-1);
-      expect(latestCardProps).toMatchObject({
-        isCurrent: false,
-        isInConfig: true,
-        isRemovalProtected: false,
-        isStateChangeProtected: false,
-      });
-    });
-  });
-
-  it("sets an inactive Pi provider through the ordinary provider action", async () => {
-    const provider = createProvider({
-      id: "inactive-pi",
-      name: "Inactive Pi",
-      settingsConfig: {
-        models: [
-          { id: "model-a", name: "Model A" },
-          { id: "model-b", name: "Model B" },
-        ],
-      },
-    });
-    const onSwitch = vi.fn();
-    useDragSortMock.mockReturnValue({
-      sortedProviders: [provider],
-      sensors: [],
-      handleDragEnd: vi.fn(),
-    });
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_pi_current_state`, () =>
-        HttpResponse.json({
-          enabledProviderIds: ["other-pi"],
-        }),
-      ),
-    );
-
-    renderWithQueryClient(
-      <ProviderList
-        providers={{ [provider.id]: provider }}
-        currentProviderId=""
-        appId="pi"
-        onSwitch={onSwitch}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onDuplicate={vi.fn()}
-        onOpenWebsite={vi.fn()}
-      />,
-    );
-
-    fireEvent.click(await screen.findByTestId("switch-inactive-pi"));
-    expect(onSwitch).toHaveBeenCalledWith(provider);
-    const latestCardProps = providerCardRenderSpy.mock.calls
-      .map(([props]) => props)
-      .filter((props) => props.provider.id === "inactive-pi")
-      .at(-1);
-    expect(latestCardProps).not.toHaveProperty("onSwitchPiModel");
-  });
-
-  it("does not use legacy metadata when Pi's authoritative state is unavailable", async () => {
-    const provider = createProvider({
-      id: "legacy-pi",
-      name: "Legacy Pi",
-      meta: { liveConfigManaged: true },
-    });
-    useDragSortMock.mockReturnValue({
-      sortedProviders: [provider],
-      sensors: [],
-      handleDragEnd: vi.fn(),
-    });
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_pi_current_state`, () =>
-        HttpResponse.json("current state unavailable", { status: 500 }),
-      ),
-    );
-
-    renderWithQueryClient(
-      <ProviderList
-        providers={{ [provider.id]: provider }}
-        currentProviderId=""
-        appId="pi"
-        onSwitch={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onDuplicate={vi.fn()}
-        onOpenWebsite={vi.fn()}
-      />,
-    );
-
-    await screen.findByRole("alert");
-    await waitFor(() => {
-      const latestCardProps = providerCardRenderSpy.mock.calls
-        .map(([props]) => props)
-        .filter((props) => props.provider.id === provider.id)
-        .at(-1);
-      expect(latestCardProps).toMatchObject({
-        isCurrent: false,
-        isInConfig: false,
-        isStateChangeProtected: true,
-      });
-    });
-  });
-
-  it("keeps Pi provider creation on the page-level add action", async () => {
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_pi_current_state`, () =>
-        HttpResponse.json({
-          enabledProviderIds: [],
-        }),
-      ),
-    );
-
-    renderWithQueryClient(
-      <ProviderList
-        providers={{}}
-        currentProviderId=""
-        appId="pi"
-        onSwitch={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onDuplicate={vi.fn()}
-        onOpenWebsite={vi.fn()}
-        onCreate={vi.fn()}
-      />,
-    );
-
-    await screen.findByText("pi.empty.title");
-    expect(
-      screen.queryByRole("button", { name: "provider.importCurrent" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "provider.addProvider" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("does not tell MiniMax Code users to click a missing import button", async () => {
-    renderWithQueryClient(
-      <ProviderList
-        providers={{}}
-        currentProviderId=""
-        appId="mcode"
-        onSwitch={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onDuplicate={vi.fn()}
-        onOpenWebsite={vi.fn()}
-        onCreate={vi.fn()}
-      />,
-    );
-
-    await screen.findByText("mcode.empty.title");
-    expect(screen.getByText("mcode.empty.description")).toBeInTheDocument();
-    expect(
-      screen.queryByText("provider.noProvidersDescription"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "provider.importCurrent" }),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "provider.addProvider" }),
-    ).toBeInTheDocument();
   });
 });
