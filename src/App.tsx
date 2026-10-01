@@ -20,6 +20,7 @@ import {
   Minimize2,
   X,
   BarChart2,
+  Users,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
@@ -48,13 +49,13 @@ import {
   DRAG_REGION_ATTR,
   DRAG_REGION_STYLE,
 } from "@/lib/platform";
-import { AppSwitcher } from "@/components/AppSwitcher";
 import { ProviderList } from "@/components/providers/ProviderList";
 import { CodexAccountsPanel } from "@/components/codex/CodexAccountsPanel";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsPage } from "@/components/settings/SettingsPage";
+import { HomeUsageDashboard } from "@/components/usage/HomeUsageDashboard";
 import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { ProxyToggle } from "@/components/proxy/ProxyToggle";
@@ -67,7 +68,6 @@ import { Button } from "@/components/ui/button";
 import { APP_IDS, isProxyAppId } from "@/config/appConfig";
 
 import {
-  PRODUCT_APP_IDS,
   isProductApp,
   normalizeProductApp,
   normalizeProductView,
@@ -109,9 +109,7 @@ function App() {
   }, []);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [homeTab, setHomeTab] = useState<"accounts" | "configurations">(
-    "accounts",
-  );
+  const [homeTab, setHomeTab] = useState<"accounts" | "usage">("accounts");
   const [initialCodexAccountId, setInitialCodexAccountId] = useState<
     string | undefined
   >();
@@ -654,6 +652,47 @@ function App() {
     }
   };
 
+  const configurationContent = (
+    <div className="space-y-4 pb-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">
+          {t("codexAccounts.configurationsTitle", "Connection configurations")}
+        </h2>
+        <Button
+          onClick={() => {
+            setInitialCodexAccountId(undefined);
+            setIsAddOpen(true);
+          }}
+          size="icon"
+          className={addActionButtonClass}
+          aria-label={t("codexAccounts.addConfiguration", "Add configuration")}
+          title={t("codexAccounts.addConfiguration", "Add configuration")}
+        >
+          <Plus className="h-5 w-5" aria-hidden="true" />
+        </Button>
+      </div>
+      <ProviderList
+        providers={providers}
+        currentProviderId={currentProviderId}
+        appId="codex"
+        isLoading={isLoading}
+        isProxyRunning={currentAppUsesProxy && isProxyRunning}
+        isProxyTakeover={isProxyRunning && isCurrentAppTakeoverActive}
+        activeProviderId={activeProviderId}
+        onSwitch={switchProvider}
+        onEdit={setEditingProvider}
+        onDelete={(provider) => setConfirmAction({ provider })}
+        onDuplicate={handleDuplicateProvider}
+        onConfigureUsage={setUsageProvider}
+        onOpenWebsite={handleOpenWebsite}
+        onCreate={() => {
+          setInitialCodexAccountId(undefined);
+          setIsAddOpen(true);
+        }}
+      />
+    </div>
+  );
+
   const renderContent = () => {
     const content = (() => {
       switch (currentView) {
@@ -664,6 +703,7 @@ function App() {
               onOpenChange={() => setCurrentView("providers")}
               onImportSuccess={handleImportSuccess}
               defaultTab={settingsDefaultTab}
+              configurations={configurationContent}
             />
           );
         default:
@@ -674,7 +714,7 @@ function App() {
                 aria-label={t("codexAccounts.homeTabs", "Codex management")}
                 className="flex gap-2 border-b border-border pb-3 mb-4"
               >
-                {(["accounts", "configurations"] as const).map((tab) => (
+                {(["accounts", "usage"] as const).map((tab) => (
                   <Button
                     key={tab}
                     role="tab"
@@ -683,6 +723,17 @@ function App() {
                     aria-controls={`codex-home-${tab}`}
                     id={`codex-tab-${tab}`}
                     variant={homeTab === tab ? "secondary" : "ghost"}
+                    size="icon"
+                    aria-label={
+                      tab === "accounts"
+                        ? t("codexAccounts.accountsTab", "ChatGPT accounts")
+                        : t("usage.title", "Usage Statistics")
+                    }
+                    title={
+                      tab === "accounts"
+                        ? t("codexAccounts.accountsTab", "ChatGPT accounts")
+                        : t("usage.title", "Usage Statistics")
+                    }
                     onClick={() => setHomeTab(tab)}
                     onKeyDown={(event) => {
                       if (
@@ -696,21 +747,18 @@ function App() {
                         event.key === "Home"
                           ? "accounts"
                           : event.key === "End"
-                            ? "configurations"
+                            ? "usage"
                             : tab === "accounts"
-                              ? "configurations"
+                              ? "usage"
                               : "accounts";
                       setHomeTab(nextTab);
                       document.getElementById(`codex-tab-${nextTab}`)?.focus();
                     }}
                   >
-                    {t(
-                      tab === "accounts"
-                        ? "codexAccounts.accountsTab"
-                        : "codexAccounts.configurationsTab",
-                      tab === "accounts"
-                        ? "ChatGPT accounts"
-                        : "Connection configurations",
+                    {tab === "accounts" ? (
+                      <Users className="h-5 w-5" aria-hidden="true" />
+                    ) : (
+                      <BarChart2 className="h-5 w-5" aria-hidden="true" />
                     )}
                   </Button>
                 ))}
@@ -749,6 +797,8 @@ function App() {
                             }
                           }}
                           onCreateConfiguration={(accountId) => {
+                            setSettingsDefaultTab("configurations");
+                            setCurrentView("settings");
                             setInitialCodexAccountId(accountId);
                             setIsAddOpen(true);
                           }}
@@ -757,48 +807,10 @@ function App() {
                     ) : (
                       <div
                         role="tabpanel"
-                        id="codex-home-configurations"
-                        aria-labelledby="codex-tab-configurations"
+                        id="codex-home-usage"
+                        aria-labelledby="codex-tab-usage"
                       >
-                        <div className="mb-5 space-y-1">
-                          <h2 className="text-xl font-semibold">
-                            {t(
-                              "codexAccounts.configurationsTitle",
-                              "Connection configurations",
-                            )}
-                          </h2>
-                          <p className="text-sm text-muted-foreground">
-                            {t(
-                              "codexAccounts.configurationsDescription",
-                              "OpenAI API and saved Codex connection settings.",
-                            )}
-                          </p>
-                        </div>
-                        <ProviderList
-                          providers={providers}
-                          currentProviderId={currentProviderId}
-                          appId="codex"
-                          isLoading={isLoading}
-                          isProxyRunning={currentAppUsesProxy && isProxyRunning}
-                          isProxyTakeover={
-                            isProxyRunning && isCurrentAppTakeoverActive
-                          }
-                          activeProviderId={activeProviderId}
-                          onSwitch={switchProvider}
-                          onEdit={(provider) => {
-                            setEditingProvider(provider);
-                          }}
-                          onDelete={(provider) =>
-                            setConfirmAction({ provider })
-                          }
-                          onDuplicate={handleDuplicateProvider}
-                          onConfigureUsage={setUsageProvider}
-                          onOpenWebsite={handleOpenWebsite}
-                          onCreate={() => {
-                            setInitialCodexAccountId(undefined);
-                            setIsAddOpen(true);
-                          }}
-                        />
+                        <HomeUsageDashboard />
                       </div>
                     )}
                   </motion.div>
@@ -955,6 +967,7 @@ function App() {
                     setSettingsDefaultTab("general");
                     setCurrentView("settings");
                   }}
+                  aria-label={t("common.settings")}
                   title={t("common.settings")}
                   className="hover:bg-black/5 dark:hover:bg-white/5"
                 >
@@ -966,20 +979,6 @@ function App() {
                     setCurrentView("settings");
                   }}
                 />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setSettingsDefaultTab("usage");
-                    setCurrentView("settings");
-                  }}
-                  title={t("usage.title", {
-                    defaultValue: "使用统计",
-                  })}
-                  className="hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  <BarChart2 className="w-4 h-4" />
-                </Button>
               </div>
             )}
           </div>
@@ -998,47 +997,6 @@ function App() {
                 )}
               </div>
             )}
-            {/* 弹性中段：空间不足时由 AppSwitcher 自行收纳溢出应用；
-                justify-end + overflow-hidden 只裁剪 resize 瞬间的过渡帧 */}
-            <div className="flex flex-1 min-w-0 items-center justify-end overflow-hidden py-4">
-              {currentView === "providers" && (
-                <AppSwitcher
-                  activeApp={activeApp}
-                  onSwitch={setActiveApp}
-                  visibleApps={visibleApps}
-                  allowedApps={PRODUCT_APP_IDS}
-                />
-              )}
-            </div>
-            {/* 固定右端：主操作（添加供应商等）shrink-0，任何配置下不被挤出 */}
-            <div className="flex shrink-0 items-center py-4">
-              <div
-                className="flex shrink-0 items-center gap-1.5"
-                style={{ WebkitAppRegion: "no-drag" } as any}
-              >
-                {currentView === "providers" &&
-                  homeTab === "configurations" && (
-                    <Button
-                      onClick={() => {
-                        setInitialCodexAccountId(undefined);
-                        setIsAddOpen(true);
-                      }}
-                      size="icon"
-                      className={`ml-2 ${addActionButtonClass}`}
-                      aria-label={t(
-                        "codexAccounts.addConfiguration",
-                        "Add configuration",
-                      )}
-                      title={t(
-                        "codexAccounts.addConfiguration",
-                        "Add configuration",
-                      )}
-                    >
-                      <Plus className="w-5 h-5" />
-                    </Button>
-                  )}
-              </div>
-            </div>
           </div>
         </div>
       </header>

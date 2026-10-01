@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { motion } from "framer-motion";
 import {
@@ -15,6 +16,12 @@ import {
   Cloud,
   ScrollText,
   HardDriveDownload,
+  Settings2,
+  Cable,
+  Network,
+  KeyRound,
+  SlidersHorizontal,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -43,7 +50,6 @@ import { BackupListSection } from "@/components/settings/BackupListSection";
 import { WebdavSyncSection } from "@/components/settings/WebdavSyncSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { ProxyTabContent } from "@/components/settings/ProxyTabContent";
-import { UsageDashboard } from "@/components/usage/UsageDashboard";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
@@ -57,6 +63,7 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   onImportSuccess?: () => void | Promise<void>;
   defaultTab?: string;
+  configurations?: ReactNode;
 }
 
 export function SettingsPage({
@@ -64,6 +71,7 @@ export function SettingsPage({
   onOpenChange,
   onImportSuccess,
   defaultTab = "general",
+  configurations,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
   const {
@@ -99,7 +107,7 @@ export function SettingsPage({
     resetStatus,
   } = useImportExport({ onImportSuccess });
 
-  const [activeTab, setActiveTab] = useState<string>("general");
+  const [activeTab, setActiveTab] = useState<string>(defaultTab);
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
   const tabScrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -202,6 +210,31 @@ export function SettingsPage({
     [autoSaveSettings, settings, t, updateSettings],
   );
 
+  const settingsTabs = [
+    {
+      value: "general",
+      label: t("settings.tabGeneral"),
+      Icon: Settings2,
+    },
+    {
+      value: "configurations",
+      label: t("codexAccounts.configurationsTab", "Connection configurations"),
+      Icon: Cable,
+    },
+    { value: "proxy", label: t("settings.tabProxy"), Icon: Network },
+    {
+      value: "auth",
+      label: t("settings.tabAuth", "Authentication"),
+      Icon: KeyRound,
+    },
+    {
+      value: "advanced",
+      label: t("settings.tabAdvanced"),
+      Icon: SlidersHorizontal,
+    },
+    { value: "about", label: t("common.about"), Icon: Info },
+  ];
+
   const isBusy = useMemo(() => isLoading && !settings, [isLoading, settings]);
 
   return (
@@ -216,20 +249,27 @@ export function SettingsPage({
           onValueChange={setActiveTab}
           className="flex flex-col h-full"
         >
-          <TabsList className="grid w-full grid-cols-6 mb-6 glass rounded-lg">
-            <TabsTrigger value="general">
-              {t("settings.tabGeneral")}
-            </TabsTrigger>
-            <TabsTrigger value="proxy">{t("settings.tabProxy")}</TabsTrigger>
-            <TabsTrigger value="auth">
-              {t("settings.tabAuth", { defaultValue: "认证" })}
-            </TabsTrigger>
-            <TabsTrigger value="advanced">
-              {t("settings.tabAdvanced")}
-            </TabsTrigger>
-            <TabsTrigger value="usage">{t("usage.title")}</TabsTrigger>
-            <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
+          <TabsList
+            aria-label={t("settings.title")}
+            className="self-start mb-6 glass rounded-lg"
+          >
+            {settingsTabs.map(({ value, label, Icon }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                aria-label={label}
+                title={label}
+                className="min-w-0 h-10 w-10 p-0"
+              >
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </TabsTrigger>
+            ))}
           </TabsList>
+          {activeTab !== "configurations" && activeTab !== "about" && (
+            <h2 className="mb-4 text-lg font-semibold">
+              {settingsTabs.find((tab) => tab.value === activeTab)?.label}
+            </h2>
+          )}
 
           <div className="flex-1 min-h-0 flex flex-col">
             <div
@@ -265,6 +305,10 @@ export function SettingsPage({
                     />
                   </motion.div>
                 ) : null}
+              </TabsContent>
+
+              <TabsContent value="configurations" className="mt-0">
+                {configurations}
               </TabsContent>
 
               <TabsContent value="proxy" className="space-y-6 mt-0 pb-4">
@@ -455,21 +499,6 @@ export function SettingsPage({
 
               <TabsContent value="about" className="mt-0">
                 <AboutSection isPortable={isPortable} />
-              </TabsContent>
-
-              <TabsContent value="usage" className="mt-0">
-                <UsageDashboard
-                  refreshIntervalMs={settings?.usageDashboardRefreshIntervalMs}
-                  onRefreshIntervalChange={(usageDashboardRefreshIntervalMs) =>
-                    handleAutoSave({ usageDashboardRefreshIntervalMs })
-                  }
-                  sessionAutoSyncEnabled={
-                    settings?.sessionAutoSyncEnabled ?? true
-                  }
-                  onSessionAutoSyncEnabledChange={(sessionAutoSyncEnabled) =>
-                    handleAutoSave({ sessionAutoSyncEnabled })
-                  }
-                />
               </TabsContent>
             </div>
 

@@ -24,6 +24,8 @@ import {
   User,
   AlertTriangle,
   RefreshCw,
+  Star,
+  Trash2,
 } from "lucide-react";
 import { useCodexOauth } from "./hooks/useCodexOauth";
 import { copyText } from "@/lib/clipboard";
@@ -76,7 +78,7 @@ interface CodexOAuthSectionProps {
  * Codex OAuth 认证区块
  *
  * 通过 OpenAI Device Code 流程登录 ChatGPT Plus/Pro 账号，
- * 用于将 Claude Code 请求反代到 Codex 后端 API。
+ * 为 Codex 的托管账号配置提供认证。
  */
 export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
   className,
@@ -341,7 +343,9 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
       {/* 认证状态标题 */}
       {mode === "manage" && (
         <div className="flex items-center justify-between">
-          <Label>{t("codexOauth.authStatus", "认证状态")}</Label>
+          <Label className={presentation === "cards" ? "sr-only" : undefined}>
+            {t("codexOauth.authStatus", "认证状态")}
+          </Label>
           <Badge
             variant={
               isStatusError
@@ -367,6 +371,52 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                     })
                   : t("codexOauth.notAuthenticated", "未认证")}
           </Badge>
+          {presentation === "cards" && isStatusSuccess && (
+            <div className="flex items-center gap-1">
+              {pollingState === "idle" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={addAccount}
+                  disabled={isAddingAccount}
+                  title={
+                    hasAnyAccount
+                      ? t("codexOauth.addAnotherAccount", "添加其他账号")
+                      : t("codexOauth.loginWithChatGPT", "使用 ChatGPT 登录")
+                  }
+                  aria-label={
+                    hasAnyAccount
+                      ? t("codexOauth.addAnotherAccount", "添加其他账号")
+                      : t("codexOauth.loginWithChatGPT", "使用 ChatGPT 登录")
+                  }
+                >
+                  {isAddingAccount ? (
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </Button>
+              )}
+              {hasAnyAccount && accounts.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                  onClick={logout}
+                  title={t("codexOauth.logoutAll", "注销所有账号")}
+                  aria-label={t("codexOauth.logoutAll", "注销所有账号")}
+                >
+                  <LogOut className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -541,8 +591,10 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                     <Button
                       type="button"
                       variant="outline"
-                      size="sm"
-                      className={`h-7 gap-1 px-2 text-xs ${
+                      size={presentation === "cards" ? "icon" : "sm"}
+                      title={t("codexOauth.reauthLogin", "重新登录")}
+                      aria-label={t("codexOauth.reauthLogin", "重新登录")}
+                      className={`${presentation === "cards" ? "h-7 w-7" : "h-7 gap-1 px-2 text-xs"} ${
                         account.reauth_required
                           ? "border-amber-400/70 text-amber-700 hover:bg-amber-100 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-900/40"
                           : "text-muted-foreground"
@@ -550,19 +602,30 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                       onClick={() => reauthAccount(account.id)}
                       disabled={isAddingAccount}
                     >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      {t("codexOauth.reauthLogin", "重新登录")}
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      {presentation !== "cards" &&
+                        t("codexOauth.reauthLogin", "重新登录")}
                     </Button>
                     {defaultAccountId !== account.id && (
                       <Button
                         type="button"
                         variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-muted-foreground"
+                        size={presentation === "cards" ? "icon" : "sm"}
+                        className={
+                          presentation === "cards"
+                            ? "h-7 w-7 text-muted-foreground"
+                            : "h-7 px-2 text-xs text-muted-foreground"
+                        }
+                        title={t("codexOauth.setAsDefault", "设为默认")}
+                        aria-label={t("codexOauth.setAsDefault", "设为默认")}
                         onClick={() => setDefaultAccount(account.id)}
                         disabled={isSettingDefaultAccount}
                       >
-                        {t("codexOauth.setAsDefault", "设为默认")}
+                        {presentation === "cards" ? (
+                          <Star className="h-3.5 w-3.5" aria-hidden="true" />
+                        ) : (
+                          t("codexOauth.setAsDefault", "设为默认")
+                        )}
                       </Button>
                     )}
                     <Button
@@ -575,7 +638,11 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                       title={t("codexOauth.removeAccount", "移除账号")}
                       aria-label={`${t("codexOauth.removeAccount", "移除账号")}: ${account.login}`}
                     >
-                      <X className="h-4 w-4" />
+                      {presentation === "cards" ? (
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      )}
                     </Button>
                   </div>
                 </div>
@@ -591,6 +658,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
 
       {/* 未认证 - 登录按钮 */}
       {mode === "manage" &&
+        presentation !== "cards" &&
         isStatusSuccess &&
         !hasAnyAccount &&
         pollingState === "idle" && (
@@ -607,6 +675,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
 
       {/* 已有账号 - 添加更多按钮 */}
       {mode === "manage" &&
+        presentation !== "cards" &&
         isStatusSuccess &&
         hasAnyAccount &&
         pollingState === "idle" && (
@@ -711,6 +780,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
 
       {/* 注销所有账号 */}
       {mode === "manage" &&
+        presentation !== "cards" &&
         isStatusSuccess &&
         hasAnyAccount &&
         accounts.length > 1 && (

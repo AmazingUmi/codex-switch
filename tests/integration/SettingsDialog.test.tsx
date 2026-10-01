@@ -46,10 +46,14 @@ vi.mock("@/components/ui/tabs", () => {
       </TabsContext.Provider>
     ),
     TabsList: ({ children }: any) => <div>{children}</div>,
-    TabsTrigger: ({ value, children }: any) => {
+    TabsTrigger: ({ value, children, ...props }: any) => {
       const ctx = React.useContext(TabsContext);
       return (
-        <button type="button" onClick={() => ctx.onValueChange?.(value)}>
+        <button
+          type="button"
+          {...props}
+          onClick={() => ctx.onValueChange?.(value)}
+        >
           {children}
         </button>
       );
@@ -150,7 +154,9 @@ describe("SettingsPage integration", () => {
     await waitFor(() =>
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
     const appInput = await screen.findByPlaceholderText(
       "settings.browsePlaceholderApp",
@@ -166,7 +172,9 @@ describe("SettingsPage integration", () => {
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.data.title"));
     fireEvent.click(screen.getByText("settings.selectConfigFile"));
     await waitFor(() =>
@@ -190,7 +198,9 @@ describe("SettingsPage integration", () => {
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
     const appInput = await screen.findByPlaceholderText(
       "settings.browsePlaceholderApp",
@@ -217,7 +227,9 @@ describe("SettingsPage integration", () => {
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
 
     const browseButtons = screen.getAllByTitle("settings.browseDirectory");
@@ -255,7 +267,9 @@ describe("SettingsPage integration", () => {
     await waitFor(() =>
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.data.title"));
 
     server.use(

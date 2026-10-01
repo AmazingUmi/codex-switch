@@ -114,6 +114,49 @@ describe("Codex account provider mapping", () => {
 });
 
 describe("CodexAccountsPanel", () => {
+  it("keeps the account hierarchy compact and opens account help with the keyboard", async () => {
+    const user = userEvent.setup();
+    render(
+      <CodexAccountsPanel
+        providers={[provider("first", "account-1")]}
+        currentProviderId="first"
+        onSwitchProvider={vi.fn()}
+        onCreateConfiguration={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByRole("heading", { name: "ChatGPT 账号" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("3 个账号")).toBeInTheDocument();
+    expect(screen.queryByText(/切换后，请重启/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/百分比表示已使用额度/)).not.toBeInTheDocument();
+
+    const help = screen.getByRole("button", { name: "账号与额度说明" });
+    expect(help).toHaveAttribute("title", "账号与额度说明");
+    await user.tab();
+    expect(help).toHaveFocus();
+    await user.keyboard("{Enter}");
+    const explanation = screen.getByRole("dialog", { name: "账号与额度说明" });
+    expect(explanation).toHaveTextContent(/两者可以不同/);
+    expect(explanation).toHaveTextContent(/切换后，请重启/);
+    expect(explanation).toHaveTextContent(/百分比表示已使用额度/);
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(help).toHaveFocus();
+
+    for (const label of ["添加其他账号", "注销所有账号"]) {
+      const action = screen.getByRole("button", { name: label });
+      expect(action).toHaveAttribute("title", label);
+      expect(action).toHaveTextContent(/^$/);
+    }
+    const account = within(card("account-2"));
+    for (const label of ["重新登录", "设为默认", "配置账号"]) {
+      const action = account.getByRole("button", { name: label });
+      expect(action).toHaveAttribute("title", label);
+      expect(action).toHaveTextContent(/^$/);
+    }
+  });
+
   it("shows native/API current configuration without marking the OAuth default current", () => {
     const native: Provider = {
       id: "codex-official",

@@ -8,9 +8,6 @@ import {
 import {
   Download,
   Copy,
-  ExternalLink,
-  Github,
-  Globe,
   Info,
   Loader2,
   RefreshCw,
@@ -37,11 +34,10 @@ import type {
   ToolInstallation,
   ToolInstallationReport,
 } from "@/lib/api/settings";
-import { useUpdate } from "@/contexts/UpdateContext";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
 import { IS_CODEX_PREVIEW } from "@/config/buildMode";
-import appIcon from "@/assets/icons/app-icon.png";
+import { CodexSwitchMark } from "@/components/branding/CodexSwitchMark";
 import { APP_ICON_MAP } from "@/config/appConfig";
 import type { AppId } from "@/lib/api/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
@@ -191,7 +187,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingVersion, setIsLoadingVersion] = useState(
     () => appVersionCache === null,
   );
-  const [isDownloading, setIsDownloading] = useState(false);
   const { toolVersionsCache, busyTools, pendingUpgrades, batchAction } =
     useSyncExternalStore(subscribeToolManagement, getToolManagementState);
   const toolVersions = toolVersionsCache?.data ?? EMPTY_TOOL_VERSIONS;
@@ -202,9 +197,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     () => toolVersionsCache === null,
   );
   const [showInstallCommands, setShowInstallCommands] = useState(false);
-
-  const { hasUpdate, updateInfo, checkUpdate, resetDismiss, isChecking } =
-    useUpdate();
 
   const [wslShellByTool, setWslShellByTool] = useState<
     Record<string, WslShellPreference>
@@ -404,89 +396,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     // refreshes are handled by refreshToolVersions in the shell/flag handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ... (handlers like handleOpenReleaseNotes, handleCheckUpdate) ...
-
-  const handleOpenReleaseNotes = useCallback(async () => {
-    try {
-      const targetVersion = updateInfo?.availableVersion ?? version ?? "";
-      const displayVersion = targetVersion.startsWith("v")
-        ? targetVersion
-        : targetVersion
-          ? `v${targetVersion}`
-          : "";
-
-      if (!displayVersion) {
-        await settingsApi.openExternal(
-          "https://github.com/farion1231/cc-switch/releases",
-        );
-        return;
-      }
-
-      await settingsApi.openExternal(
-        `https://github.com/farion1231/cc-switch/releases/tag/${displayVersion}`,
-      );
-    } catch (error) {
-      console.error("[AboutSection] Failed to open release notes", error);
-      toast.error(t("settings.openReleaseNotesFailed"));
-    }
-  }, [t, updateInfo?.availableVersion, version]);
-
-  const handleOpenGithub = useCallback(() => {
-    void settingsApi.openExternal("https://github.com/farion1231/cc-switch");
-  }, []);
-
-  const handleCheckUpdate = useCallback(async () => {
-    if (hasUpdate) {
-      if (isPortable) {
-        try {
-          await settingsApi.checkUpdates();
-        } catch (error) {
-          console.error("[AboutSection] Portable update failed", error);
-        }
-        return;
-      }
-
-      setIsDownloading(true);
-      try {
-        resetDismiss();
-        const installed = await settingsApi.installUpdateAndRestart();
-        if (!installed) {
-          toast.success(t("settings.upToDate"), { closeButton: true });
-        }
-      } catch (error) {
-        console.error("[AboutSection] Update failed", error);
-        toast.error(t("settings.updateFailed"), {
-          description: extractErrorMessage(error) || undefined,
-          closeButton: true,
-        });
-        try {
-          await settingsApi.checkUpdates();
-        } catch (fallbackError) {
-          console.error(
-            "[AboutSection] Failed to open fallback updater",
-            fallbackError,
-          );
-        }
-      } finally {
-        setIsDownloading(false);
-      }
-      return;
-    }
-
-    try {
-      const available = await checkUpdate();
-      if (!available) {
-        toast.success(t("settings.upToDate"), { closeButton: true });
-      }
-    } catch (error) {
-      console.error("[AboutSection] Check update failed", error);
-      toast.error(t("settings.checkUpdateFailed"), {
-        description: extractErrorMessage(error) || undefined,
-        closeButton: true,
-      });
-    }
-  }, [checkUpdate, hasUpdate, isPortable, resetDismiss, t]);
 
   const handleCopyInstallCommands = useCallback(async () => {
     try {
@@ -896,7 +805,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           <div className="flex items-center gap-8">
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-2">
-                <img src={appIcon} alt="Codex Switch" className="h-5 w-5" />
+                <CodexSwitchMark className="h-7 w-7 text-zinc-900 dark:text-zinc-700" />
                 <h4 className="text-lg font-semibold text-foreground">
                   Codex Switch
                 </h4>
@@ -921,114 +830,16 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               </div>
             </div>
           </div>
-
-          <p className="min-w-0 flex-1 text-xs leading-relaxed sm:text-right">
-            <a
-              href="https://github.com/farion1231/cc-switch"
-              onClick={(event) => {
-                event.preventDefault();
-                handleOpenGithub();
-              }}
-              className="font-medium text-primary hover:underline"
-            >
-              {t("settings.starPrompt")}
-            </a>
-            <span aria-hidden="true" className="ml-1.5">
-              👉
-            </span>
-          </p>
-
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleOpenGithub}
-              className="h-8 gap-1.5 border-primary/30 bg-primary/10 text-xs text-primary hover:bg-primary/20 hover:text-primary"
-            >
-              <Github className="h-3.5 w-3.5" />
-              {t("settings.github")}
-              <span
-                aria-hidden="true"
-                className="inline-block animate-[spin_4s_linear_infinite] motion-reduce:animate-none"
-              >
-                ⭐
-              </span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => settingsApi.openExternal("https://ccswitch.io")}
-              className="h-8 gap-1.5 text-xs"
-            >
-              <Globe className="h-3.5 w-3.5" />
-              {t("settings.officialWebsite")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleOpenReleaseNotes}
-              className="h-8 gap-1.5 text-xs"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {t("settings.releaseNotes")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleCheckUpdate}
-              disabled={IS_CODEX_PREVIEW || isChecking || isDownloading}
-              className="h-8 gap-1.5 text-xs"
-            >
-              {isDownloading ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {t("settings.updating")}
-                </>
-              ) : hasUpdate ? (
-                <>
-                  <Download className="h-3.5 w-3.5" />
-                  {t("settings.updateTo", {
-                    version: updateInfo?.availableVersion ?? "",
-                  })}
-                </>
-              ) : isChecking ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  {t("settings.checking")}
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  {IS_CODEX_PREVIEW
-                    ? t("settings.previewManualBuild")
-                    : t("settings.checkForUpdates")}
-                </>
-              )}
-            </Button>
-          </div>
         </div>
+
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {t("settings.localBuildHint")}
+        </p>
 
         {IS_CODEX_PREVIEW && (
           <p className="text-sm text-muted-foreground">
             {t("settings.previewDataNotice")}
           </p>
-        )}
-
-        {hasUpdate && updateInfo && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="rounded-lg bg-primary/10 border border-primary/20 px-4 py-3 text-sm"
-          >
-            <p className="font-medium text-primary mb-1">
-              {t("settings.updateAvailable", {
-                version: updateInfo.availableVersion,
-              })}
-            </p>
-          </motion.div>
         )}
       </motion.div>
 

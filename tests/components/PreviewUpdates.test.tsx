@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { UpdateProvider, useUpdate } from "@/contexts/UpdateContext";
 import { checkForUpdate } from "@/lib/updater";
 
-vi.mock("@/config/buildMode", () => ({ IS_CODEX_PREVIEW: true }));
+vi.mock("@/config/buildMode", () => ({ APP_UPDATES_ENABLED: false }));
 vi.mock("@/lib/updater", () => ({ checkForUpdate: vi.fn() }));
 
 function UpdateProbe() {
@@ -15,7 +15,7 @@ function UpdateProbe() {
   );
 }
 
-describe("isolated preview updates", () => {
+describe("Codex Switch updates", () => {
   afterEach(() => vi.useRealTimers());
 
   it("never contacts the upstream updater on startup or manual check", async () => {

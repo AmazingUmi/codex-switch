@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { CodexSwitchMark } from "@/components/branding/CodexSwitchMark";
 import { cn } from "@/lib/utils";
 
 const BURST_LIFETIME_MS = 980;
@@ -84,12 +85,10 @@ export function RoutingActivationBrand({
         />
       )}
 
-      <motion.a
-        href="https://ccswitch.io"
-        target="_blank"
-        rel="noreferrer"
+      <motion.span
+        aria-label="Codex Switch"
         className={cn(
-          "relative z-10 text-xl font-semibold transition-colors duration-500",
+          "relative z-10 inline-flex items-center gap-2 text-base font-semibold transition-colors duration-500",
           active
             ? "text-emerald-500 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-300"
             : "text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300",
@@ -122,8 +121,9 @@ export function RoutingActivationBrand({
             : { duration: 0.28, ease: [0.22, 1, 0.36, 1] }
         }
       >
-        CC Switch
-      </motion.a>
+        <CodexSwitchMark className="h-7 w-7" />
+        Codex Switch
+      </motion.span>
 
       {showBurst && (
         <motion.span

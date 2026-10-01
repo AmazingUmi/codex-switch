@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "CC Switch",
+    "title": "Codex Switch",
     "description": "Account management and usage monitoring for OpenAI Codex and ChatGPT Codex"
   },
   "common": {
@@ -46,7 +46,7 @@
     "collapse": "Collapse"
   },
   "firstRunNotice": {
-    "title": "Welcome to CC Switch",
+    "title": "Welcome to Codex Switch",
     "bodyDefault": "Manage your ChatGPT accounts, switch the current Codex account, and monitor each account’s quota. Existing Codex configuration is retained by the current provider workflow.",
     "bodyOfficial": "Add or reauthenticate ChatGPT accounts in Settings → Auth. The default OAuth account and the currently active Codex account are managed separately.",
     "confirm": "Got it"
@@ -292,7 +292,7 @@
     "deleteProvider": "Delete Provider",
     "deleteProviderMessage": "Are you sure you want to delete provider \"{{name}}\"? This action cannot be undone.",
     "removeProvider": "Remove Provider",
-    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in CC Switch. You can re-add it at any time.",
+    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in Codex Switch. You can re-add it at any time.",
     "piDefaultProviderWarning": "Pi's global default currently points to this provider. If you continue, Pi will try another available model; use /model to choose one or /login to sign in to another provider.",
     "proxy": {
       "title": "Enable Local Routing",
@@ -369,7 +369,7 @@
       },
       "globalProxy": {
         "title": "Global Outbound Proxy",
-        "description": "Configure proxy for CC Switch to access external APIs"
+        "description": "Configure proxy for Codex Switch to access external APIs"
       },
       "data": {
         "title": "Data Management",
@@ -440,7 +440,7 @@
     "themeDark": "Dark",
     "themeSystem": "System",
     "importExport": "SQL Import/Export",
-    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by CC Switch).",
+    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by Codex Switch).",
     "exportConfig": "Export SQL Backup",
     "selectConfigFile": "Select SQL File",
     "noFileSelected": "No configuration file selected.",
@@ -678,7 +678,7 @@
     "windowBehavior": "Window Behavior",
     "windowBehaviorHint": "Configure window minimize and Claude plugin integration policies.",
     "launchOnStartup": "Launch on Startup",
-    "launchOnStartupDescription": "Automatically run CC Switch when system starts",
+    "launchOnStartupDescription": "Automatically run Codex Switch when system starts",
     "silentStartup": "Silent Startup",
     "silentStartupDescription": "Start in background mode without showing main window",
     "autoLaunchFailed": "Failed to set auto-launch",
@@ -761,8 +761,8 @@
     },
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
     "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
-    "appConfigDir": "CC Switch Configuration Directory",
-    "appConfigDirDescription": "Customize the storage location for CC Switch configuration (point to cloud sync folder to enable config sync)",
+    "appConfigDir": "Codex Switch Configuration Directory",
+    "appConfigDirDescription": "Customize the storage location for Codex Switch configuration (point to cloud sync folder to enable config sync)",
     "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.cc-switch",
     "claudeConfigDir": "Claude Code Configuration Directory",
     "claudeConfigDirDescription": "Override Claude configuration directory (settings.json). Custom directories store .claude.json (MCP) inside the directory; the default ~/.claude directory keeps Claude Code's split ~/.claude.json path.",
@@ -795,7 +795,7 @@
     "updating": "Updating...",
     "checking": "Checking...",
     "upToDate": "Up to Date",
-    "aboutHint": "View version information and update status.",
+    "aboutHint": "Version information and Codex CLI installation.",
     "portableMode": "Portable mode: updates require manual download.",
     "updateAvailable": "New version available: {{version}}",
     "updateBadge": "Update available",
@@ -843,7 +843,7 @@
     "toolUpgradeConfirmBtn": "Confirm upgrade",
     "toolUpgradeUnanchoredHint": "Can't determine which install your command line uses; will run the default upgrade command (may install to the first npm on PATH).",
     "toolUpgradeUnmanagedTitle": "Skipped upgrading these tools",
-    "toolUpgradeUnmanagedDetail": "{{tool}} ({{path}}) wasn't installed by npm or a recognized installer, so CC Switch can't tell how to upgrade it. Upgrade it the way you installed it (e.g. winget, Scoop, or re-running the official install script).",
+    "toolUpgradeUnmanagedDetail": "{{tool}} ({{path}}) wasn't installed by npm or a recognized installer, so Codex Switch can't tell how to upgrade it. Upgrade it the way you installed it (e.g. winget, Scoop, or re-running the official install script).",
     "envBadge": {
       "wsl": "WSL",
       "windows": "Win",
@@ -857,7 +857,7 @@
     "importFailedError": "Import config failed: {{message}}",
     "exportFailedError": "Export config failed:",
     "restartRequired": "Restart Required",
-    "restartRequiredMessage": "Modifying the CC Switch configuration directory requires restarting the application to take effect. Restart now?",
+    "restartRequiredMessage": "Modifying the Codex Switch configuration directory requires restarting the application to take effect. Restart now?",
     "restartNow": "Restart Now",
     "restartLater": "Restart Later",
     "restartFailed": "Application restart failed, please manually close and reopen.",
@@ -887,7 +887,8 @@
       "pricingSaveFailed": "Failed to save pricing defaults: {{error}}",
       "pricingLoadFailed": "Failed to load pricing defaults: {{error}}"
     },
-    "saveFailedGeneric": "Save failed, please try again"
+    "saveFailedGeneric": "Save failed, please try again",
+    "localBuildHint": "Codex Switch is distributed as a local build. App updates are managed outside the app."
   },
   "apps": {
     "claude": "Claude",
@@ -1606,7 +1607,7 @@
     "headerName": "Header",
     "headerValue": "Value",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "CC Switch",
+    "headerValuePlaceholder": "Codex Switch",
     "removeHeader": "Remove header",
     "noHeaders": "No custom headers configured",
     "extraOptions": "Extra Options",
@@ -1818,11 +1819,11 @@
     "modelsDevDefaultHint": "Showing the {{shown}} most recently released models (of {{total}}) — type to search all",
     "modelsDevAutoSync": {
       "title": "Automatic models.dev pricing sync",
-      "description": "When enabled, periodically fetch selected prices when CC Switch launches and keep them in your local pricing file.",
+      "description": "When enabled, periodically fetch selected prices when Codex Switch launches and keep them in your local pricing file.",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "enableConfirmTitle": "Enable automatic pricing sync?",
-      "enableConfirmMessage": "After enabling, CC Switch will periodically update prices for the selected models from models.dev when it launches (at most once every 6 hours). Built-in and manually configured prices with the same model ID will be overwritten.",
+      "enableConfirmMessage": "After enabling, Codex Switch will periodically update prices for the selected models from models.dev when it launches (at most once every 6 hours). Built-in and manually configured prices with the same model ID will be overwritten.",
       "enableConfirmAction": "Enable automatic sync",
       "configure": "Choose models",
       "configureTitle": "Choose models for automatic pricing sync",
@@ -1956,7 +1957,8 @@
     "retry": "Retry upgrade",
     "openReleases": "Open releases page",
     "openConfigDir": "Open config folder",
-    "quit": "Quit"
+    "quit": "Quit",
+    "localBuildRecovery": "This database needs a compatible Codex Switch build. Back up the configuration directory before installing a compatible build or restoring an earlier backup. Automatic app updates are not configured; this screen does not change your data."
   },
   "errors": {
     "usage_query_failed": "Usage query failed",
@@ -2629,7 +2631,7 @@
   },
   "deeplink": {
     "confirmImport": "Confirm Import Provider",
-    "confirmImportDescription": "The following configuration will be imported from deep link into CC Switch",
+    "confirmImportDescription": "The following configuration will be imported from deep link into Codex Switch",
     "importPrompt": "Import Prompt",
     "importPromptDescription": "Please confirm whether to import this system prompt",
     "importMcp": "Import MCP Servers",
@@ -3279,6 +3281,9 @@
     "managedAccount": "ChatGPT account",
     "customConfiguration": "Custom configuration",
     "configurationLoading": "Loading configuration…",
-    "configurationUnavailable": "Current configuration unavailable"
+    "configurationUnavailable": "Current configuration unavailable",
+    "helpLabel": "Account and quota help",
+    "helpBinding": "The default account is used for managed authentication without an explicit account. The current account comes from the active Codex configuration and may be different.",
+    "helpQuota": "Percentages show used quota. The five-hour and weekly windows have independent usage and reset times; available windows depend on the account."
   }
 }

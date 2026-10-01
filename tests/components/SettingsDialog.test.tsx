@@ -161,10 +161,14 @@ vi.mock("@/components/ui/tabs", () => {
       </TabsContext.Provider>
     ),
     TabsList: ({ children }: any) => <div>{children}</div>,
-    TabsTrigger: ({ value, children }: any) => {
+    TabsTrigger: ({ value, children, ...props }: any) => {
       const ctx = useContext(TabsContext);
       return (
-        <button type="button" onClick={() => ctx.onValueChange?.(value)}>
+        <button
+          type="button"
+          {...props}
+          onClick={() => ctx.onValueChange?.(value)}
+        >
           {children}
         </button>
       );
@@ -286,6 +290,25 @@ describe("SettingsPage Component", () => {
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
 
+  it("offers connection configurations as an accessible icon tab and removes usage from settings", () => {
+    renderSettingsPage({ configurations: <div>saved-configurations</div> });
+    const configurations = screen.getByRole("button", {
+      name: "codexAccounts.configurationsTab",
+    });
+    expect(configurations).toHaveAttribute(
+      "title",
+      "codexAccounts.configurationsTab",
+    );
+    expect(configurations.textContent).toBe("");
+    expect(
+      screen.queryByRole("button", { name: "usage.title" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("saved-configurations")).not.toBeInTheDocument();
+    fireEvent.click(configurations);
+    expect(screen.getByText("saved-configurations")).toBeInTheDocument();
+    expect(screen.queryByText("language:zh")).not.toBeInTheDocument();
+  });
+
   it("should reset import/export status when dialog transitions to open", () => {
     const client = new QueryClient({
       defaultOptions: {
@@ -331,7 +354,9 @@ describe("SettingsPage Component", () => {
       minimizeToTrayOnClose: false,
     });
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.cloudSync.title"));
     expect(screen.getByText("webdav-sync-section:none")).toBeInTheDocument();
     fireEvent.click(screen.getByText("settings.advanced.data.title"));
@@ -359,7 +384,9 @@ describe("SettingsPage Component", () => {
     expect(scrollContainer).not.toBeNull();
 
     scrollContainer!.scrollTop = 640;
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
 
     expect(scrollContainer!.scrollTop).toBe(0);
   });
@@ -387,7 +414,9 @@ describe("SettingsPage Component", () => {
     renderSettingsPage({ onOpenChange });
 
     // 保存按钮在 advanced tab 中
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: /common\.save/ }));
 
     await waitFor(() => {
@@ -446,7 +475,9 @@ describe("SettingsPage Component", () => {
   it("should trigger directory management callbacks inside advanced tab", () => {
     renderSettingsPage();
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
 
     fireEvent.click(screen.getByText("browse-directory"));

@@ -12,7 +12,6 @@ import type { settingsApi, ToolInstallationReport } from "@/lib/api/settings";
 type ToolVersions = Awaited<ReturnType<typeof settingsApi.getToolVersions>>;
 
 const mocks = vi.hoisted(() => ({
-  useUpdate: vi.fn(),
   getToolVersions: vi.fn(),
   probeToolInstallations: vi.fn(),
   runToolLifecycleAction: vi.fn(),
@@ -24,9 +23,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/api", () => ({ settingsApi: mocks }));
 vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "3.20.4" }));
-vi.mock("@/contexts/UpdateContext", () => ({
-  useUpdate: mocks.useUpdate,
-}));
 vi.mock("@/config/appConfig", () => ({ APP_ICON_MAP: {} }));
 vi.mock("sonner", () => ({ toast: mocks }));
 
@@ -83,7 +79,6 @@ async function renderAbout() {
 describe("AboutSection Codex CLI lifecycle", () => {
   beforeEach(() => {
     vi.resetModules();
-    mocks.useUpdate.mockReturnValue({ hasUpdate: false, isChecking: false });
     upgraded.clear();
     outdated.clear();
     missing.clear();
@@ -118,25 +113,20 @@ describe("AboutSection Codex CLI lifecycle", () => {
       });
   });
 
-  it("keeps upstream release notes outside the app shell", async () => {
-    mocks.useUpdate.mockReturnValue({
-      hasUpdate: true,
-      isChecking: false,
-      updateInfo: {
-        availableVersion: "4.0.0",
-        notes: "Claude Code / Gemini CLI / Grok Build release notes",
-      },
-    });
-    await renderAbout();
-    expect(
-      screen.queryByText("Claude Code / Gemini CLI / Grok Build release notes"),
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "settings.releaseNotes" }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "settings.updateTo" }),
-    ).toBeInTheDocument();
+  it("exposes local build identity without upstream project or update actions", async () => {
+    const view = await renderAbout();
+    expect(screen.getByText("Codex Switch")).toBeInTheDocument();
+    expect(screen.getByText("settings.localBuildHint")).toBeInTheDocument();
+    expect(view.container.querySelectorAll("a[href]")).toHaveLength(0);
+    for (const name of [
+      "settings.github",
+      "settings.officialWebsite",
+      "settings.releaseNotes",
+      "settings.checkForUpdates",
+      "settings.updateTo",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
   });
 
   it("only probes and exposes Codex, including batch diagnosis and manual commands", async () => {

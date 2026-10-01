@@ -1,4 +1,4 @@
-import { Suspense, type ComponentType } from "react";
+import { Suspense, useState, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -63,12 +63,25 @@ vi.mock("@/lib/query/failover", async (importOriginal) => {
 });
 
 vi.mock("@/components/settings/SettingsPage", () => ({
-  SettingsPage: ({ onOpenChange, defaultTab }: any) => (
-    <div>
-      <output data-testid="settings-tab">{defaultTab}</output>
-      <button onClick={() => onOpenChange(false)}>close-settings</button>
-    </div>
-  ),
+  SettingsPage: ({ onOpenChange, defaultTab, configurations }: any) => {
+    const [tab, setTab] = useState(defaultTab);
+    return (
+      <div>
+        <output data-testid="settings-tab">{tab}</output>
+        <button
+          role="tab"
+          aria-label="Connection configurations"
+          onClick={() => setTab("configurations")}
+        />
+        {tab === "configurations" && configurations}
+        <button onClick={() => onOpenChange(false)}>close-settings</button>
+      </div>
+    );
+  },
+}));
+
+vi.mock("@/components/usage/HomeUsageDashboard", () => ({
+  HomeUsageDashboard: () => <div data-testid="usage-dashboard" />,
 }));
 
 vi.mock("sonner", () => ({
@@ -210,17 +223,6 @@ vi.mock("@/components/ConfirmDialog", () => ({
     ) : null,
 }));
 
-vi.mock("@/components/AppSwitcher", () => ({
-  AppSwitcher: ({ activeApp, onSwitch }: any) => (
-    <div data-testid="app-switcher">
-      <span>{activeApp}</span>
-      <button onClick={() => onSwitch("claude")}>switch-claude</button>
-      <button onClick={() => onSwitch("codex")}>switch-codex</button>
-      <button onClick={() => onSwitch("openclaw")}>switch-openclaw</button>
-    </div>
-  ),
-}));
-
 vi.mock("@/components/UpdateBadge", () => ({
   UpdateBadge: ({ onClick }: any) => (
     <button onClick={onClick}>update-badge</button>
@@ -244,6 +246,7 @@ describe("App integration with MSW", () => {
     routedAccountState.loading = false;
     routedAccountState.error = false;
     resetProviderState();
+    setSettings({ firstRunNoticeConfirmed: true });
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     localStorage.removeItem("cc-switch-last-view");
@@ -260,10 +263,9 @@ describe("App integration with MSW", () => {
       ),
     );
 
+    fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
     fireEvent.click(
-      await screen.findByText("Connection configurations", {
-        selector: "button",
-      }),
+      await screen.findByRole("tab", { name: "Connection configurations" }),
     );
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
@@ -337,17 +339,8 @@ describe("App integration with MSW", () => {
     providerScrollContainer!.scrollTop = 640;
     providerScrollContainer!.scrollLeft = 24;
 
-    fireEvent.click(
-      await screen.findByText("Connection configurations", {
-        selector: "button",
-      }),
-    );
-
-    await waitFor(() =>
-      expect(screen.getByTestId("provider-list").textContent).toContain(
-        "codex-1",
-      ),
-    );
+    fireEvent.click(screen.getByRole("tab", { name: "Usage Statistics" }));
+    expect(await screen.findByTestId("usage-dashboard")).toBeInTheDocument();
 
     expect(mainScrollContainer.scrollTop).toBe(0);
     expect(mainScrollContainer.scrollLeft).toBe(0);
@@ -513,8 +506,9 @@ describe("App integration with MSW", () => {
           "codex-1",
         ),
       );
+      fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
       fireEvent.click(
-        screen.getByText("Connection configurations", { selector: "button" }),
+        await screen.findByRole("tab", { name: "Connection configurations" }),
       );
       fireEvent.click(await screen.findByText("delete"));
       expect(screen.getByTestId("confirm-message")).toHaveTextContent(
@@ -574,8 +568,9 @@ describe("App integration with MSW", () => {
           original.name,
         ),
       );
+      fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
       fireEvent.click(
-        screen.getByText("Connection configurations", { selector: "button" }),
+        await screen.findByRole("tab", { name: "Connection configurations" }),
       );
       fireEvent.click(await screen.findByText("duplicate"));
       await waitFor(() =>
@@ -648,8 +643,7 @@ describe("App integration with MSW", () => {
         ),
       );
       expect(localStorage.getItem("cc-switch-last-app")).toBe("codex");
-      fireEvent.click(screen.getByText("switch-openclaw"));
-      fireEvent.click(screen.getByText("switch-claude"));
+      expect(screen.queryByTestId("app-switcher")).not.toBeInTheDocument();
       expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1");
       emitTauriEvent("provider-switched", {
         appType: "claude",
@@ -703,7 +697,7 @@ describe("App integration with MSW", () => {
     renderApp(App);
     expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
     expect(
-      screen.getByText("ChatGPT accounts", { selector: "button" }),
+      screen.getByRole("tab", { name: "ChatGPT accounts" }),
     ).toHaveAttribute("aria-selected", "true");
     expect(screen.queryByTestId("provider-list")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("create-account-configuration"));
@@ -711,8 +705,8 @@ describe("App integration with MSW", () => {
       "acct-selected",
     );
     fireEvent.click(screen.getByText("close-add"));
-    fireEvent.click(
-      screen.getByText("Connection configurations", { selector: "button" }),
+    expect(await screen.findByTestId("settings-tab")).toHaveTextContent(
+      "configurations",
     );
     expect(await screen.findByTestId("provider-list")).toHaveTextContent(
       "codex-1",
@@ -725,10 +719,9 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
-    fireEvent.click(screen.getByTitle("使用统计"));
-    expect(await screen.findByTestId("settings-tab")).toHaveTextContent(
-      "usage",
-    );
+    fireEvent.click(screen.getByRole("tab", { name: "Usage Statistics" }));
+    expect(await screen.findByTestId("usage-dashboard")).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-tab")).not.toBeInTheDocument();
   });
 
   it("switches an account through the existing provider action", async () => {
@@ -764,28 +757,26 @@ describe("App integration with MSW", () => {
     if (state.expected) expect(current).toHaveTextContent(state.expected);
     else expect(current).toBeEmptyDOMElement();
   });
-  it("supports keyboard navigation between account and configuration tabs", async () => {
+  it("supports keyboard navigation between account and usage tabs", async () => {
     setSettings({ firstRunNoticeConfirmed: true });
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
-    const accounts = screen.getByText("ChatGPT accounts", {
-      selector: "button",
-    });
-    const configurations = screen.getByText("Connection configurations", {
-      selector: "button",
+    const accounts = screen.getByRole("tab", { name: "ChatGPT accounts" });
+    const usage = screen.getByRole("tab", {
+      name: "Usage Statistics",
     });
     expect(accounts).toHaveAttribute("tabindex", "0");
-    expect(configurations).toHaveAttribute("tabindex", "-1");
+    expect(usage).toHaveAttribute("tabindex", "-1");
     fireEvent.keyDown(accounts, { key: "ArrowRight" });
-    expect(configurations).toHaveAttribute("aria-selected", "true");
-    expect(configurations).toHaveFocus();
-    fireEvent.keyDown(configurations, { key: "Home" });
+    expect(usage).toHaveAttribute("aria-selected", "true");
+    expect(usage).toHaveFocus();
+    fireEvent.keyDown(usage, { key: "Home" });
     expect(accounts).toHaveAttribute("aria-selected", "true");
     expect(accounts).toHaveFocus();
     fireEvent.keyDown(accounts, { key: "End" });
-    expect(configurations).toHaveFocus();
-    fireEvent.keyDown(configurations, { key: "ArrowLeft" });
+    expect(usage).toHaveFocus();
+    fireEvent.keyDown(usage, { key: "ArrowLeft" });
     expect(accounts).toHaveFocus();
   });
 });
