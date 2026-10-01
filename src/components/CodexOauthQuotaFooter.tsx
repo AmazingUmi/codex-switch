@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import type { ProviderMeta } from "@/types";
 import { useCodexOauthQuota } from "@/lib/query/subscription";
 import { SubscriptionQuotaView } from "@/components/SubscriptionQuotaFooter";
@@ -23,10 +24,13 @@ const CodexOauthQuotaFooter: React.FC<CodexOauthQuotaFooterProps> = ({
   isCurrent = false,
   autoQueryInterval = 5,
 }) => {
+  const { t } = useTranslation();
   const {
     data: quota,
     isFetching: loading,
     refetch,
+    refreshFailed,
+    refreshError,
   } = useCodexOauthQuota(meta, {
     enabled: true,
     autoQuery: isCurrent && autoQueryInterval > 0,
@@ -39,7 +43,11 @@ const CodexOauthQuotaFooter: React.FC<CodexOauthQuotaFooterProps> = ({
       loading={loading}
       refetch={refetch}
       appIdForExpiredHint="codex_oauth"
+      expiredHint={t("codexAccounts.quotaExpiredHint")}
       inline={inline}
+      visualization="rings"
+      refreshFailed={refreshFailed}
+      refreshError={refreshError}
     />
   );
 };

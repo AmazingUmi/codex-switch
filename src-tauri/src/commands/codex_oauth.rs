@@ -5,7 +5,7 @@
 //! 大部分认证命令通过通用 `auth_*` 命令（参见 `commands::auth`）暴露给前端，
 //! 此处定义 State wrapper 以及 Codex OAuth 专属的订阅额度和模型列表查询命令。
 
-use crate::proxy::providers::codex_oauth_auth::CodexOAuthManager;
+use crate::proxy::providers::codex_oauth_auth::{CodexOAuthError, CodexOAuthManager};
 use crate::services::model_fetch::FetchedModel;
 use crate::services::subscription::{query_codex_quota, CredentialStatus, SubscriptionQuota};
 use std::sync::Arc;
@@ -60,13 +60,7 @@ async fn query_codex_oauth_quota_for(
     // 获取（必要时自动刷新）access_token
     let token = match manager.get_valid_token_for_account(id).await {
         Ok(t) => t,
-        Err(e) => {
-            return Ok(SubscriptionQuota::error(
-                "codex_oauth",
-                CredentialStatus::Expired,
-                format!("Codex OAuth token unavailable: {e}"),
-            ));
-        }
+        Err(error) => return codex_oauth_quota_token_failure(error),
     };
     let chatgpt_account_id = manager
         .chatgpt_account_id_for_account(id)
@@ -78,9 +72,25 @@ async fn query_codex_oauth_quota_for(
         &token,
         Some(&chatgpt_account_id),
         "codex_oauth",
-        "Codex OAuth access token expired or rejected. Please re-login via cc-switch.",
+        "Codex OAuth access token expired or rejected. Please sign in again in Codex Switch.",
     )
     .await
+}
+
+/// Only an explicit authentication rejection establishes expired credentials.
+/// Transport, disk, protocol and other refresh failures reject the query so the
+/// caller can report a refresh error without replacing a good account snapshot.
+fn codex_oauth_quota_token_failure(error: CodexOAuthError) -> Result<SubscriptionQuota, String> {
+    match error {
+        CodexOAuthError::RefreshTokenInvalid => Ok(SubscriptionQuota::error(
+            "codex_oauth",
+            CredentialStatus::Expired,
+            "Codex OAuth refresh token expired or rejected. Please sign in again in Codex Switch."
+                .into(),
+        )),
+        CodexOAuthError::AccountNotFound(_) => Ok(SubscriptionQuota::not_found("codex_oauth")),
+        error => Err(format!("Codex OAuth quota refresh failed: {error}")),
+    }
 }
 
 /// 获取 Codex OAuth (ChatGPT Plus/Pro) 可用模型列表
@@ -116,4 +126,57 @@ pub async fn get_codex_oauth_models(
         .map_err(|e| e.to_string())?;
 
     crate::services::codex_oauth_models::fetch_models_with_token(&token, &chatgpt_account_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quota_token_failure_only_marks_expired_after_authentication_rejection() {
+        let quota = codex_oauth_quota_token_failure(CodexOAuthError::RefreshTokenInvalid).unwrap();
+        assert!(matches!(quota.credential_status, CredentialStatus::Expired));
+        assert!(!quota.success);
+        assert!(quota.tiers.is_empty());
+        assert!(quota.credential_message.unwrap().contains("Codex Switch"));
+        let missing =
+            codex_oauth_quota_token_failure(CodexOAuthError::AccountNotFound("removed".into()))
+                .unwrap();
+        assert!(matches!(
+            missing.credential_status,
+            CredentialStatus::NotFound
+        ));
+        assert!(!missing.success);
+    }
+
+    #[test]
+    fn quota_token_network_io_protocol_and_unknown_failures_reject_refresh() {
+        for error in [
+            CodexOAuthError::NetworkError("temporary transport failure".into()),
+            CodexOAuthError::IoError("temporary storage failure".into()),
+            CodexOAuthError::ParseError("unexpected OAuth response".into()),
+            CodexOAuthError::TokenFetchFailed("Refresh failed: 503".into()),
+            CodexOAuthError::AccountUnavailable("live identity mismatch".into()),
+        ] {
+            let result = codex_oauth_quota_token_failure(error);
+            assert!(result
+                .unwrap_err()
+                .starts_with("Codex OAuth quota refresh failed:"));
+        }
+    }
+
+    #[tokio::test]
+    async fn quota_query_for_missing_account_returns_missing_without_refresh() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = CodexOAuthManager::new(temp.path().to_path_buf());
+        let quota = query_codex_oauth_quota_for(&manager, "removed-account")
+            .await
+            .unwrap();
+        assert!(matches!(
+            quota.credential_status,
+            CredentialStatus::NotFound
+        ));
+        assert!(!quota.success);
+        assert!(quota.tiers.is_empty());
+    }
 }

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
+import type { CodexAccountsPanelProps } from "@/components/codex/CodexAccountsPanel";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { UsageHero } from "@/components/usage/UsageHero";
@@ -13,6 +14,13 @@ const summary = vi.hoisted(() =>
   vi.fn(() => ({ data: undefined, isLoading: false })),
 );
 const oauth = vi.hoisted(() => vi.fn());
+const accountPanel = vi.hoisted(() => vi.fn());
+vi.mock("@/components/codex/CodexAccountsPanel", () => ({
+  CodexAccountsPanel: (props: unknown) => {
+    accountPanel(props);
+    return <div>shared-accounts</div>;
+  },
+}));
 vi.mock("@/lib/query/usage", () => ({
   useUsageSummary: (...args: unknown[]) => summary(...(args as [])),
 }));
@@ -44,10 +52,22 @@ const dirs = {
 describe("Codex settings shell", () => {
   it("keeps only the existing Codex OAuth account component with quota enabled", () => {
     render(<AuthCenterPanel authScrollTarget="github_copilot" />);
-    expect(screen.getByText("ChatGPT (Codex OAuth)")).toBeInTheDocument();
+    expect(screen.getByText("codex-accounts")).toBeInTheDocument();
     expect(oauth).toHaveBeenCalledWith({ showAccountQuota: true });
     expect(screen.queryByText("GitHub Copilot")).not.toBeInTheDocument();
     expect(screen.queryByText("xAI (Grok OAuth)")).not.toBeInTheDocument();
+  });
+
+  it("reuses the home account data and switching operation in Authentication", () => {
+    const props: CodexAccountsPanelProps = {
+      providers: [],
+      currentProviderId: "active",
+      onSwitchAccount: vi.fn(),
+    };
+    render(<AuthCenterPanel accountPanelProps={props} />);
+    expect(screen.getByText("shared-accounts")).toBeInTheDocument();
+    expect(accountPanel).toHaveBeenCalledWith(props);
+    expect(oauth).not.toHaveBeenCalled();
   });
 
   it("does not expose legacy Claude controls with persisted values enabled", () => {

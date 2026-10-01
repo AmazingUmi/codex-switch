@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { subscriptionApi } from "@/lib/api/subscription";
 import type { AppId } from "@/lib/api/types";
@@ -8,6 +8,7 @@ import { resolveManagedAccountId } from "@/lib/authBinding";
 import { PROVIDER_TYPES } from "@/config/constants";
 import { resolveDisplayUsage, type LastGoodSnapshot } from "./queries";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { authGetStatus } from "@/lib/api/auth";
 
 const REFETCH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -48,6 +49,13 @@ function useQuotaKeepLastGood(
   query: UseQueryResult<SubscriptionQuota>,
   scopeKey: string,
 ) {
+  const [now, setNow] = useState(Date.now);
+  const failed = query.isError || query.data?.success === false;
+  useEffect(() => {
+    if (!failed) return;
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [failed]);
   const lastGoodRef = useRef<{
     key: string;
     snap: LastGoodSnapshot<SubscriptionQuota> | null;
@@ -58,13 +66,23 @@ function useQuotaKeepLastGood(
   const { data, lastGood } = resolveDisplayUsage(
     query.data,
     query.dataUpdatedAt,
-    lastGoodRef.current.snap,
-    Date.now(),
+    query.data && query.data.credentialStatus !== "valid"
+      ? null
+      : lastGoodRef.current.snap,
+    Math.max(now, Date.now()),
     { rejected: query.isError },
   );
   lastGoodRef.current.snap = lastGood;
   return {
     ...query,
+    // Keep useful old values through a short outage, but identify them as stale.
+    refreshError:
+      failed && data?.success
+        ? query.isError
+          ? extractErrorMessage(query.error) || null
+          : query.data?.error || null
+        : null,
+    refreshFailed: failed && Boolean(data?.success),
     data:
       data ??
       (query.isError
@@ -118,7 +136,8 @@ export interface UseCodexOauthQuotaOptions {
  * 直接以 cc-switch 自管的 ChatGPT 账号 ID 查询额度，供认证中心里逐个账号
  * 展示用量时复用。Query key 与 `useCodexOauthQuota` 一致，绑定到同一账号的
  * 供应商卡片与账号列表会自动去重共享同一份请求缓存。
- * accountId 为 null 时使用 "default" 占位，让后端 fallback 到默认账号。
+ * 未指定账号时先解析默认账号的真实 ID，再按 ID 查询，避免默认账号变更时
+ * 复用固定 "default" 缓存，也确保正在进行的请求归属于原账号。
  */
 export function useCodexOauthQuotaByAccountId(
   accountId: string | null,
@@ -129,14 +148,25 @@ export function useCodexOauthQuotaByAccountId(
     autoQuery = false,
     autoQueryIntervalMinutes = 5,
   } = options;
+  const defaultStatus = useQuery({
+    queryKey: ["managed-auth-status", "codex_oauth"],
+    queryFn: () => authGetStatus("codex_oauth"),
+    enabled: enabled && accountId == null,
+    staleTime: 30_000,
+  });
+  const resolvedId =
+    accountId ?? defaultStatus.data?.default_account_id ?? null;
   const refetchInterval =
     autoQuery && autoQueryIntervalMinutes > 0
       ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
       : false;
   const query = useQuery({
-    queryKey: ["codex_oauth", "quota", accountId ?? "default"],
-    queryFn: () => subscriptionApi.getCodexOauthQuota(accountId),
-    enabled,
+    queryKey: ["codex_oauth", "quota", resolvedId],
+    queryFn: () => {
+      if (!resolvedId) throw new Error("No managed Codex account selected");
+      return subscriptionApi.getCodexOauthQuota(resolvedId);
+    },
+    enabled: enabled && Boolean(resolvedId),
     refetchInterval,
     refetchIntervalInBackground: Boolean(refetchInterval),
     refetchOnWindowFocus: Boolean(refetchInterval),
@@ -147,7 +177,7 @@ export function useCodexOauthQuotaByAccountId(
     retry: 1,
   });
 
-  return useQuotaKeepLastGood(query, accountId ?? "default");
+  return useQuotaKeepLastGood(query, resolvedId ?? "unresolved");
 }
 
 /**

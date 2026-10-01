@@ -559,6 +559,12 @@ pub struct ProviderMeta {
     /// - "github_copilot": GitHub Copilot 供应商
     #[serde(rename = "providerType", skip_serializing_if = "Option::is_none")]
     pub provider_type: Option<String>,
+    /// Internal account switch target; advanced user configurations remain visible.
+    #[serde(
+        rename = "codexAccountManaged",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub codex_account_managed: Option<bool>,
     /// GitHub Copilot 关联账号 ID（仅 github_copilot 供应商使用）
     /// 用于多账号支持，关联到特定的 GitHub 账号
     #[serde(rename = "githubAccountId", skip_serializing_if = "Option::is_none")]

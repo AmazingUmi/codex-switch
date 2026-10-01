@@ -810,3 +810,75 @@ pub(crate) fn preflight(db: &Database, provider: &Provider) -> Result<(), AppErr
     let target = Target::Direct(Some(provider));
     plan(db, &Owner::None, &target, &Prepared::default()).map(|_| ())
 }
+
+/// Account selection currently publishes file credentials only. Use the same
+/// projection and patch as the real switch, preserving global settings rather
+/// than inventing a merge of legacy common snippets or provider snapshots.
+pub(crate) fn preflight_account_auth_store(
+    db: &Database,
+    owner: &Owner<'_>,
+    target: &Target<'_>,
+) -> Result<(), AppError> {
+    fn require_file(text: &str, zh_source: &str, en_source: &str) -> Result<(), AppError> {
+        let doc = text.parse::<toml_edit::DocumentMut>().map_err(|error| {
+            AppError::Config(format!("Cannot inspect Codex credential store: {error}"))
+        })?;
+        let declaration = doc.get("cli_auth_credentials_store");
+        if codex_config_auth_store_mode(text) == CodexAuthStoreMode::File
+            && declaration.is_none_or(|value| value.as_str() == Some("file"))
+        {
+            return Ok(());
+        }
+        let mode = declaration
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "unknown".into());
+        Err(AppError::localized(
+            "codex.account_switch_requires_file_auth_store",
+            format!(
+                "当前账号切换仅支持 file 凭据存储。{zh_source} 将 cli_auth_credentials_store 设置为 {mode}，Codex 可能不会读取新账号的 auth.json。请在高级设置中自行选择 file 后重试；本次未更改账号或配置。"
+            ),
+            format!(
+                "Account switching currently supports only the file credential store. {en_source} declares cli_auth_credentials_store = {mode}, so Codex may not read the new account's auth.json. Choose file in advanced settings before retrying. No account or configuration was changed."
+            ),
+        ))
+    }
+
+    if let Some(provider) = target_provider(target) {
+        let declared = provider
+            .settings_config
+            .get("config")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        // A legacy row may declare a global choice the current switch patch
+        // leaves in live. Reject that explicit incompatible intent as well.
+        require_file(
+            declared,
+            "所选高级配置",
+            "The selected advanced configuration",
+        )?;
+    }
+    // Generic provider writes may leave unreadable native auth alone. An
+    // explicit account selection must be able to publish its credentials before
+    // it can claim that this account is current. JSON validation remains with
+    // the existing credential preparation and writer policy.
+    let auth_path = get_codex_auth_path();
+    read_current(&auth_path).map_err(|error| AppError::localized(
+        "codex.account_switch_auth_unreadable",
+        format!("无法读取 Codex 登录凭据文件 {}：{error}。本次未切换账号；请修复文件访问后重试。", auth_path.display()),
+        format!("Cannot read Codex credentials at {}: {error}. The account was not switched. Fix access to the credentials file before retrying.", auth_path.display()),
+    ))?;
+    let planned = plan(db, owner, target, &Prepared::default())?;
+    let path = get_codex_config_path();
+    let before = read_current(&path)?;
+    let projected = planned
+        .config
+        .apply(&path, before.as_deref())
+        .map_err(|error| AppError::Config(error.to_string()))?;
+    let text = String::from_utf8(projected)
+        .map_err(|error| AppError::Config(format!("Invalid Codex configuration text: {error}")))?;
+    require_file(
+        &text,
+        "Codex 的有效配置",
+        "The effective Codex configuration",
+    )
+}

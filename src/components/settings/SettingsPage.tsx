@@ -53,6 +53,7 @@ import { ProxyTabContent } from "@/components/settings/ProxyTabContent";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
+import type { CodexAccountsPanelProps } from "@/components/codex/CodexAccountsPanel";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -64,6 +65,7 @@ interface SettingsDialogProps {
   onImportSuccess?: () => void | Promise<void>;
   defaultTab?: string;
   configurations?: ReactNode;
+  accountPanelProps?: CodexAccountsPanelProps;
 }
 
 export function SettingsPage({
@@ -72,6 +74,7 @@ export function SettingsPage({
   onImportSuccess,
   defaultTab = "general",
   configurations,
+  accountPanelProps,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
   const {
@@ -238,7 +241,7 @@ export function SettingsPage({
   const isBusy = useMemo(() => isLoading && !settings, [isLoading, settings]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6">
+    <div className="flex flex-col h-full overflow-hidden px-3 sm:px-6">
       {isBusy ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -274,7 +277,7 @@ export function SettingsPage({
           <div className="flex-1 min-h-0 flex flex-col">
             <div
               ref={tabScrollContainerRef}
-              className="flex-1 overflow-y-auto overflow-x-hidden pr-2"
+              className="app-scroll flex-1 overflow-y-auto overflow-x-hidden pr-2"
             >
               <TabsContent value="general" className="space-y-6 mt-0">
                 {settings ? (
@@ -327,7 +330,7 @@ export function SettingsPage({
                   transition={{ duration: 0.3 }}
                   className="space-y-6"
                 >
-                  <AuthCenterPanel />
+                  <AuthCenterPanel accountPanelProps={accountPanelProps} />
                 </motion.div>
               </TabsContent>
 

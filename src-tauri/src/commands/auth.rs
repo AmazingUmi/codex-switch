@@ -4,7 +4,9 @@ use crate::app_config::AppType;
 use crate::commands::codex_oauth::CodexOAuthState;
 use crate::commands::copilot::CopilotAuthState;
 use crate::commands::xai_oauth::XaiOAuthState;
-use crate::proxy::providers::codex_oauth_auth::CodexOAuthError;
+use crate::proxy::providers::codex_oauth_auth::{
+    CodexAccountMetadata, CodexOAuthError, CodexOAuthManager,
+};
 use crate::proxy::providers::copilot_auth::{
     CopilotAuthError, GitHubAccount, GitHubDeviceCodeResponse,
 };
@@ -28,6 +30,10 @@ pub struct ManagedAuthAccount {
     pub reauth_required: bool,
     /// xAI 专用：refresh token 已失效，账号不可再用于请求。
     pub requires_reauth: bool,
+    pub display_name: Option<String>,
+    pub notes: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -67,6 +73,10 @@ fn map_account(
         is_default: default_account_id == Some(account.id.as_str()),
         reauth_required: account.reauth_required,
         requires_reauth: false,
+        display_name: None,
+        notes: None,
+        icon: None,
+        color: None,
         id: account.id,
         provider: provider.to_string(),
         login: account.login,
@@ -90,7 +100,37 @@ fn map_xai_account(
         github_domain: account.github_domain,
         reauth_required: false,
         requires_reauth: account.requires_reauth,
+        display_name: None,
+        notes: None,
+        icon: None,
+        color: None,
     }
+}
+
+async fn map_codex_account(
+    manager: &CodexOAuthManager,
+    account: GitHubAccount,
+    default_account_id: Option<&str>,
+) -> ManagedAuthAccount {
+    let metadata = manager.account_metadata(&account.id).await;
+    let mut result = map_account(AUTH_PROVIDER_CODEX_OAUTH, account, default_account_id);
+    result.display_name = metadata.display_name;
+    result.notes = metadata.notes;
+    result.icon = metadata.icon;
+    result.color = metadata.color;
+    result
+}
+
+async fn map_codex_accounts(
+    manager: &CodexOAuthManager,
+    accounts: Vec<GitHubAccount>,
+    default_account_id: Option<&str>,
+) -> Vec<ManagedAuthAccount> {
+    let mut result = Vec::with_capacity(accounts.len());
+    for account in accounts {
+        result.push(map_codex_account(manager, account, default_account_id).await);
+    }
+    result
 }
 
 fn map_device_code_response(
@@ -193,9 +233,13 @@ pub async fn auth_poll_for_account(
             {
                 Ok(account) => {
                     let default_account_id = auth_manager.get_status().await.default_account_id;
-                    Ok(account.map(|account| {
-                        map_account(auth_provider, account, default_account_id.as_deref())
-                    }))
+                    match account {
+                        Some(account) => Ok(Some(
+                            map_codex_account(auth_manager, account, default_account_id.as_deref())
+                                .await,
+                        )),
+                        None => Ok(None),
+                    }
                 }
                 Err(CodexOAuthError::AuthorizationPending) => Ok(None),
                 Err(e) => Err(e.to_string()),
@@ -253,11 +297,10 @@ pub async fn auth_list_accounts(
             let auth_manager = &codex_state.0;
             let status = auth_manager.get_status().await;
             let default_account_id = status.default_account_id.clone();
-            Ok(status
-                .accounts
-                .into_iter()
-                .map(|account| map_account(auth_provider, account, default_account_id.as_deref()))
-                .collect())
+            Ok(
+                map_codex_accounts(auth_manager, status.accounts, default_account_id.as_deref())
+                    .await,
+            )
         }
         AUTH_PROVIDER_XAI_OAUTH => {
             let auth_manager = xai_state.0.read().await;
@@ -309,13 +352,12 @@ pub async fn auth_get_status(
                 authenticated: status.authenticated,
                 default_account_id: default_account_id.clone(),
                 migration_error: None,
-                accounts: status
-                    .accounts
-                    .into_iter()
-                    .map(|account| {
-                        map_account(auth_provider, account, default_account_id.as_deref())
-                    })
-                    .collect(),
+                accounts: map_codex_accounts(
+                    auth_manager,
+                    status.accounts,
+                    default_account_id.as_deref(),
+                )
+                .await,
             })
         }
         AUTH_PROVIDER_XAI_OAUTH => {
@@ -336,6 +378,56 @@ pub async fn auth_get_status(
         }
         _ => unreachable!(),
     }
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_update_account(
+    auth_provider: String,
+    account_id: String,
+    metadata: CodexAccountMetadata,
+    codex_state: State<'_, CodexOAuthState>,
+) -> Result<ManagedAuthAccount, String> {
+    if ensure_auth_provider(&auth_provider)? != AUTH_PROVIDER_CODEX_OAUTH {
+        return Err("Account editing is only supported for Codex OAuth".into());
+    }
+    let manager = &codex_state.0;
+    let account = manager
+        .update_account_metadata(&account_id, metadata)
+        .await
+        .map_err(|error| error.to_string())?;
+    let default = manager.default_account_id().await;
+    Ok(map_codex_account(manager, account, default.as_deref()).await)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_switch_codex_account(
+    app_handle: tauri::AppHandle,
+    account_id: String,
+    provider_id: Option<String>,
+) -> Result<crate::services::provider::CodexAccountSwitchResult, String> {
+    use tauri::{Emitter, Manager};
+    let switch_app = app_handle.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = switch_app
+            .try_state::<AppState>()
+            .ok_or_else(|| "Application state is unavailable".to_string())?;
+        crate::services::ProviderService::switch_codex_account(
+            state.inner(),
+            &account_id,
+            provider_id.as_deref(),
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Account switching task failed: {error}"))??;
+    crate::tray::refresh_tray_menu(&app_handle);
+    if let Err(error) = app_handle.emit(
+        "provider-switched",
+        serde_json::json!({"appType": "codex", "providerId": result.provider_id}),
+    ) {
+        log::warn!("Failed to emit successful Codex account switch: {error}");
+    }
+    Ok(result)
 }
 
 #[tauri::command(rename_all = "camelCase")]

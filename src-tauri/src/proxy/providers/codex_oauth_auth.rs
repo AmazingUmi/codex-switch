@@ -262,8 +262,23 @@ struct AccountLoginContext<'a> {
 }
 
 /// 持久化的账号数据
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CodexAccountMetadata {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CodexAccountData {
+    #[serde(flatten)]
+    presentation: CodexAccountMetadata,
     /// 本地稳定账号 ID（同时作为 HashMap 的 key）
     pub account_id: String,
     /// 上游 ChatGPT workspace ID（用于 chatgpt-account-id 请求头）
@@ -1377,6 +1392,64 @@ impl CodexOAuthManager {
         Self::sorted_accounts(&accounts, default_id.as_deref())
     }
 
+    pub async fn account_metadata(&self, account_id: &str) -> CodexAccountMetadata {
+        self.accounts
+            .read()
+            .await
+            .get(account_id)
+            .map(|account| account.presentation.clone())
+            .unwrap_or_default()
+    }
+
+    /// Only presentation fields are accepted. Persist before publishing so a
+    /// failed save cannot make the UI claim an edit that will vanish on restart.
+    pub async fn update_account_metadata(
+        &self,
+        account_id: &str,
+        mut metadata: CodexAccountMetadata,
+    ) -> Result<GitHubAccount, CodexOAuthError> {
+        fn normalize(value: &mut Option<String>, limit: usize) -> Result<(), CodexOAuthError> {
+            if let Some(text) = value.as_ref() {
+                let text = text.trim();
+                if text.chars().count() > limit {
+                    return Err(CodexOAuthError::ParseError(format!(
+                        "Account display field exceeds {limit} characters"
+                    )));
+                }
+                *value = (!text.is_empty()).then(|| text.to_string());
+            }
+            Ok(())
+        }
+        normalize(&mut metadata.display_name, 120)?;
+        normalize(&mut metadata.notes, 2000)?;
+        normalize(&mut metadata.icon, 120)?;
+        normalize(&mut metadata.color, 64)?;
+        let _lifecycle = self.lifecycle_lock.read().await;
+        let refresh_lock = self.get_refresh_lock(account_id).await;
+        let _refresh_guard = refresh_lock.lock().await;
+        let _persist = self.storage_lock.lock().await;
+        let mut accounts = self.accounts.read().await.clone();
+        let account = accounts
+            .get_mut(account_id)
+            .ok_or_else(|| CodexOAuthError::AccountNotFound(account_id.to_string()))?;
+        account.presentation = metadata;
+        let public_account = GitHubAccount::from(&*account);
+        let data = account.clone();
+        let store = CodexOAuthStore {
+            version: 2,
+            accounts,
+            default_account_id: self.resolve_default_account_id().await,
+        };
+        let content = serde_json::to_string_pretty(&store)
+            .map_err(|error| CodexOAuthError::ParseError(error.to_string()))?;
+        self.write_store_atomic(&content)?;
+        self.accounts
+            .write()
+            .await
+            .insert(account_id.to_string(), data);
+        Ok(public_account)
+    }
+
     pub async fn remove_account(&self, account_id: &str) -> Result<(), CodexOAuthError> {
         log::info!("[CodexOAuth] 移除账号: {account_id}");
         // Wait for all in-flight refresh/adopt operations before deleting. New
@@ -1575,6 +1648,7 @@ impl CodexOAuthManager {
     ) -> Result<(), CodexOAuthError> {
         let obtained_at_ms = chrono::Utc::now().timestamp_millis();
         let data = CodexAccountData {
+            presentation: CodexAccountMetadata::default(),
             account_id: account_id.to_string(),
             chatgpt_account_id: Some(chatgpt_account_id.to_string()),
             email: Some(format!("{account_id}@example.test")),
@@ -1729,7 +1803,8 @@ impl CodexOAuthManager {
             }
         }
 
-        let data = CodexAccountData {
+        let mut data = CodexAccountData {
+            presentation: CodexAccountMetadata::default(),
             account_id: account_id.clone(),
             chatgpt_account_id: Some(chatgpt_account_id),
             email,
@@ -1780,6 +1855,9 @@ impl CodexOAuthManager {
         // and its access-token cache untouched.
         let _persist = self.storage_lock.lock().await;
         let mut persisted_accounts = self.accounts.read().await.clone();
+        if let Some(existing) = persisted_accounts.get(&account_id) {
+            data.presentation = existing.presentation.clone();
+        }
         let new_identity = data
             .id_token
             .as_deref()
@@ -2152,6 +2230,99 @@ fn extract_account_metadata_from_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn account_metadata_persists_without_changing_identity_credentials_or_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let mut manager = CodexOAuthManager::new(temp.path().to_path_buf());
+        manager
+            .add_test_account_with_user_identity("account-a", "token-a", "user-a")
+            .await
+            .unwrap();
+        manager
+            .add_test_account_with_access_token("expired-account", "token-b", None)
+            .await
+            .unwrap();
+        let before = serde_json::to_value(
+            manager
+                .accounts
+                .read()
+                .await
+                .get("expired-account")
+                .unwrap(),
+        )
+        .unwrap();
+        let metadata = CodexAccountMetadata {
+            display_name: Some(" Work account ".into()),
+            notes: Some("Preserve this note".into()),
+            icon: Some("openai".into()),
+            color: Some("#14b8a6".into()),
+        };
+        let account = manager
+            .update_account_metadata("expired-account", metadata)
+            .await
+            .unwrap();
+        assert!(
+            account.reauth_required,
+            "unusable credentials still allow editing"
+        );
+        assert_eq!(account.login, "expired-account@example.test");
+        let metadata = manager.account_metadata("expired-account").await;
+        assert_eq!(metadata.display_name.as_deref(), Some("Work account"));
+        let mut after = serde_json::to_value(
+            manager
+                .accounts
+                .read()
+                .await
+                .get("expired-account")
+                .unwrap(),
+        )
+        .unwrap();
+        for field in ["display_name", "notes", "icon", "color"] {
+            after.as_object_mut().unwrap().remove(field);
+        }
+        assert_eq!(after, before, "only presentation changes");
+        assert_eq!(
+            manager
+                .access_tokens
+                .read()
+                .await
+                .get("expired-account")
+                .unwrap()
+                .token,
+            "token-b"
+        );
+        assert_eq!(
+            manager.default_account_id().await.as_deref(),
+            Some("account-a")
+        );
+        let loaded = CodexOAuthManager::new(temp.path().to_path_buf());
+        assert_eq!(loaded.account_metadata("expired-account").await, metadata);
+        assert_eq!(loaded.list_accounts().await.len(), 2);
+        assert_eq!(
+            loaded.default_account_id().await.as_deref(),
+            Some("account-a")
+        );
+
+        let persisted_before = fs::read(&manager.storage_path).unwrap();
+        manager.storage_path = temp.path().to_path_buf();
+        assert!(manager
+            .update_account_metadata("expired-account", CodexAccountMetadata::default())
+            .await
+            .is_err());
+        assert_eq!(manager.account_metadata("expired-account").await, metadata);
+        assert_eq!(
+            fs::read(temp.path().join("codex_oauth_auth.json")).unwrap(),
+            persisted_before
+        );
+        assert!(
+            serde_json::from_value::<CodexAccountMetadata>(serde_json::json!({
+                "login": "replacement-identity"
+            }))
+            .is_err(),
+            "credential and identity edits are rejected"
+        );
+    }
 
     #[tokio::test]
     async fn missing_account_recovery_requires_valid_persisted_state() {
@@ -2561,6 +2732,17 @@ mod tests {
             .await
             .unwrap();
 
+        let metadata = CodexAccountMetadata {
+            display_name: Some("Personal".into()),
+            notes: Some("Keep after sign-in".into()),
+            icon: Some("openai".into()),
+            color: Some("#3b82f6".into()),
+        };
+        manager
+            .update_account_metadata(&existing.id, metadata.clone())
+            .await
+            .unwrap();
+
         let refreshed = manager
             .add_account_internal(
                 "shared-workspace".to_string(),
@@ -2581,6 +2763,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(refreshed.id, existing.id);
+        assert_eq!(manager.account_metadata(&existing.id).await, metadata);
+        let loaded = CodexOAuthManager::new(temp.path().to_path_buf());
+        assert_eq!(loaded.account_metadata(&existing.id).await, metadata);
         assert_eq!(manager.list_accounts().await.len(), 1);
         let accounts = manager.accounts.read().await;
         let account = accounts.get(&existing.id).unwrap();

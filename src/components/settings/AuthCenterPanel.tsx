@@ -1,16 +1,21 @@
 import { useEffect, useRef } from "react";
-import { ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "@/components/ui/badge";
-import { CodexIcon } from "@/components/BrandIcons";
 import { CodexOAuthSection } from "@/components/providers/forms/CodexOAuthSection";
+import {
+  CodexAccountsPanel,
+  type CodexAccountsPanelProps,
+} from "@/components/codex/CodexAccountsPanel";
 import type { ManagedAuthProvider } from "@/lib/api";
 
 interface AuthCenterPanelProps {
   authScrollTarget?: ManagedAuthProvider | null;
+  accountPanelProps?: CodexAccountsPanelProps;
 }
 
-export function AuthCenterPanel({ authScrollTarget }: AuthCenterPanelProps) {
+export function AuthCenterPanel({
+  authScrollTarget,
+  accountPanelProps,
+}: AuthCenterPanelProps) {
   const { t } = useTranslation();
   const codexOauthSectionRef = useRef<HTMLElement | null>(null);
 
@@ -33,48 +38,23 @@ export function AuthCenterPanel({ authScrollTarget }: AuthCenterPanelProps) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-xl border border-border/60 bg-card/60 p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-primary" />
-              <h3 className="text-base font-semibold">
-                {t("settings.authCenter.title", {
-                  defaultValue: "OAuth 认证中心",
-                })}
-              </h3>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.authCenter.description", {
-                defaultValue: "Manage your ChatGPT accounts for Codex.",
-              })}
-            </p>
-          </div>
-          <Badge variant="secondary">
-            {t("settings.authCenter.beta", { defaultValue: "Beta" })}
-          </Badge>
-        </div>
-      </section>
-
-      <section
-        ref={codexOauthSectionRef}
-        className="scroll-mt-4 rounded-xl border border-border/60 bg-card/60 p-6"
-      >
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-muted">
-            <CodexIcon size={20} />
-          </div>
-          <div>
-            <h4 className="font-medium">ChatGPT (Codex OAuth)</h4>
-            <p className="text-sm text-muted-foreground">
-              {t("settings.authCenter.codexOauthDescription", {
-                defaultValue: "管理 ChatGPT 账号",
-              })}
-            </p>
-          </div>
-        </div>
-
-        <CodexOAuthSection showAccountQuota />
+      <section ref={codexOauthSectionRef} className="scroll-mt-4">
+        {accountPanelProps ? (
+          <CodexAccountsPanel {...accountPanelProps} />
+        ) : (
+          <CodexOAuthSection showAccountQuota />
+        )}
+        <details className="mt-4 text-xs text-muted-foreground">
+          <summary className="cursor-pointer">
+            {t("settings.authCenter.title", "账号与认证")}
+          </summary>
+          <p className="pt-2">
+            {t(
+              "codexAccounts.sharedAccountsHelp",
+              "这里与主页共用同一份账号、编辑信息和登录状态。日常切换也可直接在主页完成。",
+            )}
+          </p>
+        </details>
       </section>
     </div>
   );

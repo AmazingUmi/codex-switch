@@ -256,7 +256,17 @@ export function UsageDashboard({
           <h2 className="text-2xl font-bold tracking-tight">
             {t("usage.title")}
           </h2>
-          <p className="text-sm text-muted-foreground">{t("usage.subtitle")}</p>
+          <details className="text-xs text-muted-foreground">
+            <summary className="cursor-pointer">
+              {t("codexAccounts.localUsageScopeLabel", "统计范围")}
+            </summary>
+            <p className="pt-2 max-w-lg leading-relaxed">
+              {t(
+                "codexAccounts.localUsageScope",
+                "统计本机记录的 Codex 请求及扫描到的会话，按所选时间、连接来源和模型筛选；不会汇总账号在其他设备的用量，也不代表订阅额度。费用按本地价格表估算。",
+              )}
+            </p>
+          </details>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

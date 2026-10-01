@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { AppId } from "@/lib/api";
 import { useSubscriptionQuota } from "@/lib/query/subscription";
 import type { QuotaTier, SubscriptionQuota } from "@/types/subscription";
+import { CodexQuotaRings } from "@/components/CodexQuotaRings";
 
 interface SubscriptionQuotaFooterProps {
   appId: AppId;
@@ -21,6 +22,9 @@ interface SubscriptionQuotaViewProps {
   /** Managed accounts are reauthenticated in the app rather than a CLI. */
   expiredHint?: string;
   inline?: boolean;
+  visualization?: "bars" | "rings";
+  refreshFailed?: boolean;
+  refreshError?: string | null;
 }
 
 /** 已知 tier 名称的显示映射（官方订阅 + Token Plan 共用） */
@@ -57,7 +61,7 @@ export function utilizationColor(utilization: number): string {
 export function countdownStr(resetsAt: string | null): string | null {
   if (!resetsAt) return null;
   const diffMs = new Date(resetsAt).getTime() - Date.now();
-  if (diffMs <= 0) return null;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
 
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -113,6 +117,9 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   appIdForExpiredHint,
   expiredHint,
   inline = false,
+  visualization = "bars",
+  refreshFailed = false,
+  refreshError,
 }) => {
   const { t } = useTranslation();
 
@@ -124,6 +131,47 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
     return () => clearInterval(interval);
   }, [quota?.queriedAt]);
 
+  // Codex account cards must retain a visible, refreshable unknown state when
+  // credentials or API windows are missing rather than implying zero usage.
+  if (
+    visualization === "rings" &&
+    quota &&
+    (quota.credentialStatus === "not_found" ||
+      quota.credentialStatus === "parse_error" ||
+      (quota.success && !quota.tiers?.length))
+  ) {
+    return (
+      <div
+        className={`codex-quota-panel min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-3 py-3 shadow-sm backdrop-blur-xl ${inline ? "w-full max-w-sm" : "mt-3"}`}
+        aria-busy={loading}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span role="status" className="text-xs text-muted-foreground">
+            {t("codexAccounts.quotaUnknown", "额度未知")}
+          </span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
+            disabled={loading}
+            aria-label={t("subscription.refresh")}
+            title={t("subscription.refresh")}
+            className="codex-quota-refresh flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-default/60 bg-card/60 text-muted-foreground shadow-sm backdrop-blur-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+          </button>
+        </div>
+        {(quota.error || quota.credentialMessage) && (
+          <p className="mt-2 break-words text-[11px] text-muted-foreground">
+            {quota.error || quota.credentialMessage}
+          </p>
+        )}
+      </div>
+    );
+  }
+
   // 无凭据 → 不显示
   if (!quota || quota.credentialStatus === "not_found") return null;
 
@@ -134,15 +182,19 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   if (quota.credentialStatus === "expired" && !quota.success) {
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 shadow-sm">
+        <div className="inline-flex min-w-0 items-center gap-2 text-xs rounded-2xl border border-amber-200/70 dark:border-amber-800/70 bg-amber-50/50 dark:bg-amber-900/20 px-3 py-2 shadow-sm backdrop-blur-xl">
           <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
             <AlertCircle size={12} />
             <span>{t("subscription.expired")}</span>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -151,7 +203,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       );
     }
     return (
-      <div className="mt-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 shadow-sm">
+      <div className="mt-3 min-w-0 rounded-2xl border border-amber-200/70 dark:border-amber-800/70 bg-amber-50/50 dark:bg-amber-900/20 px-4 py-3 shadow-sm backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
             <AlertCircle size={14} />
@@ -164,9 +216,13 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
             </div>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-800/30 transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -180,15 +236,21 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   if (!quota.success) {
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-border-default bg-card px-3 py-2 shadow-sm">
+        <div className="inline-flex min-w-0 items-center gap-2 text-xs rounded-2xl border border-border-default/70 bg-card/50 px-3 py-2 shadow-sm backdrop-blur-xl">
           <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400">
             <AlertCircle size={12} />
-            <span>{t("subscription.queryFailed")}</span>
+            <span title={quota.error || undefined}>
+              {t("subscription.queryFailed")}
+            </span>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -197,16 +259,22 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       );
     }
     return (
-      <div className="mt-3 rounded-xl border border-border-default bg-card px-4 py-3 shadow-sm">
+      <div className="mt-3 min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-4 py-3 shadow-sm backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-red-500 dark:text-red-400">
+          <div className="flex min-w-0 items-center gap-2 text-red-500 dark:text-red-400">
             <AlertCircle size={14} />
-            <span>{quota.error || t("subscription.queryFailed")}</span>
+            <span className="break-words">
+              {quota.error || t("subscription.queryFailed")}
+            </span>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -218,9 +286,29 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
 
   // 成功获取数据
   const tiers = (quota.tiers || []).filter(
-    (tier) => tier.name in TIER_I18N_KEYS,
+    (tier) => visualization === "rings" || tier.name in TIER_I18N_KEYS,
   );
   if (tiers.length === 0) return null;
+
+  if (visualization === "rings") {
+    return (
+      <CodexQuotaRings
+        quota={quota}
+        tiers={tiers}
+        labels={TIER_I18N_KEYS}
+        loading={loading}
+        refetch={refetch}
+        inline={inline}
+        updatedLabel={
+          quota.queriedAt
+            ? formatRelativeTime(quota.queriedAt, now, t)
+            : t("usage.never", { defaultValue: "从未更新" })
+        }
+        refreshFailed={refreshFailed}
+        refreshError={refreshError}
+      />
+    );
+  }
 
   // ── inline 模式：紧凑两行显示 ──
   if (inline) {
@@ -241,6 +329,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
             }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0 text-muted-foreground"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -261,7 +350,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
 
   // ── 展开模式：详细信息 ──
   return (
-    <div className="mt-3 rounded-xl border border-border-default bg-card px-4 py-3 shadow-sm">
+    <div className="mt-3 min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-4 py-3 shadow-sm backdrop-blur-xl">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
           {t("subscription.title", { defaultValue: "Subscription Quota" })}
@@ -274,9 +363,13 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
             </span>
           )}
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -415,6 +508,8 @@ const SubscriptionQuotaFooter: React.FC<SubscriptionQuotaFooterProps> = ({
     data: quota,
     isFetching: loading,
     refetch,
+    refreshFailed,
+    refreshError,
   } = useSubscriptionQuota(
     appId,
     isCurrent,
@@ -432,6 +527,9 @@ const SubscriptionQuotaFooter: React.FC<SubscriptionQuotaFooterProps> = ({
       // expiredHint 里的 {tool} 是 CLI 命令名：Grok 的命令是 `grok` 而非 appId
       appIdForExpiredHint={appId === "grokbuild" ? "grok" : appId}
       inline={inline}
+      visualization={appId === "codex" ? "rings" : "bars"}
+      refreshFailed={refreshFailed}
+      refreshError={refreshError}
     />
   );
 };

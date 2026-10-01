@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useManagedAuth } from "@/components/providers/forms/hooks/useManagedAuth";
 import { CODEX_OAUTH_DUPLICATE_ACCOUNT_ERROR } from "@/lib/api/auth";
@@ -11,6 +15,7 @@ const apiMocks = vi.hoisted(() => ({
   authPollForAccount: vi.fn(),
   authCancelLogin: vi.fn(),
   authRemoveAccount: vi.fn(),
+  authUpdateAccount: vi.fn(),
 }));
 const toastMocks = vi.hoisted(() => ({
   success: vi.fn(),
@@ -25,6 +30,8 @@ vi.mock("@/lib/api", () => ({
     authCancelLogin: (...args: unknown[]) => apiMocks.authCancelLogin(...args),
     authRemoveAccount: (...args: unknown[]) =>
       apiMocks.authRemoveAccount(...args),
+    authUpdateAccount: (...args: unknown[]) =>
+      apiMocks.authUpdateAccount(...args),
   },
   settingsApi: {
     openExternal: vi.fn().mockResolvedValue(undefined),
@@ -41,14 +48,14 @@ vi.mock("sonner", () => ({
   },
 }));
 
-function createWrapper() {
-  const queryClient = new QueryClient({
+function createWrapper(
+  queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false },
     },
-  });
-
+  }),
+) {
   return function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -82,7 +89,213 @@ describe("useManagedAuth", () => {
     apiMocks.authPollForAccount.mockReset().mockResolvedValue(null);
     apiMocks.authCancelLogin.mockReset().mockResolvedValue(true);
     apiMocks.authRemoveAccount.mockReset().mockResolvedValue(undefined);
+    apiMocks.authUpdateAccount.mockReset();
   });
+
+  it("updates shared account data only after metadata is persisted and preserves authentication state", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const quotaKey = ["codex_oauth", "quota", "acct-1"];
+    const quota = {
+      credentialStatus: "valid",
+      success: true,
+      tiers: [{ utilization: 12 }],
+    };
+    queryClient.setQueryData(quotaKey, quota);
+    const { result } = renderHook(() => useManagedAuth("codex_oauth"), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+    const original = result.current.accounts[0];
+    const appearance = {
+      display_name: "Work",
+      notes: "Team projects",
+      icon: "star",
+      color: "#cc8844",
+    };
+    const updated = { ...original, ...appearance };
+    let finishSave!: (account: typeof updated) => void;
+    apiMocks.authUpdateAccount.mockReturnValue(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }),
+    );
+    let save!: Promise<unknown>;
+    act(() => {
+      save = result.current.updateAccount(original.id, appearance);
+    });
+    await waitFor(() => expect(result.current.isUpdatingAccount).toBe(true));
+    expect(result.current.accounts[0]).toEqual(original);
+    apiMocks.authGetStatus.mockResolvedValue({
+      ...result.current.authStatus,
+      accounts: [updated],
+    });
+    await act(async () => {
+      finishSave(updated);
+      await save;
+    });
+    expect(apiMocks.authUpdateAccount).toHaveBeenCalledWith(
+      "codex_oauth",
+      original.id,
+      appearance,
+    );
+    await waitFor(() => expect(result.current.accounts[0]).toEqual(updated));
+    expect(result.current.defaultAccountId).toBe("acct-1");
+    expect(result.current.isAuthenticated).toBe(true);
+    expect(apiMocks.authStartLogin).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(quotaKey)).toEqual(quota);
+    expect(queryClient.getQueryState(quotaKey)?.isInvalidated).toBe(false);
+  });
+
+  it("rejects failed edits without modifying the cached account or authentication", async () => {
+    const { result } = renderHook(() => useManagedAuth("codex_oauth"), {
+      wrapper: createWrapper(),
+    });
+    await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+    const original = result.current.accounts[0];
+    apiMocks.authUpdateAccount.mockRejectedValue(
+      new Error("Store unavailable"),
+    );
+    await act(async () => {
+      await expect(
+        result.current.updateAccount(original.id, {
+          display_name: "Draft",
+          notes: null,
+          icon: null,
+          color: null,
+        }),
+      ).rejects.toThrow("Store unavailable");
+    });
+    expect(result.current.accounts[0]).toEqual(original);
+    expect(result.current.defaultAccountId).toBe("acct-1");
+  });
+
+  it.each(["add", "reauth"] as const)(
+    "refreshes only the returned account quota after successful %s login",
+    async (mode) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const targetId = mode === "add" ? "acct-new" : "acct-1";
+      const targetKey = ["codex_oauth", "quota", targetId];
+      const otherKey = ["codex_oauth", "quota", "acct-other"];
+      const oldQuota = { credentialStatus: "expired", success: false };
+      const freshQuota = { credentialStatus: "valid", success: true };
+      queryClient.setQueryData(targetKey, oldQuota);
+      queryClient.setQueryData(otherKey, freshQuota);
+      const refreshTarget = vi.fn().mockResolvedValue(freshQuota);
+      const refreshOther = vi.fn().mockResolvedValue(freshQuota);
+      const { result } = renderHook(
+        () => {
+          const auth = useManagedAuth("codex_oauth");
+          useQuery({
+            queryKey: targetKey,
+            queryFn: refreshTarget,
+            staleTime: Infinity,
+          });
+          useQuery({
+            queryKey: otherKey,
+            queryFn: refreshOther,
+            staleTime: Infinity,
+          });
+          return auth;
+        },
+        { wrapper: createWrapper(queryClient) },
+      );
+      await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+      expect(refreshTarget).not.toHaveBeenCalled();
+      apiMocks.authStartLogin.mockResolvedValue({
+        provider: "codex_oauth",
+        device_code: "device-1",
+        user_code: "ABCD-EFGH",
+        verification_uri: "https://example.com/device",
+        expires_in: 600,
+        interval: 5,
+      });
+      apiMocks.authPollForAccount.mockResolvedValue({ id: targetId });
+      act(() =>
+        mode === "add"
+          ? result.current.addAccount()
+          : result.current.reauthAccount(targetId),
+      );
+      await waitFor(() => expect(refreshTarget).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(result.current.pollingState).toBe("idle"));
+      expect(queryClient.getQueryData(targetKey)).toEqual(freshQuota);
+      expect(refreshOther).not.toHaveBeenCalled();
+      expect(result.current.error).toBeNull();
+      expect(result.current.deviceCode).toBeNull();
+    },
+  );
+
+  it.each(["expired", "not_found", "valid"] as const)(
+    "handles cached %s credentials after successful reauthentication when quota refresh fails",
+    async (credentialStatus) => {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const quotaKey = ["codex_oauth", "quota", "acct-1"];
+      const cachedQuota = {
+        credentialStatus,
+        success: credentialStatus === "valid",
+      };
+      queryClient.setQueryData(quotaKey, cachedQuota);
+      const otherKey = ["codex_oauth", "quota", "acct-other"];
+      queryClient.setQueryData(otherKey, {
+        credentialStatus: "expired",
+        success: false,
+      });
+      const refreshQuota = vi
+        .fn()
+        .mockRejectedValue(new Error("Quota network unavailable"));
+      const { result } = renderHook(
+        () => {
+          const auth = useManagedAuth("codex_oauth");
+          const quota = useQuery({
+            queryKey: quotaKey,
+            queryFn: refreshQuota,
+            staleTime: Infinity,
+          });
+          return { auth, quota };
+        },
+        { wrapper: createWrapper(queryClient) },
+      );
+      await waitFor(() =>
+        expect(result.current.auth.isStatusSuccess).toBe(true),
+      );
+      apiMocks.authStartLogin.mockResolvedValue({
+        provider: "codex_oauth",
+        device_code: "device-1",
+        user_code: "ABCD-EFGH",
+        verification_uri: "https://example.com/device",
+        expires_in: 600,
+        interval: 5,
+      });
+      apiMocks.authPollForAccount.mockResolvedValue({ id: "acct-1" });
+      act(() => result.current.auth.reauthAccount("acct-1"));
+      await waitFor(() => expect(refreshQuota).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(result.current.quota.isError).toBe(true));
+      await waitFor(() =>
+        expect(result.current.auth.pollingState).toBe("idle"),
+      );
+      expect(result.current.auth.error).toBeNull();
+      expect(result.current.auth.deviceCode).toBeNull();
+      expect(result.current.auth.isAuthenticated).toBe(true);
+      expect(result.current.auth.accounts[0].id).toBe("acct-1");
+      if (credentialStatus === "valid") {
+        expect(queryClient.getQueryData(quotaKey)).toEqual(cachedQuota);
+        expect(result.current.quota.data).toEqual(cachedQuota);
+      } else {
+        expect(queryClient.getQueryData(quotaKey)).toBeUndefined();
+        expect(result.current.quota.data).toBeUndefined();
+      }
+      expect(queryClient.getQueryData(otherKey)).toEqual({
+        credentialStatus: "expired",
+        success: false,
+      });
+      expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+    },
+  );
 
   it("starts reauthentication for the selected account", async () => {
     const { result } = renderHook(() => useManagedAuth("codex_oauth"), {

@@ -14,7 +14,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Settings,
-  ArrowLeft,
   Minus,
   Maximize2,
   Minimize2,
@@ -34,6 +33,7 @@ import {
 } from "@/lib/api";
 import { checkEnvConflicts } from "@/lib/api/env";
 import { useProviderActions } from "@/hooks/useProviderActions";
+import { useCodexAccountSwitch } from "@/hooks/useCodexAccountSwitch";
 import type { ProviderEditorSave } from "@/lib/api/providers";
 import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
@@ -56,7 +56,6 @@ import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HomeUsageDashboard } from "@/components/usage/HomeUsageDashboard";
-import { UpdateBadge } from "@/components/UpdateBadge";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
 import { ProxyToggle } from "@/components/proxy/ProxyToggle";
 import { FailoverToggle } from "@/components/proxy/FailoverToggle";
@@ -81,7 +80,7 @@ interface SyncStatusUpdatedPayload {
 }
 
 const DEFAULT_DRAG_BAR_HEIGHT = isWindows() || isLinux() ? 0 : 28; // px
-const HEADER_HEIGHT = 64; // px
+const HEADER_HEIGHT = 56; // px
 
 const STORAGE_KEY = "cc-switch-last-app";
 const getInitialApp = (): AppId => {
@@ -110,10 +109,11 @@ function App() {
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [homeTab, setHomeTab] = useState<"accounts" | "usage">("accounts");
-  const [initialCodexAccountId, setInitialCodexAccountId] = useState<
-    string | undefined
-  >();
-  const [isAccountSwitching, setIsAccountSwitching] = useState(false);
+  const {
+    switchAccount,
+    isSwitching: isAccountSwitching,
+    isCurrentUncertain,
+  } = useCodexAccountSwitch();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   useEffect(() => {
     localStorage.setItem(VIEW_STORAGE_KEY, currentView);
@@ -123,7 +123,7 @@ function App() {
   const useAppWindowControls =
     isLinux() && (settingsData?.useAppWindowControls ?? false);
   const dragBarHeight = useAppWindowControls ? 32 : DEFAULT_DRAG_BAR_HEIGHT;
-  const contentTopOffset = dragBarHeight + HEADER_HEIGHT;
+  const contentTopOffset = dragBarHeight + HEADER_HEIGHT + 12;
   // This is a presentation mask; never rewrite persisted multi-app settings.
   const visibleApps = useMemo<VisibleApps>(
     () =>
@@ -172,8 +172,7 @@ function App() {
     }
   }, [activeApp, currentView, homeTab]);
 
-  const addActionButtonClass =
-    "bg-orange-500 hover:bg-orange-600 dark:bg-orange-500 dark:hover:bg-orange-600 text-white shadow-lg shadow-orange-500/30 dark:shadow-orange-500/40 rounded-full w-8 h-8";
+  const addActionButtonClass = "rounded-full w-8 h-8";
 
   const {
     isRunning: isProxyRunning,
@@ -660,7 +659,6 @@ function App() {
         </h2>
         <Button
           onClick={() => {
-            setInitialCodexAccountId(undefined);
             setIsAddOpen(true);
           }}
           size="icon"
@@ -671,8 +669,23 @@ function App() {
           <Plus className="h-5 w-5" aria-hidden="true" />
         </Button>
       </div>
+      <details className="glass rounded-xl px-4 py-2 text-xs text-muted-foreground">
+        <summary className="cursor-pointer">
+          {t("codexAccounts.configurationsHelp", "连接配置用途")}
+        </summary>
+        <p className="pt-2 leading-relaxed">
+          {t(
+            "codexAccounts.configurationsDescription",
+            "用于 API Key 连接和可选的高级配置。ChatGPT 账号登录后可在主页直接切换。",
+          )}
+        </p>
+      </details>
       <ProviderList
-        providers={providers}
+        providers={Object.fromEntries(
+          Object.entries(providers).filter(
+            ([, provider]) => !provider.meta?.codexAccountManaged,
+          ),
+        )}
         currentProviderId={currentProviderId}
         appId="codex"
         isLoading={isLoading}
@@ -686,12 +699,20 @@ function App() {
         onConfigureUsage={setUsageProvider}
         onOpenWebsite={handleOpenWebsite}
         onCreate={() => {
-          setInitialCodexAccountId(undefined);
           setIsAddOpen(true);
         }}
       />
     </div>
   );
+
+  const accountPanelProps = {
+    providers: Object.values(providers),
+    currentProviderId: isCurrentUncertain ? "" : accountCurrentProviderId,
+    isSwitching: isAccountSwitching,
+    isLoadingProviders: isLoading,
+    isProvidersError: hasProvidersError,
+    onSwitchAccount: switchAccount,
+  };
 
   const renderContent = () => {
     const content = (() => {
@@ -704,68 +725,15 @@ function App() {
               onImportSuccess={handleImportSuccess}
               defaultTab={settingsDefaultTab}
               configurations={configurationContent}
+              accountPanelProps={accountPanelProps}
             />
           );
         default:
           return (
-            <div className="px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
-              <div
-                role="tablist"
-                aria-label={t("codexAccounts.homeTabs", "Codex management")}
-                className="flex gap-2 border-b border-border pb-3 mb-4"
-              >
-                {(["accounts", "usage"] as const).map((tab) => (
-                  <Button
-                    key={tab}
-                    role="tab"
-                    aria-selected={homeTab === tab}
-                    tabIndex={homeTab === tab ? 0 : -1}
-                    aria-controls={`codex-home-${tab}`}
-                    id={`codex-tab-${tab}`}
-                    variant={homeTab === tab ? "secondary" : "ghost"}
-                    size="icon"
-                    aria-label={
-                      tab === "accounts"
-                        ? t("codexAccounts.accountsTab", "ChatGPT accounts")
-                        : t("usage.title", "Usage Statistics")
-                    }
-                    title={
-                      tab === "accounts"
-                        ? t("codexAccounts.accountsTab", "ChatGPT accounts")
-                        : t("usage.title", "Usage Statistics")
-                    }
-                    onClick={() => setHomeTab(tab)}
-                    onKeyDown={(event) => {
-                      if (
-                        !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
-                          event.key,
-                        )
-                      )
-                        return;
-                      event.preventDefault();
-                      const nextTab =
-                        event.key === "Home"
-                          ? "accounts"
-                          : event.key === "End"
-                            ? "usage"
-                            : tab === "accounts"
-                              ? "usage"
-                              : "accounts";
-                      setHomeTab(nextTab);
-                      document.getElementById(`codex-tab-${nextTab}`)?.focus();
-                    }}
-                  >
-                    {tab === "accounts" ? (
-                      <Users className="h-5 w-5" aria-hidden="true" />
-                    ) : (
-                      <BarChart2 className="h-5 w-5" aria-hidden="true" />
-                    )}
-                  </Button>
-                ))}
-              </div>
+            <div className="px-3 sm:px-6 flex flex-col flex-1 min-h-0 overflow-hidden">
               <div
                 ref={providerScrollContainerRef}
-                className="flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1"
+                className="app-scroll flex-1 overflow-y-auto overflow-x-hidden pb-12 px-1"
               >
                 <AnimatePresence mode="wait">
                   <motion.div
@@ -782,27 +750,7 @@ function App() {
                         id="codex-home-accounts"
                         aria-labelledby="codex-tab-accounts"
                       >
-                        <CodexAccountsPanel
-                          providers={Object.values(providers)}
-                          currentProviderId={accountCurrentProviderId}
-                          isSwitching={isAccountSwitching}
-                          isLoadingProviders={isLoading}
-                          isProvidersError={hasProvidersError}
-                          onSwitchProvider={async (provider) => {
-                            setIsAccountSwitching(true);
-                            try {
-                              await switchProvider(provider);
-                            } finally {
-                              setIsAccountSwitching(false);
-                            }
-                          }}
-                          onCreateConfiguration={(accountId) => {
-                            setSettingsDefaultTab("configurations");
-                            setCurrentView("settings");
-                            setInitialCodexAccountId(accountId);
-                            setIsAddOpen(true);
-                          }}
-                        />
+                        <CodexAccountsPanel {...accountPanelProps} />
                       </div>
                     ) : (
                       <div
@@ -839,7 +787,7 @@ function App() {
 
   return (
     <div
-      className="flex flex-col h-screen overflow-hidden bg-background text-foreground selection:bg-primary/30 pb-4"
+      className="app-shell flex flex-col h-screen overflow-hidden text-foreground selection:bg-primary/30 pb-4"
       style={{ overflowX: "hidden", paddingTop: contentTopOffset }}
     >
       {(dragBarHeight > 0 || useAppWindowControls) && (
@@ -917,88 +865,121 @@ function App() {
       )}
 
       <header
-        className="fixed z-50 w-full transition-all duration-300 bg-background/80 backdrop-blur-md"
+        className="fixed left-3 right-3 sm:left-6 sm:right-6 z-50 flex items-center gap-2 sm:gap-3"
         {...DRAG_REGION_ATTR}
         style={
           {
             ...DRAG_REGION_STYLE,
-            top: dragBarHeight,
+            top: dragBarHeight + 8,
             height: HEADER_HEIGHT,
           } as any
         }
       >
         <div
-          className="flex h-full items-center justify-between gap-2 px-6"
+          className="glass-header flex h-full min-w-0 items-center px-3 sm:px-4"
           {...DRAG_REGION_ATTR}
           style={{ ...DRAG_REGION_STYLE } as any}
         >
+          <RoutingActivationBrand
+            active={isProxyRunning && isCurrentAppTakeoverActive}
+            contextKey={activeApp}
+            ready={proxyStatus !== undefined && takeoverStatus !== undefined}
+          />
+        </div>
+        <nav
+          className="glass-header app-navigation flex h-full shrink-0 items-center gap-1 p-2"
+          aria-label={t("codexAccounts.homeTabs", "Codex management")}
+          style={{ WebkitAppRegion: "no-drag" } as any}
+        >
           <div
+            role="tablist"
+            aria-label={t("codexAccounts.homeTabs", "Codex management")}
             className="flex items-center gap-1"
+          >
+            {(["accounts", "usage"] as const).map((tab) => (
+              <Button
+                key={tab}
+                role="tab"
+                aria-selected={currentView === "providers" && homeTab === tab}
+                tabIndex={homeTab === tab ? 0 : -1}
+                aria-controls={`codex-home-${tab}`}
+                id={`codex-tab-${tab}`}
+                variant={
+                  currentView === "providers" && homeTab === tab
+                    ? "secondary"
+                    : "ghost"
+                }
+                size="icon"
+                aria-label={
+                  tab === "accounts"
+                    ? t("codexAccounts.accountsTab", "ChatGPT accounts")
+                    : t("codexAccounts.localUsageTab", "本地用量")
+                }
+                title={
+                  tab === "accounts"
+                    ? t("codexAccounts.accountsTab", "ChatGPT accounts")
+                    : t("codexAccounts.localUsageTab", "本地用量")
+                }
+                onClick={() => {
+                  setHomeTab(tab);
+                  setCurrentView("providers");
+                }}
+                onKeyDown={(event) => {
+                  if (
+                    !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
+                      event.key,
+                    )
+                  )
+                    return;
+                  event.preventDefault();
+                  const nextTab =
+                    event.key === "Home"
+                      ? "accounts"
+                      : event.key === "End"
+                        ? "usage"
+                        : tab === "accounts"
+                          ? "usage"
+                          : "accounts";
+                  setHomeTab(nextTab);
+                  setCurrentView("providers");
+                  document.getElementById(`codex-tab-${nextTab}`)?.focus();
+                }}
+              >
+                {tab === "accounts" ? (
+                  <Users className="h-5 w-5" aria-hidden="true" />
+                ) : (
+                  <BarChart2 className="h-5 w-5" aria-hidden="true" />
+                )}
+              </Button>
+            ))}
+          </div>
+          <Button
+            variant={currentView === "settings" ? "secondary" : "ghost"}
+            size="icon"
+            aria-pressed={currentView === "settings"}
+            onClick={() => {
+              setSettingsDefaultTab("general");
+              setCurrentView("settings");
+            }}
+            aria-label={t("common.settings")}
+            title={t("common.settings")}
+          >
+            <Settings className="h-5 w-5" aria-hidden="true" />
+          </Button>
+        </nav>
+        {currentView === "providers" && proxyAppId && (
+          <div
+            className="ml-auto flex shrink-0 items-center gap-1.5"
             style={{ WebkitAppRegion: "no-drag" } as any}
           >
-            {currentView !== "providers" ? (
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="icon"
-                  aria-label={t("common.back")}
-                  onClick={() => setCurrentView("providers")}
-                  className="mr-2 rounded-lg"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                </Button>
-                <h1 className="text-lg font-semibold">
-                  {currentView === "settings" && t("settings.title")}
-                </h1>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <RoutingActivationBrand
-                  active={isProxyRunning && isCurrentAppTakeoverActive}
-                  contextKey={activeApp}
-                  ready={
-                    proxyStatus !== undefined && takeoverStatus !== undefined
-                  }
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    setSettingsDefaultTab("general");
-                    setCurrentView("settings");
-                  }}
-                  aria-label={t("common.settings")}
-                  title={t("common.settings")}
-                  className="hover:bg-black/5 dark:hover:bg-white/5"
-                >
-                  <Settings className="w-4 h-4" />
-                </Button>
-                <UpdateBadge
-                  onClick={() => {
-                    setSettingsDefaultTab("about");
-                    setCurrentView("settings");
-                  }}
-                />
-              </div>
+            {settingsData?.enableLocalProxy && (
+              <ProxyToggle activeApp={proxyAppId} />
+            )}
+            {settingsData?.enableFailoverToggle && (
+              <FailoverToggle activeApp={proxyAppId} />
             )}
           </div>
-
-          <div className="flex flex-1 min-w-0 items-center justify-end gap-1.5">
-            {currentView === "providers" && proxyAppId && (
-              <div
-                className="flex shrink-0 items-center gap-1.5"
-                style={{ WebkitAppRegion: "no-drag" } as any}
-              >
-                {settingsData?.enableLocalProxy && (
-                  <ProxyToggle activeApp={proxyAppId} />
-                )}
-                {settingsData?.enableFailoverToggle && (
-                  <FailoverToggle activeApp={proxyAppId} />
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        )}
       </header>
 
       <main
@@ -1010,7 +991,6 @@ function App() {
 
       <AddProviderDialog
         open={isAddOpen}
-        initialCodexAccountId={initialCodexAccountId}
         onOpenChange={setIsAddOpen}
         appId={activeApp}
         onSubmit={addProvider}

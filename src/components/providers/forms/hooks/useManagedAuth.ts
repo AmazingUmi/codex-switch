@@ -3,13 +3,24 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { authApi, settingsApi } from "@/lib/api";
-import { CODEX_OAUTH_DUPLICATE_ACCOUNT_ERROR } from "@/lib/api/auth";
+import {
+  CODEX_OAUTH_DUPLICATE_ACCOUNT_ERROR,
+  type ManagedAuthAccount,
+} from "@/lib/api/auth";
 import { copyText } from "@/lib/clipboard";
+import type { SubscriptionQuota } from "@/types/subscription";
 import type {
   ManagedAuthProvider,
   ManagedAuthStatus,
   ManagedAuthDeviceCodeResponse,
 } from "@/lib/api";
+
+type AccountAppearance = {
+  display_name: string | null;
+  notes: string | null;
+  icon: string | null;
+  color: string | null;
+};
 
 type PollingState = "idle" | "polling" | "success" | "error";
 type LoginRequest = {
@@ -151,7 +162,11 @@ export function useManagedAuth(
           void cancelBackendFlow(response.device_code);
           flowGenerationRef.current += 1;
           setPollingState("error");
-          setError("Device code expired. Please try again.");
+          setError(
+            t("managedAuth.deviceCodeExpired", {
+              defaultValue: "登录验证码已过期，请重试。",
+            }),
+          );
           return;
         }
 
@@ -170,6 +185,30 @@ export function useManagedAuth(
             setPollingState("success");
             await refetchStatus();
             await queryClient.invalidateQueries({ queryKey });
+            if (authProvider === "codex_oauth") {
+              // New credentials supersede this account's cached expiry result.
+              // Quota retrieval remains independent of a committed login.
+              try {
+                const quotaKey = ["codex_oauth", "quota", newAccount.id];
+                const previousQuota =
+                  queryClient.getQueryData<SubscriptionQuota>(quotaKey);
+                const filters = { queryKey: quotaKey, exact: true };
+                if (
+                  previousQuota?.credentialStatus === "expired" ||
+                  previousQuota?.credentialStatus === "not_found"
+                ) {
+                  // A transport failure must not retain the old credentials' block.
+                  await queryClient.resetQueries(filters);
+                } else {
+                  await queryClient.invalidateQueries(filters);
+                }
+              } catch (quotaError) {
+                console.debug(
+                  "[ManagedAuth] Failed to refresh account quota:",
+                  quotaError,
+                );
+              }
+            }
             if (completionGeneration !== flowGenerationRef.current) return;
             setPollingState("idle");
             setDeviceCode(null);
@@ -206,7 +245,11 @@ export function useManagedAuth(
         void cancelBackendFlow(response.device_code);
         flowGenerationRef.current += 1;
         setPollingState("error");
-        setError("Device code expired. Please try again.");
+        setError(
+          t("managedAuth.deviceCodeExpired", {
+            defaultValue: "登录验证码已过期，请重试。",
+          }),
+        );
       }, response.expires_in * 1000);
       void pollOnce();
     },
@@ -271,6 +314,33 @@ export function useManagedAuth(
       setError(e instanceof Error ? e.message : String(e));
     },
   });
+
+  const updateAccountMutation = useMutation({
+    mutationFn: ({
+      accountId,
+      appearance,
+    }: {
+      accountId: string;
+      appearance: AccountAppearance;
+    }) => authApi.authUpdateAccount(authProvider, accountId, appearance),
+    onSuccess: async (account: ManagedAuthAccount) => {
+      // Synchronize all account surfaces only after the local store accepts the edit.
+      queryClient.setQueryData<ManagedAuthStatus>(queryKey, (status) =>
+        status
+          ? {
+              ...status,
+              accounts: status.accounts.map((entry) =>
+                entry.id === account.id ? account : entry,
+              ),
+            }
+          : status,
+      );
+      await queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  const updateAccount = (accountId: string, appearance: AccountAppearance) =>
+    updateAccountMutation.mutateAsync({ accountId, appearance });
 
   const beginLogin = useCallback(
     (targetAccountId?: string) => {
@@ -356,6 +426,8 @@ export function useManagedAuth(
     isAddingAccount: startLoginMutation.isPending || pollingState === "polling",
     isRemovingAccount: removeAccountMutation.isPending,
     isSettingDefaultAccount: setDefaultAccountMutation.isPending,
+    isUpdatingAccount: updateAccountMutation.isPending,
+    updateAccount,
     startAuth,
     addAccount: startAuth,
     reauthAccount,

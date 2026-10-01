@@ -20,6 +20,44 @@ export interface ManagedAuthAccount {
   reauth_required?: boolean;
   /** xAI-only: the refresh credential is invalid and the account is unusable. */
   requires_reauth: boolean;
+  display_name?: string | null;
+  notes?: string | null;
+  icon?: string | null;
+  color?: string | null;
+}
+
+export interface ManagedAuthAccountMetadata {
+  display_name?: string | null;
+  notes?: string | null;
+  icon?: string | null;
+  color?: string | null;
+}
+
+export interface CodexAccountSwitchResult {
+  providerId: string;
+  warnings: string[];
+}
+
+export async function authSwitchCodexAccount(
+  accountId: string,
+  providerId?: string,
+): Promise<CodexAccountSwitchResult> {
+  return invoke<CodexAccountSwitchResult>("auth_switch_codex_account", {
+    accountId,
+    providerId: providerId || null,
+  });
+}
+
+export async function authUpdateAccount(
+  authProvider: ManagedAuthProvider,
+  accountId: string,
+  metadata: ManagedAuthAccountMetadata,
+): Promise<ManagedAuthAccount> {
+  return invoke<ManagedAuthAccount>("auth_update_account", {
+    authProvider,
+    accountId,
+    metadata,
+  });
 }
 
 export interface ManagedAuthStatus {
@@ -123,6 +161,8 @@ export const authApi = {
   authCancelLogin,
   authListAccounts,
   authGetStatus,
+  authSwitchCodexAccount,
+  authUpdateAccount,
   authRemoveAccount,
   authSetDefaultAccount,
   authLogout,

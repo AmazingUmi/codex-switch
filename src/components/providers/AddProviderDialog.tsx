@@ -200,7 +200,11 @@ function CodexAddProviderDialog({
   return (
     <FullScreenPanel
       isOpen={open}
-      title={t("provider.addNewProvider")}
+      title={
+        productShell
+          ? t("codexAccounts.addConnectionTitle", "添加连接配置")
+          : t("provider.addNewProvider")
+      }
       onClose={handlePanelClose}
       footer={footer}
       contentClassName={"pt-3"}
