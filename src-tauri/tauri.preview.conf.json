@@ -1,0 +1,15 @@
+{
+  "productName": "Codex Switch Preview",
+  "identifier": "com.codexswitch.preview",
+  "bundle": {
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": []
+    },
+    "updater": {
+      "endpoints": []
+    }
+  }
+}

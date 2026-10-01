@@ -6,6 +6,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { IS_CODEX_PREVIEW } from "@/config/buildMode";
 import type { UpdateInfo } from "../lib/updater";
 import { checkForUpdate } from "../lib/updater";
 import { extractErrorMessage } from "../utils/errorUtils";
@@ -60,6 +61,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
   const isCheckingRef = useRef(false);
 
   const checkUpdate = useCallback(async () => {
+    if (IS_CODEX_PREVIEW) return false;
     if (isCheckingRef.current) return false;
     isCheckingRef.current = true;
     setIsChecking(true);
@@ -118,6 +120,7 @@ export function UpdateProvider({ children }: { children: React.ReactNode }) {
 
   // 应用启动时自动检查更新
   useEffect(() => {
+    if (IS_CODEX_PREVIEW) return;
     // 延迟1秒后检查，避免影响启动体验
     const timer = setTimeout(() => {
       checkUpdate().catch(console.error);

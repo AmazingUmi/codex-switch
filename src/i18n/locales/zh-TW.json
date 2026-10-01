@@ -143,7 +143,7 @@
     "terminalOpened": "終端機已開啟",
     "terminalOpenFailed": "開啟終端機失敗",
     "name": "供應商名稱",
-    "namePlaceholder": "例如：Claude 官方",
+    "namePlaceholder": "例如：OpenAI 官方",
     "websiteUrl": "官網連結",
     "notes": "備註",
     "notesPlaceholder": "例如：公司專用帳號",
@@ -328,6 +328,8 @@
     }
   },
   "settings": {
+    "previewManualBuild": "預覽版 · 手動更新",
+    "previewDataNotice": "預覽版使用獨立資料，不會自動匯入現有帳號或 Codex 設定。",
     "title": "設定",
     "general": "通用",
     "tabGeneral": "通用",

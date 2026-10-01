@@ -517,8 +517,9 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             set_windows_app_user_model_id(app.handle());
 
+            // Preview builds must never install an upstream CC Switch release.
             // 注册 Updater 插件（桌面端）；放在 logger 之后，确保失败可诊断。
-            #[cfg(desktop)]
+            #[cfg(all(desktop, not(feature = "codex-preview")))]
             {
                 if let Err(e) = app
                     .handle()

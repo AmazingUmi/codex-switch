@@ -40,6 +40,7 @@ import type {
 import { useUpdate } from "@/contexts/UpdateContext";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
+import { IS_CODEX_PREVIEW } from "@/config/buildMode";
 import appIcon from "@/assets/icons/app-icon.png";
 import { APP_ICON_MAP } from "@/config/appConfig";
 import type { AppId } from "@/lib/api/types";
@@ -978,7 +979,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               type="button"
               size="sm"
               onClick={handleCheckUpdate}
-              disabled={isChecking || isDownloading}
+              disabled={IS_CODEX_PREVIEW || isChecking || isDownloading}
               className="h-8 gap-1.5 text-xs"
             >
               {isDownloading ? (
@@ -1001,12 +1002,20 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               ) : (
                 <>
                   <RefreshCw className="h-3.5 w-3.5" />
-                  {t("settings.checkForUpdates")}
+                  {IS_CODEX_PREVIEW
+                    ? t("settings.previewManualBuild")
+                    : t("settings.checkForUpdates")}
                 </>
               )}
             </Button>
           </div>
         </div>
+
+        {IS_CODEX_PREVIEW && (
+          <p className="text-sm text-muted-foreground">
+            {t("settings.previewDataNotice")}
+          </p>
+        )}
 
         {hasUpdate && updateInfo && (
           <motion.div

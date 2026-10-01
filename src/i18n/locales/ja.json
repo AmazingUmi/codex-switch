@@ -143,7 +143,7 @@
     "terminalOpened": "ターミナルを開きました",
     "terminalOpenFailed": "ターミナルを開けませんでした",
     "name": "プロバイダー名",
-    "namePlaceholder": "例: Claude Official",
+    "namePlaceholder": "例: OpenAI Official",
     "websiteUrl": "Web サイト URL",
     "notes": "メモ",
     "notesPlaceholder": "例: 会社用アカウント",
@@ -328,6 +328,8 @@
     }
   },
   "settings": {
+    "previewManualBuild": "プレビュー版 · 手動更新",
+    "previewDataNotice": "プレビュー版は独立したデータを使用し、既存のアカウントや Codex 設定を自動で取り込みません。",
     "title": "設定",
     "general": "一般",
     "tabGeneral": "一般",
