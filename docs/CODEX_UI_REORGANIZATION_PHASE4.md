@@ -10,9 +10,9 @@ Branch: `feat/codex-only`. Baseline: `5c769ab1`.
 - The account page has no repeated large heading or introductory text block.
   A question-mark popover explains current versus default accounts, restarting
   Codex after a switch, and quota/reset semantics.
-- App and tray icons use a hollow Codex-style cloud with a terminal prompt,
-  following the supplied visual reference. The app uses a blue-violet outline;
-  interface and tray marks use a monochrome outline. Product UI no longer
+- Icons use a Codex-style cloud with a terminal prompt, following the supplied
+  visual reference. The Dock/app icon has a pale rounded-square frame and teal
+  cloud; interface and tray marks retain the monochrome hollow outline. Product UI no longer
   links to the original project's website, releases, sponsorship or update flow.
 
 ## Implementation map
