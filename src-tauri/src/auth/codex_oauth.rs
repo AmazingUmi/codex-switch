@@ -1372,6 +1372,16 @@ impl CodexOAuthManager {
         self.resolve_default_account_id().await
     }
 
+    /// Read-only identity snapshot for local usage attribution; never refreshes tokens.
+    pub(crate) async fn account_user_identity(&self, account_id: &str) -> Option<String> {
+        self.accounts
+            .read()
+            .await
+            .get(account_id)
+            .and_then(|account| account.id_token.as_deref())
+            .and_then(crate::codex_config::extract_codex_id_token_user_identity)
+    }
+
     /// 将本地账号 ID 解析为上游 ChatGPT workspace ID。
     pub async fn chatgpt_account_id_for_account(
         &self,

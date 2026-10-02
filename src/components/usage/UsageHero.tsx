@@ -32,6 +32,8 @@ interface UsageHeroProps {
   range: UsageRangeSelection;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
@@ -72,6 +74,8 @@ function AppGlyph({
 export function UsageHero({
   range,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: UsageHeroProps) {
@@ -82,7 +86,7 @@ export function UsageHero({
 
   const { data, isLoading } = useUsageSummary(
     range,
-    { appType, providerName, model },
+    { appType, providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },

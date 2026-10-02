@@ -21,13 +21,20 @@ pub fn get_usage_summary(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<UsageSummary, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_usage_summary(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
@@ -39,12 +46,19 @@ pub fn get_usage_summary_by_app(
     end_date: Option<i64>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<UsageSummaryByApp>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_usage_summary_by_app(
         start_date,
         end_date,
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
@@ -57,13 +71,20 @@ pub fn get_usage_trends(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<DailyStats>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_daily_trends(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
@@ -76,13 +97,20 @@ pub fn get_provider_stats(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<ProviderStats>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_provider_stats(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
@@ -95,13 +123,20 @@ pub fn get_model_stats(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<ModelStats>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_model_stats(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 

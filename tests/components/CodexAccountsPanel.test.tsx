@@ -174,6 +174,83 @@ describe("CodexAccountsPanel", () => {
     onSwitchAccount: vi.fn().mockResolvedValue(undefined),
   });
 
+  it("keeps nickname and login in one identity line with the full login accessible", () => {
+    const auth = mocks.useCodexOauth();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      accounts: accounts.map((account) => ({
+        ...account,
+        display_name: account.id === "account-1" ? " umi " : null,
+      })),
+    });
+    render(<CodexAccountsPanel {...commonProps()} />);
+    const first = card("account-1");
+    const identity = first.querySelector("[data-account-identity]")!;
+    expect(identity).toHaveTextContent("umi·account-1@example.com");
+    expect(identity).toHaveAttribute("title", "umi · account-1@example.com");
+    expect(within(first).getByText("umi").parentElement).toBe(identity);
+    expect(within(first).getByText("account-1@example.com").parentElement).toBe(
+      identity,
+    );
+    expect(within(first).getAllByText("account-1@example.com")).toHaveLength(1);
+    expect(within(first).getByText("account-1@example.com")).toHaveAttribute(
+      "title",
+      "account-1@example.com",
+    );
+    expect(
+      within(first).getByRole("button", {
+        name: "编辑账号: account-1@example.com",
+      }),
+    ).toBeEnabled();
+    expect(
+      within(card("account-2")).getByRole("status", { name: "当前使用" }),
+    ).toBeInTheDocument();
+  });
+
+  it.each([null, "   ", " ACCOUNT-1@EXAMPLE.COM "])(
+    "shows only the login when the nickname is missing or duplicates it: %s",
+    (display_name) => {
+      const auth = mocks.useCodexOauth();
+      mocks.useCodexOauth.mockReturnValue({
+        ...auth,
+        accounts: accounts.map((account) => ({
+          ...account,
+          display_name: account.id === "account-1" ? display_name : null,
+        })),
+      });
+      render(<CodexAccountsPanel {...commonProps()} />);
+      const identity = card("account-1").querySelector(
+        "[data-account-identity]",
+      )!;
+      expect(identity).toHaveTextContent(/^account-1@example.com$/);
+      expect(identity.querySelector("[data-account-nickname]")).toBeNull();
+      expect(identity).toHaveAttribute("title", "account-1@example.com");
+    },
+  );
+
+  it("reserves remaining identity width for a long login and caps the nickname", () => {
+    const auth = mocks.useCodexOauth();
+    const nickname = "A long account name for development projects";
+    const login = "a-very-long-login-identity-for-development@example.com";
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      accounts: [{ ...accounts[0], display_name: nickname, login }],
+    });
+    render(<CodexAccountsPanel {...commonProps()} />);
+    const identity = screen
+      .getByText(login)
+      .closest("[data-account-identity]")!;
+    expect(identity).toHaveClass("whitespace-nowrap", "min-w-0", "flex-1");
+    expect(screen.getByText(nickname)).toHaveClass("max-w-[40%]", "truncate");
+    expect(screen.getByText(login)).toHaveClass(
+      "min-w-0",
+      "flex-1",
+      "truncate",
+    );
+    expect(screen.getByText(login)).toHaveAttribute("title", login);
+    expect(identity).toHaveAttribute("title", `${nickname} · ${login}`);
+  });
+
   it("removes the configuration strip and keeps instructions in accessible nearby help", async () => {
     const user = userEvent.setup();
     render(<CodexAccountsPanel {...commonProps()} />);

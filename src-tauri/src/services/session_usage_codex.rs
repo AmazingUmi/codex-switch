@@ -1457,8 +1457,27 @@ fn sync_single_codex_file(
                 &mut batch_suspected,
                 &mut pass.pricing,
             ) {
-                Ok(true) => batch_imported += 1,
-                Ok(false) => batch_skipped += 1,
+                Ok(inserted) => {
+                    // Annotation provenance stays in Switch; native files are never patched.
+                    if let Some(source) = file_path.ancestors().find_map(|path| {
+                        let name = path.file_name()?.to_str()?;
+                        matches!(name, "sessions" | "archived_sessions")
+                            .then(|| path.parent())
+                            .flatten()
+                    }) {
+                        crate::services::usage_attribution::record_imported_source_on_conn(
+                            &tx,
+                            &request_id,
+                            source,
+                            event.timestamp.as_deref(),
+                        )?;
+                    }
+                    if inserted {
+                        batch_imported += 1;
+                    } else {
+                        batch_skipped += 1;
+                    }
+                }
                 Err(e) => {
                     log::warn!("[CODEX-SYNC] 插入失败 ({request_id}): {e}");
                     batch_skipped += 1;
@@ -1783,6 +1802,39 @@ mod tests {
             )
             .unwrap();
         assert_eq!(count, 2);
+        // Manual annotations remain Switch-only and survive a complete rescan.
+        let target = crate::services::usage_attribution::UsageAttributionChoice {
+            id: "fixture".into(),
+            label: "Fixture".into(),
+            identity: crate::services::usage_attribution::UsageIdentity {
+                account_id: Some("account".into()),
+                account_name: Some("Account".into()),
+                provider_id: Some("provider".into()),
+                provider_name: Some("Provider".into()),
+            },
+        };
+        let selector = crate::services::usage_attribution::UsageAttributionSelector {
+            session_id: Some(PARENT_ID.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            crate::services::usage_attribution::apply_usage_attribution(
+                &db, &selector, &target, true
+            )?
+            .count,
+            1
+        );
+        {
+            let conn = lock_conn!(db.conn);
+            reset_codex_usage_on_conn(&conn, &source)?;
+        }
+        assert_eq!(sync_codex_usage_from_dir(&db, &source, true)?.imported, 2);
+        let tags: i64 = lock_conn!(db.conn).query_row(
+            "SELECT COUNT(*) FROM usage_record_attributions WHERE account_id='account'",
+            [],
+            |r| r.get(0),
+        )?;
+        assert_eq!(tags, 1);
         assert_eq!(files.map(|path| fs::read(path).unwrap()), before);
         Ok(())
     }

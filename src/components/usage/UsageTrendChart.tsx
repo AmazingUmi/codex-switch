@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AreaChart,
@@ -8,14 +8,11 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import { useUsageTrends } from "@/lib/query/usage";
 import { Loader2 } from "lucide-react";
 import {
   fmtInt,
-  fmtUsd,
-  formatUsageDateTime,
   getLocaleFromLanguage,
   getUsageTimeZone,
   parseFiniteNumber,
@@ -28,6 +25,8 @@ interface UsageTrendChartProps {
   rangeLabel: string;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
@@ -66,57 +65,81 @@ export function buildUsageTrendChartData(
     /** Inclusive range endpoints (unix seconds). Used to decide year labels. */
     startDate: number;
     endDate: number;
+    timeZone?: string;
   },
 ): UsageTrendChartPoint[] {
-  const { isHourly, dateLocale, startDate, endDate } = options;
-  const startYear = new Date(startDate * 1000).getFullYear();
-  const endYear = new Date(endDate * 1000).getFullYear();
-  const spansMultipleYears = startYear !== endYear;
+  const { isHourly, dateLocale, startDate, endDate, timeZone } = options;
+  const calendarParts = (date: Date) =>
+    new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      timeZone,
+    }).formatToParts(date);
+  const calendarKey = (date: Date) =>
+    calendarParts(date)
+      .filter((part) => ["year", "month", "day"].includes(part.type))
+      .map((part) => `${part.type}:${part.value}`)
+      .join("/");
+  const start = new Date(startDate * 1000);
+  const end = new Date(endDate * 1000);
+  const sameDay = calendarKey(start) === calendarKey(end);
+  const year = (date: Date) =>
+    calendarParts(date).find((part) => part.type === "year")?.value;
+  const spansMultipleYears = year(start) !== year(end);
 
   return (
-    trends?.map((stat) => {
-      const pointDate = new Date(stat.date);
-      const cost = parseFiniteNumber(stat.totalCost);
-      // Prefer a stable unique key from the source timestamp / date string.
-      // Falling back to ISO keeps categories unique even if the backend
-      // returns sparse points that share the same local MM/DD across years.
-      const xKey = stat.date;
-      const tooltipLabel = isHourly
-        ? formatUsageDateTime(pointDate, dateLocale, {
-            includeYear: true,
-            includeTimeZone: true,
-          })
-        : pointDate.toLocaleDateString(dateLocale, {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-          });
-      const label = isHourly
-        ? formatUsageDateTime(pointDate, dateLocale)
-        : spansMultipleYears
-          ? pointDate.toLocaleDateString(dateLocale, {
-              year: "2-digit",
-              month: "2-digit",
-              day: "2-digit",
+    trends
+      ?.filter((stat) => Number.isFinite(new Date(stat.date).getTime()))
+      .map((stat) => {
+        const pointDate = new Date(stat.date);
+        const cost = parseFiniteNumber(stat.totalCost);
+        // Category identity stays independent of display labels, including DST repeats.
+        const xKey = stat.date;
+        const tooltipLabel = pointDate.toLocaleString(dateLocale, {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hourCycle: "h23",
+          timeZoneName: "longOffset",
+          timeZone,
+        });
+        const label = isHourly
+          ? pointDate.toLocaleString(dateLocale, {
+              ...(sameDay
+                ? {}
+                : {
+                    month: "2-digit",
+                    day: "2-digit",
+                    ...(spansMultipleYears ? { year: "2-digit" } : {}),
+                  }),
+              hour: "2-digit",
+              minute: "2-digit",
+              hourCycle: "h23",
+              timeZone,
             })
           : pointDate.toLocaleDateString(dateLocale, {
+              ...(spansMultipleYears ? { year: "2-digit" } : {}),
               month: "2-digit",
               day: "2-digit",
+              timeZone,
             });
 
-      return {
-        xKey,
-        rawDate: stat.date,
-        label,
-        tooltipLabel,
-        hour: pointDate.getHours(),
-        inputTokens: stat.totalInputTokens,
-        outputTokens: stat.totalOutputTokens,
-        cacheCreationTokens: stat.totalCacheCreationTokens,
-        cacheReadTokens: stat.totalCacheReadTokens,
-        cost: cost ?? null,
-      };
-    }) || []
+        return {
+          xKey,
+          rawDate: stat.date,
+          label,
+          tooltipLabel,
+          hour: pointDate.getHours(),
+          inputTokens: stat.totalInputTokens,
+          outputTokens: stat.totalOutputTokens,
+          cacheCreationTokens: stat.totalCacheCreationTokens,
+          cacheReadTokens: stat.totalCacheReadTokens,
+          cost: cost ?? null,
+        };
+      }) || []
   );
 }
 
@@ -149,18 +172,79 @@ export function formatUsageTrendTokenTickLabel(
   return formatter.format(num);
 }
 
+export function formatUsageTrendCostTickLabel(
+  value: unknown,
+  locale = "en-US",
+  compact = true,
+): string {
+  const num = parseFiniteNumber(value);
+  if (num == null) return "—";
+  if (num === 0) return "$0";
+  if (Math.abs(num) < (compact ? 0.001 : 0.000001))
+    return `$${num.toExponential(compact ? 1 : 2)}`;
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "USD",
+    currencyDisplay: "narrowSymbol",
+    ...(compact
+      ? { notation: "compact", maximumSignificantDigits: 3 }
+      : { maximumFractionDigits: 6, minimumFractionDigits: 0 }),
+  }).format(num);
+}
+
+const TREND_SERIES = [
+  {
+    key: "inputTokens",
+    label: "usage.inputTokens",
+    fallback: "输入 Tokens",
+    color: "#3b82f6",
+    gradient: "input",
+  },
+  {
+    key: "outputTokens",
+    label: "usage.outputTokens",
+    fallback: "输出 Tokens",
+    color: "#22c55e",
+    gradient: "output",
+  },
+  {
+    key: "cacheCreationTokens",
+    label: "usage.cacheCreationTokens",
+    fallback: "缓存创建",
+    color: "#f97316",
+    gradient: "cacheCreation",
+  },
+  {
+    key: "cacheReadTokens",
+    label: "usage.cacheReadTokens",
+    fallback: "缓存命中",
+    color: "#a855f7",
+    gradient: "cacheRead",
+  },
+  {
+    key: "cost",
+    label: "usage.estimatedCost",
+    fallback: "Estimated cost",
+    color: "#f43f5e",
+    gradient: null,
+  },
+] as const;
+
 export function UsageTrendChart({
   range,
   rangeLabel,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: UsageTrendChartProps) {
   const { t, i18n } = useTranslation();
+  const gradientId = `usage-trend-${useId().replace(/:/g, "")}`;
   const { startDate, endDate } = resolveUsageRange(range);
   const { data: trends, isLoading } = useUsageTrends(
     range,
-    { appType: "codex", providerName, model },
+    { appType: "codex", providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },
@@ -189,7 +273,7 @@ export function UsageTrendChart({
 
   if (isLoading) {
     return (
-      <div className="flex h-[350px] items-center justify-center rounded-xl bg-card/40 border border-border/50">
+      <div className="glass-card flex h-[280px] sm:h-[320px] items-center justify-center rounded-xl">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground/30" />
       </div>
     );
@@ -200,26 +284,30 @@ export function UsageTrendChart({
       const point = payload[0]?.payload as UsageTrendChartPoint | undefined;
       const heading = point?.tooltipLabel ?? point?.label ?? "";
       return (
-        <div className="rounded-lg border bg-background/95 p-3 shadow-lg backdrop-blur-md">
-          <p className="mb-2 font-medium">{heading}</p>
-          {payload.map((entry: any, index: number) => (
-            <div
-              key={index}
-              className="flex items-center gap-2 text-sm"
-              style={{ color: entry.color }}
-            >
-              <div
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: entry.color }}
-              />
-              <span className="font-medium">{entry.name}:</span>
-              <span>
-                {entry.dataKey === "cost"
-                  ? fmtUsd(entry.value, 6)
-                  : fmtInt(entry.value, dateLocale)}
-              </span>
-            </div>
-          ))}
+        <div className="glass-popover min-w-[220px] px-3 py-2.5 text-xs">
+          <p className="mb-2 border-b border-border/30 pb-2 font-medium text-foreground">
+            {heading}
+          </p>
+          <div className="space-y-1.5">
+            {payload.map((entry: any) => (
+              <div key={entry.dataKey} className="flex items-center gap-2">
+                <span
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: entry.color }}
+                />
+                <span className="text-muted-foreground">{entry.name}</span>
+                <span className="ml-auto pl-4 font-medium tabular-nums text-foreground">
+                  {entry.dataKey === "cost"
+                    ? formatUsageTrendCostTickLabel(
+                        entry.value,
+                        dateLocale,
+                        false,
+                      )
+                    : fmtInt(entry.value, dateLocale)}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       );
     }
@@ -227,139 +315,160 @@ export function UsageTrendChart({
   };
 
   return (
-    <div className="rounded-xl border border-border/50 bg-card/40 p-6 backdrop-blur-sm">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-lg font-semibold">
+    <div className="glass-card rounded-xl px-3 py-4 sm:px-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <h3 className="text-base font-semibold">
           {t("usage.trends", "使用趋势")}
         </h3>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-xs text-muted-foreground">
           {rangeLabel} · {timeZone}
         </p>
       </div>
-
-      <div className="h-[350px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart
-            data={chartData}
-            margin={{ top: 10, right: 10, left: 0, bottom: 0 }}
-          >
-            <defs>
-              <linearGradient id="colorInput" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="colorOutput" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#22c55e" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#22c55e" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient
-                id="colorCacheCreation"
-                x1="0"
-                y1="0"
-                x2="0"
-                y2="1"
+      {chartData.length === 0 ? (
+        <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">
+          {t("usage.noData")}
+        </div>
+      ) : (
+        <>
+          <div className="h-[280px] w-full sm:h-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={chartData}
+                margin={{ top: 8, right: 0, left: 0, bottom: 0 }}
               >
-                <stop offset="5%" stopColor="#f97316" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="colorCacheRead" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#a855f7" stopOpacity={0.2} />
-                <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              vertical={false}
-              stroke="hsl(var(--border))"
-              opacity={0.4}
-            />
-            <XAxis
-              dataKey="xKey"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-              dy={10}
-              tickFormatter={(value) =>
-                formatUsageTrendTickLabel(String(value), chartData)
-              }
-              allowDuplicatedCategory={false}
-            />
-            <YAxis
-              yAxisId="tokens"
-              width={72}
-              axisLine={false}
-              tickLine={false}
-              tickMargin={8}
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-              tickFormatter={(value) =>
-                formatUsageTrendTokenTickLabel(value, tokenTickFormatter)
-              }
-            />
-            <YAxis
-              yAxisId="cost"
-              orientation="right"
-              width={56}
-              axisLine={false}
-              tickLine={false}
-              tickMargin={8}
-              tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
-              tickFormatter={(value) => `$${value}`}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend />
-            <Area
-              yAxisId="tokens"
-              type="monotone"
-              dataKey="inputTokens"
-              name={t("usage.inputTokens", "输入 Tokens")}
-              stroke="#3b82f6"
-              fillOpacity={1}
-              fill="url(#colorInput)"
-              strokeWidth={2}
-            />
-            <Area
-              yAxisId="tokens"
-              type="monotone"
-              dataKey="outputTokens"
-              name={t("usage.outputTokens", "输出 Tokens")}
-              stroke="#22c55e"
-              fillOpacity={1}
-              fill="url(#colorOutput)"
-              strokeWidth={2}
-            />
-            <Area
-              yAxisId="tokens"
-              type="monotone"
-              dataKey="cacheCreationTokens"
-              name={t("usage.cacheCreationTokens", "缓存创建")}
-              stroke="#f97316"
-              fillOpacity={1}
-              fill="url(#colorCacheCreation)"
-              strokeWidth={2}
-            />
-            <Area
-              yAxisId="tokens"
-              type="monotone"
-              dataKey="cacheReadTokens"
-              name={t("usage.cacheReadTokens", "缓存命中")}
-              stroke="#a855f7"
-              fillOpacity={1}
-              fill="url(#colorCacheRead)"
-              strokeWidth={2}
-            />
-            <Area
-              yAxisId="cost"
-              type="monotone"
-              dataKey="cost"
-              name={t("usage.estimatedCost", "Estimated cost")}
-              stroke="#f43f5e"
-              fill="none"
-              strokeWidth={2}
-              strokeDasharray="4 4"
-            />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
+                <defs>
+                  {TREND_SERIES.filter((series) => series.gradient).map(
+                    (series) => (
+                      <linearGradient
+                        key={series.key}
+                        id={`${gradientId}-${series.gradient}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="5%"
+                          stopColor={series.color}
+                          stopOpacity={0.14}
+                        />
+                        <stop
+                          offset="95%"
+                          stopColor={series.color}
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    ),
+                  )}
+                </defs>
+                <CartesianGrid
+                  strokeDasharray="3 5"
+                  vertical={false}
+                  stroke="hsl(var(--border))"
+                  opacity={0.25}
+                />
+                <XAxis
+                  dataKey="xKey"
+                  axisLine={false}
+                  tickLine={false}
+                  height={28}
+                  tickMargin={8}
+                  minTickGap={28}
+                  interval="preserveStartEnd"
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                  tickFormatter={(value) =>
+                    formatUsageTrendTickLabel(String(value), chartData)
+                  }
+                  allowDuplicatedCategory={false}
+                />
+                <YAxis
+                  yAxisId="tokens"
+                  width={50}
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={8}
+                  tickCount={5}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                  tickFormatter={(value) =>
+                    formatUsageTrendTokenTickLabel(value, tokenTickFormatter)
+                  }
+                />
+                <YAxis
+                  yAxisId="cost"
+                  orientation="right"
+                  width={58}
+                  axisLine={false}
+                  tickLine={false}
+                  tickMargin={8}
+                  tickCount={5}
+                  tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+                  tickFormatter={(value) =>
+                    formatUsageTrendCostTickLabel(value, dateLocale)
+                  }
+                />
+                <Tooltip
+                  content={<CustomTooltip />}
+                  cursor={{
+                    stroke: "hsl(var(--muted-foreground))",
+                    strokeOpacity: 0.25,
+                    strokeDasharray: "3 3",
+                  }}
+                />
+                {TREND_SERIES.map((series) => (
+                  <Area
+                    key={series.key}
+                    yAxisId={series.key === "cost" ? "cost" : "tokens"}
+                    type="monotone"
+                    dataKey={series.key}
+                    name={t(series.label, series.fallback)}
+                    stroke={series.color}
+                    fill={
+                      series.gradient
+                        ? `url(#${gradientId}-${series.gradient})`
+                        : "none"
+                    }
+                    fillOpacity={1}
+                    strokeWidth={1.8}
+                    strokeDasharray={series.key === "cost" ? "4 4" : undefined}
+                    dot={
+                      chartData.filter(
+                        (point) =>
+                          point[series.key] != null &&
+                          Number.isFinite(point[series.key]),
+                      ).length === 1
+                        ? { r: 3, fill: series.color, strokeWidth: 0 }
+                        : false
+                    }
+                    activeDot={{
+                      r: 4,
+                      strokeWidth: 2,
+                      stroke: "hsl(var(--background))",
+                    }}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[11px] text-muted-foreground">
+            {TREND_SERIES.map((series) => (
+              <span
+                key={series.key}
+                className="inline-flex items-center gap-1.5"
+              >
+                <span
+                  aria-hidden="true"
+                  className="w-4 border-t-2"
+                  style={{
+                    borderColor: series.color,
+                    borderStyle: series.key === "cost" ? "dashed" : "solid",
+                  }}
+                />
+                {t(series.label, series.fallback)}
+              </span>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -7,14 +7,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useProviderStats } from "@/lib/query/usage";
+import {
+  useProviderStats,
+  useUsageAttributionChoices,
+} from "@/lib/query/usage";
+import {
+  flatSourceChoices,
+  sourceIdentity,
+  sourceOptionLabel,
+  usageSourceName,
+} from "@/lib/usageSource";
 import { fmtUsd } from "./format";
-import type { UsageRangeSelection } from "@/types/usage";
+import type { ProviderStats, UsageRangeSelection } from "@/types/usage";
 
 interface ProviderStatsTableProps {
   range: UsageRangeSelection;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
@@ -22,13 +33,31 @@ interface ProviderStatsTableProps {
 export function ProviderStatsTable({
   range,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: ProviderStatsTableProps) {
   const { t } = useTranslation();
+  const choices = useUsageAttributionChoices();
+  const sources = flatSourceChoices(choices.data ?? []);
+  const sourceLabel = (stat: ProviderStats) => {
+    const current = sources.find(
+      (source) =>
+        sourceIdentity(source.accountId, source.providerId) === stat.sourceId,
+    );
+    return current
+      ? sourceOptionLabel(
+          current,
+          sources,
+          t("usage.records.accountType", "Subscription account"),
+          t("usage.records.apiType", "API source"),
+        )
+      : usageSourceName(stat) || t("usage.records.untagged", "Unassigned");
+  };
   const { data: stats, isLoading } = useProviderStats(
     range,
-    { appType: "codex", providerName, model },
+    { appType: "codex", providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },
@@ -43,9 +72,9 @@ export function ProviderStatsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>{t("usage.provider", "Provider")}</TableHead>
+            <TableHead>{t("usage.source", "Source")}</TableHead>
             <TableHead className="text-right">
-              {t("usage.requests", "请求数")}
+              {t("usage.requests", "用量记录数")}
             </TableHead>
             <TableHead className="text-right">
               {t("usage.tokens", "Tokens")}
@@ -73,9 +102,12 @@ export function ProviderStatsTable({
             </TableRow>
           ) : (
             stats?.map((stat) => (
-              <TableRow key={stat.providerId}>
-                <TableCell className="font-medium">
-                  {stat.providerName}
+              <TableRow key={stat.sourceId}>
+                <TableCell
+                  className="max-w-[240px] truncate font-medium"
+                  title={sourceLabel(stat)}
+                >
+                  {sourceLabel(stat)}
                 </TableCell>
                 <TableCell className="text-right">
                   {stat.requestCount.toLocaleString()}

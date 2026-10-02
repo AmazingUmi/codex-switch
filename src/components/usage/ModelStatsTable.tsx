@@ -15,6 +15,8 @@ interface ModelStatsTableProps {
   range: UsageRangeSelection;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
@@ -22,13 +24,15 @@ interface ModelStatsTableProps {
 export function ModelStatsTable({
   range,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: ModelStatsTableProps) {
   const { t } = useTranslation();
   const { data: stats, isLoading } = useModelStats(
     range,
-    { appType: "codex", providerName, model },
+    { appType: "codex", providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },
@@ -45,7 +49,7 @@ export function ModelStatsTable({
           <TableRow>
             <TableHead>{t("usage.model", "模型")}</TableHead>
             <TableHead className="text-right">
-              {t("usage.requests", "请求数")}
+              {t("usage.requests", "用量记录数")}
             </TableHead>
             <TableHead className="text-right">
               {t("usage.tokens", "Tokens")}

@@ -45,6 +45,47 @@ import {
   EditCodexAccountDialog,
 } from "@/components/codex/EditCodexAccountDialog";
 
+function CodexAccountIdentity({ account }: { account: ManagedAuthAccount }) {
+  const nickname = account.display_name?.trim();
+  const showNickname =
+    !!nickname && nickname.toLowerCase() !== account.login.trim().toLowerCase();
+  return (
+    <span
+      data-account-identity
+      className="flex min-w-0 flex-1 items-center gap-1.5 whitespace-nowrap text-sm leading-5"
+      title={showNickname ? `${nickname} · ${account.login}` : account.login}
+    >
+      {showNickname && (
+        <>
+          <span
+            data-account-nickname
+            className="max-w-[40%] shrink-0 truncate font-medium"
+            title={nickname}
+          >
+            {nickname}
+          </span>
+          <span
+            aria-hidden="true"
+            className="shrink-0 text-muted-foreground/60"
+          >
+            ·
+          </span>
+        </>
+      )}
+      <span
+        data-account-login
+        className={cn(
+          "min-w-0 flex-1 truncate",
+          showNickname ? "text-muted-foreground" : "font-medium",
+        )}
+        title={account.login}
+      >
+        {account.login}
+      </span>
+    </span>
+  );
+}
+
 interface CodexOAuthSectionProps {
   className?: string;
   /** Account-focused home presentation; lifecycle remains shared with settings. */
@@ -640,12 +681,16 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                           className={`flex min-w-0 flex-1 items-center gap-2 ${presentation === "cards" ? "" : "flex-wrap"}`}
                         >
                           <CodexAccountIcon account={account} />
-                          <span
-                            className={`min-w-0 truncate text-sm font-medium ${presentation === "cards" ? "flex-1" : ""}`}
-                            title={account.display_name || account.login}
-                          >
-                            {account.display_name || account.login}
-                          </span>
+                          {presentation === "cards" ? (
+                            <CodexAccountIdentity account={account} />
+                          ) : (
+                            <span
+                              className="min-w-0 truncate text-sm font-medium"
+                              title={account.display_name || account.login}
+                            >
+                              {account.display_name || account.login}
+                            </span>
+                          )}
                           {currentAccountId === account.id &&
                             !renderAccountHeaderActions && (
                               <CurrentStatus
@@ -702,7 +747,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                           )}
                         </div>
                       </div>
-                      {account.display_name && (
+                      {presentation !== "cards" && account.display_name && (
                         <p
                           className="truncate text-xs text-muted-foreground"
                           title={account.login}

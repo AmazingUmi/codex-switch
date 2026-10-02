@@ -1008,7 +1008,7 @@ mod tests {
             assert_eq!(empty_failure, (500, 0, "Pi request failed".to_string()));
         }
 
-        let providers = db.get_provider_stats(None, None, Some("pi"), None, None)?;
+        let providers = db.get_provider_stats(None, None, Some("pi"), None, None, None)?;
         assert!(providers.iter().any(|provider| {
             provider.provider_id == PROVIDER_PLACEHOLDER && provider.provider_name == "Pi (Session)"
         }));

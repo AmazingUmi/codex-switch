@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { UsageHero } from "./UsageHero";
 import { UsageTrendChart } from "./UsageTrendChart";
-import { RequestLogTable } from "./RequestLogTable";
+import { UsageRecordsTable } from "./UsageRecordsTable";
 import { ProviderStatsTable } from "./ProviderStatsTable";
 import { ModelStatsTable } from "./ModelStatsTable";
 import { type UsageRangeSelection } from "@/types/usage";
@@ -26,7 +26,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useQueryClient } from "@tanstack/react-query";
-import { usageKeys, useModelStats, useProviderStats } from "@/lib/query/usage";
+import {
+  usageKeys,
+  useModelStats,
+  useUsageAttributionChoices,
+} from "@/lib/query/usage";
+import {
+  UNASSIGNED_SOURCE,
+  sourceIdentity,
+  sourceFilters,
+  flatSourceChoices,
+  sourceOptionLabel,
+} from "@/lib/usageSource";
 import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
 import {
   Accordion,
@@ -59,7 +70,7 @@ const isRefreshIntervalOption = (
 const normalizeRefreshInterval = (value: number | undefined) =>
   isRefreshIntervalOption(value) ? value : DEFAULT_REFRESH_INTERVAL_MS;
 
-// Select 的 "all" 哨兵和用户自定义名称同处一个值域——真有来源/模型叫 "all"
+// Select 的 "all" 哨兵和模型名称同处一个值域——真有模型叫 "all"
 // 就会撞名（重复 value、选中即清空筛选）。动态选项统一加前缀编码隔离值域。
 const DYNAMIC_OPTION_PREFIX = "v:";
 const encodeOptionValue = (name: string) => `${DYNAMIC_OPTION_PREFIX}${name}`;
@@ -89,9 +100,29 @@ export function UsageDashboard({
   const queryClient = useQueryClient();
   const [range, setRange] = useState<UsageRangeSelection>({ preset: "today" });
   const appType = "codex";
-  const [providerName, setProviderName] = useState<string | undefined>(
-    undefined,
+  const [sourceId, setSourceId] = useState("");
+  const { accountId, providerId } = sourceFilters(sourceId);
+  const { data: attributionChoices } = useUsageAttributionChoices();
+  const sourceChoices = useMemo(
+    () => flatSourceChoices(attributionChoices ?? []),
+    [attributionChoices],
   );
+  const sourceLabel = (choice: (typeof sourceChoices)[number]) =>
+    sourceOptionLabel(
+      choice,
+      sourceChoices,
+      t("usage.records.accountType", "Account"),
+      t("usage.records.apiType", "API"),
+    );
+  const selectedSource = sourceChoices.find(
+    (choice) =>
+      sourceIdentity(choice.accountId, choice.providerId) === sourceId,
+  );
+  const selectedSourceLabel = selectedSource
+    ? sourceLabel(selectedSource)
+    : sourceId === UNASSIGNED_SOURCE
+      ? t("usage.records.untagged", "Unassigned")
+      : t("usage.allSources");
   const [model, setModel] = useState<string | undefined>(undefined);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(() =>
     normalizeRefreshInterval(savedRefreshIntervalMs),
@@ -105,9 +136,9 @@ export function UsageDashboard({
     setRefreshIntervalMs(normalizeRefreshInterval(savedRefreshIntervalMs));
   }, [savedRefreshIntervalMs]);
 
-  const changeProviderName = (next: string | undefined) => {
-    setProviderName(next);
-    if (next !== providerName) {
+  const changeSource = (next: string) => {
+    setSourceId(next);
+    if (next !== sourceId) {
       setModel(undefined);
     }
   };
@@ -216,35 +247,17 @@ export function UsageDashboard({
     return `${startStr} - ${endStr}`;
   }, [locale, range, resolvedRange.endDate, resolvedRange.startDate, t]);
 
-  // 顶栏下拉的选项池：Provider 列表只跟应用/时间范围走（不受自身选中值影响），
-  // 模型列表随所选 Provider 级联。两者都只列当前范围内真实有数据的条目。
-  // refetchInterval 必须跟随面板的刷新设置——未筛选时这两个查询与统计表共享
-  // query key，落下的话会以默认 30s 拖着同 key 查询一起轮询，"--" 形同虚设。
+  // Sources include configured accounts/providers even before any usage exists.
+  // Model options follow the selected canonical source and time range.
   const optionsRefetch = {
     refetchInterval:
       refreshIntervalMs > 0 ? refreshIntervalMs : (false as const),
   };
-  const { data: providerOptionsData } = useProviderStats(
-    range,
-    { appType },
-    optionsRefetch,
-  );
   const { data: modelOptionsData } = useModelStats(
     range,
-    { appType, providerName },
+    { appType, accountId, providerId },
     optionsRefetch,
   );
-
-  const providerOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const stat of providerOptionsData ?? []) {
-      names.add(stat.providerName);
-    }
-    // 数据刷新后选中项可能掉出列表（如改了时间范围）；补回去保证 Select
-    // 仍能渲染选中文案，用户看得见才能主动清除。
-    if (providerName) names.add(providerName);
-    return Array.from(names);
-  }, [providerOptionsData, providerName]);
 
   const modelOptions = useMemo(() => {
     const names = new Set<string>();
@@ -279,28 +292,31 @@ export function UsageDashboard({
 
         <div className="flex flex-wrap items-center gap-2">
           <Select
-            value={
-              providerName != null ? encodeOptionValue(providerName) : "all"
+            value={sourceId || "all"}
+            onValueChange={(value) =>
+              changeSource(value === "all" ? "" : value)
             }
-            onValueChange={(v) => changeProviderName(decodeOptionValue(v))}
           >
             <SelectTrigger
-              className="h-9 w-[144px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
-              title={providerName ?? t("usage.filterBySource")}
+              className="h-9 w-[160px] max-w-full gap-2 px-4 text-xs font-medium [&>span]:min-w-0 [&>span]:truncate [&>svg]:h-3.5 [&>svg]:w-3.5"
+              title={selectedSourceLabel}
               aria-label={t("usage.filterBySource")}
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="max-w-[280px]">
               <SelectItem value="all">{t("usage.allSources")}</SelectItem>
-              {providerOptions.map((name) => (
+              <SelectItem value={UNASSIGNED_SOURCE}>
+                {t("usage.records.untagged", "Unassigned")}
+              </SelectItem>
+              {sourceChoices.map((choice) => (
                 <SelectItem
-                  key={name}
-                  value={encodeOptionValue(name)}
-                  title={name}
+                  key={sourceIdentity(choice.accountId, choice.providerId)}
+                  value={sourceIdentity(choice.accountId, choice.providerId)}
+                  title={sourceLabel(choice)}
                   className="[&>span]:min-w-0 [&>span]:truncate"
                 >
-                  {name}
+                  {sourceLabel(choice)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -326,7 +342,9 @@ export function UsageDashboard({
                   title={name}
                   className="[&>span]:min-w-0 [&>span]:truncate"
                 >
-                  {name}
+                  {name === "Unassigned"
+                    ? t("usage.records.untagged", "Unassigned")
+                    : name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -368,7 +386,8 @@ export function UsageDashboard({
       <UsageHero
         range={range}
         appType={appType}
-        providerName={providerName}
+        accountId={accountId}
+        providerId={providerId}
         model={model}
         refreshIntervalMs={refreshIntervalMs}
       />
@@ -377,7 +396,8 @@ export function UsageDashboard({
         range={range}
         rangeLabel={rangeLabel}
         appType={appType}
-        providerName={providerName}
+        accountId={accountId}
+        providerId={providerId}
         model={model}
         refreshIntervalMs={refreshIntervalMs}
       />
@@ -388,11 +408,11 @@ export function UsageDashboard({
             <TabsList>
               <TabsTrigger value="logs" className="gap-2">
                 <ListFilter className="h-4 w-4" />
-                {t("usage.requestLogs")}
+                {t("usage.records.title", "Usage records")}
               </TabsTrigger>
               <TabsTrigger value="providers" className="gap-2">
                 <Activity className="h-4 w-4" />
-                {t("usage.providerStats")}
+                {t("usage.sourceStats")}
               </TabsTrigger>
               <TabsTrigger value="models" className="gap-2">
                 <BarChart3 className="h-4 w-4" />
@@ -407,11 +427,12 @@ export function UsageDashboard({
             transition={{ delay: 0.2 }}
           >
             <TabsContent value="logs" className="mt-0">
-              <RequestLogTable
+              <UsageRecordsTable
                 range={range}
                 rangeLabel={rangeLabel}
                 appType={appType}
-                providerName={providerName}
+                sourceId={sourceId}
+                onSourceChange={changeSource}
                 model={model}
                 refreshIntervalMs={refreshIntervalMs}
                 onRangeChange={setRange}
@@ -422,7 +443,8 @@ export function UsageDashboard({
               <ProviderStatsTable
                 range={range}
                 appType={appType}
-                providerName={providerName}
+                accountId={accountId}
+                providerId={providerId}
                 model={model}
                 refreshIntervalMs={refreshIntervalMs}
               />
@@ -432,7 +454,8 @@ export function UsageDashboard({
               <ModelStatsTable
                 range={range}
                 appType={appType}
-                providerName={providerName}
+                accountId={accountId}
+                providerId={providerId}
                 model={model}
                 refreshIntervalMs={refreshIntervalMs}
               />

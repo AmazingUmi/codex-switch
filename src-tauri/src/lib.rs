@@ -1271,6 +1271,43 @@ pub fn run() {
                 });
 
                 // Session log usage sync: 启动时同步一次，之后每 60 秒检查
+                // Only Switch's database receives these observations. Native
+                // auth/config/logs stay read-only, and each process run starts a
+                // fresh interval so downtime can never inherit the last account.
+                let db_for_identity = state.db.clone();
+                let manager_for_identity = state.codex_oauth_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let run_id = uuid::Uuid::new_v4().to_string();
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        interval.tick().await;
+                        let source_before = crate::services::usage_attribution::source_key(
+                            &crate::codex_usage_source::get_codex_usage_source_dir(),
+                        );
+                        let identity = match crate::services::usage_attribution::read_current_identity(
+                            &db_for_identity, &manager_for_identity,
+                        ).await {
+                            Ok(identity) => identity,
+                            Err(error) => {
+                                log::warn!("Usage identity observation failed: {error}");
+                                None
+                            }
+                        };
+                        if source_before != crate::services::usage_attribution::source_key(
+                            &crate::codex_usage_source::get_codex_usage_source_dir(),
+                        ) {
+                            continue;
+                        }
+                        match crate::services::usage_attribution::observe_identity(
+                            &db_for_identity, &run_id, identity.as_ref(), chrono::Utc::now().timestamp_millis(),
+                        ) {
+                            Ok(count) if count > 0 => crate::usage_events::notify_log_recorded(),
+                            Ok(_) => {},
+                            Err(error) => log::warn!("Usage attribution update failed: {error}"),
+                        }
+                    }
+                });
                 let db_for_session_sync = state.db.clone();
                 tauri::async_runtime::spawn(async move {
                     const SESSION_SYNC_INTERVAL_SECS: u64 = 60;
@@ -1568,6 +1605,11 @@ pub fn run() {
             commands::get_model_stats,
             commands::get_request_logs,
             commands::get_request_detail,
+            commands::get_usage_records,
+            commands::get_usage_attribution_choices,
+            commands::preview_usage_attribution,
+            commands::set_usage_attribution,
+            commands::undo_usage_attribution,
             commands::get_model_pricing,
             commands::update_model_pricing,
             commands::update_model_pricing_batch,
