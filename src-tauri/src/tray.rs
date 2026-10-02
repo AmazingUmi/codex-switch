@@ -278,7 +278,7 @@ fn format_script_summary(result: &crate::provider::UsageResult) -> Option<String
 }
 
 fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<String> {
-    if crate::proxy::providers::is_codex_official_provider(provider) {
+    if crate::services::provider::codex_direct::is_official(provider) {
         return provider
             .meta
             .as_ref()
@@ -498,7 +498,7 @@ pub fn handle_provider_tray_event(app: &tauri::AppHandle, event_id: &str) -> boo
     false
 }
 
-/// 处理供应商点击：关闭 auto_failover + 切换供应商
+/// Switch the selected direct connection and refresh the tray.
 fn handle_provider_click(
     app: &tauri::AppHandle,
     app_type: &AppType,
@@ -507,14 +507,6 @@ fn handle_provider_click(
     if let Some(app_state) = app.try_state::<AppState>() {
         let app_type_str = app_type.as_str();
 
-        // 手动选了供应商就关掉 auto_failover；enabled 是模式的镜像，保持不变
-        let proxy_enabled = crate::mode::current::is_proxy(app_type);
-        app_state
-            .db
-            .set_proxy_flags_sync(app_type_str, proxy_enabled, false)?;
-
-        // 切换供应商。需要本地路由的供应商也不在这里自动启动代理，
-        // 由用户在页面/设置中手动开启。
         crate::services::ProviderService::switch(app_state.inner(), app_type.clone(), provider_id)?;
 
         // 更新托盘菜单
@@ -527,14 +519,8 @@ fn handle_provider_click(
         // 发射事件到前端
         let event_data = serde_json::json!({
             "appType": app_type_str,
-            "proxyEnabled": proxy_enabled,
-            "autoFailoverEnabled": false,
             "providerId": provider_id
         });
-        if let Err(e) = app.emit("proxy-flags-changed", event_data.clone()) {
-            log::error!("发射 proxy-flags-changed 事件失败: {e}");
-        }
-        // 发射 provider-switched 事件（保持向后兼容）
         if let Err(e) = app.emit("provider-switched", event_data) {
             log::error!("发射 provider-switched 事件失败: {e}");
         }
@@ -571,7 +557,7 @@ pub fn create_tray_menu(
         let app_type_str = section.app_type.as_str();
         let providers = app_state.db.get_all_providers(app_type_str)?;
 
-        // 代理模式下勾选的是代理路由到的那家。
+        // Mark the selected direct connection.
         let current_id = crate::mode::current::provider_for(
             &app_state.db,
             &section.app_type,
@@ -604,19 +590,12 @@ pub fn create_tray_menu(
             };
             let submenu_id = format!("submenu_{}", app_type_str);
 
-            // 代理模式下不能切到不支持代理的官方供应商
-            let is_app_taken_over = crate::mode::current::is_proxy(&section.app_type);
-
             let mut submenu_builder = SubmenuBuilder::with_id(app, &submenu_id, &submenu_label);
 
             for (id, provider) in sort_providers(&providers) {
                 let is_current = current_id == *id;
-                let is_official_blocked = is_app_taken_over
-                    && provider.category.as_deref() == Some("official")
-                    && !crate::services::provider::official_provider_supports_proxy_takeover(
-                        &section.app_type,
-                        provider,
-                    );
+                let is_official_blocked = section.app_type == AppType::Codex
+                    && crate::services::provider::codex_direct::ensure_direct(provider).is_err();
                 let label = if is_official_blocked {
                     format!("{} \u{26D4}", &provider.name) // ⛔ emoji
                 } else {

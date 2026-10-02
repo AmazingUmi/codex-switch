@@ -1,22 +1,31 @@
 import * as React from "react";
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 import { cn } from "@/lib/utils";
+import { CapsuleSelection, useCapsuleSelection } from "@/components/ui/capsule";
 
 const Tabs = TabsPrimitive.Root;
 
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.List
-    ref={ref}
-    className={cn(
-      "glass-tabs inline-flex items-center justify-center gap-1 p-1 text-muted-foreground",
-      className,
-    )}
-    {...props}
-  />
-));
+>(({ className, children, ...props }, ref) => {
+  const barRef = React.useRef<HTMLDivElement | null>(null);
+  const selectionStyle = useCapsuleSelection(barRef);
+  return (
+    <TabsPrimitive.List
+      ref={(element) => {
+        barRef.current = element;
+        if (typeof ref === "function") ref(element);
+        else if (ref) ref.current = element;
+      }}
+      className={cn("capsule-bar text-muted-foreground", className)}
+      {...props}
+    >
+      <CapsuleSelection style={selectionStyle} />
+      {children}
+    </TabsPrimitive.List>
+  );
+});
 TabsList.displayName = TabsPrimitive.List.displayName;
 
 const TabsTrigger = React.forwardRef<
@@ -26,7 +35,7 @@ const TabsTrigger = React.forwardRef<
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
-      "glass-tab inline-flex min-w-[120px] items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=inactive]:text-muted-foreground data-[state=inactive]:opacity-60 data-[state=inactive]:hover:opacity-100 data-[state=inactive]:hover:bg-muted/50",
+      "capsule-option inline-flex min-w-[120px] items-center justify-center whitespace-nowrap px-3 text-sm font-medium disabled:pointer-events-none disabled:opacity-50",
       className,
     )}
     {...props}

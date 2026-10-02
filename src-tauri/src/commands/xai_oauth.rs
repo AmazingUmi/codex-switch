@@ -1,7 +1,7 @@
 //! xAI OAuth state and xAI-specific commands.
 
-use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
-use crate::proxy::providers::XAI_API_BASE_URL;
+use crate::auth::xai_oauth::XaiOAuthManager;
+use crate::auth::xai_oauth::XAI_API_BASE_URL;
 use crate::services::model_fetch::FetchedModel;
 use crate::services::subscription::{CredentialStatus, SubscriptionQuota};
 use serde::Deserialize;
@@ -107,7 +107,7 @@ pub async fn get_xai_oauth_models(
         .await
         .map_err(|error| format!("xAI OAuth token unavailable: {error}"))?;
 
-    let response = crate::proxy::http_client::get()
+    let response = crate::http_client::get()
         .get(format!("{XAI_API_BASE_URL}/models"))
         .bearer_auth(token)
         .timeout(Duration::from_secs(15))

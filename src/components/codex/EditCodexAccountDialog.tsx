@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Briefcase,
@@ -6,6 +6,8 @@ import {
   Heart,
   Loader2,
   Shield,
+  RefreshCw,
+  Trash2,
   Star,
   User,
 } from "lucide-react";
@@ -18,6 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { HelpButton } from "@/components/ui/help-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -55,9 +58,27 @@ export function EditCodexAccountDialog({
   account,
   onClose,
   onSave,
+  isDefault = false,
+  isReauthenticating = false,
+  isRemoving = false,
+  isSettingDefault = false,
+  actionError,
+  onReauthenticate,
+  onSetDefault,
+  onRemove,
+  accountOptions,
 }: {
   account: ManagedAuthAccount;
   onClose: () => void;
+  isDefault?: boolean;
+  isReauthenticating?: boolean;
+  isRemoving?: boolean;
+  isSettingDefault?: boolean;
+  actionError?: string | null;
+  onReauthenticate?: () => void;
+  onSetDefault?: () => void;
+  onRemove?: () => void;
+  accountOptions?: ReactNode;
   onSave: (
     accountId: string,
     appearance: CodexAccountAppearance,
@@ -99,22 +120,22 @@ export function EditCodexAccountDialog({
       }}
     >
       <DialogContent
-        className="w-[calc(100vw-2rem)] max-w-md overflow-y-auto"
+        className="w-[calc(100vw-2rem)] max-w-md overflow-hidden"
         zIndex="nested"
       >
-        <form onSubmit={(event) => void submit(event)}>
+        <form
+          className="flex min-h-0 flex-col"
+          onSubmit={(event) => void submit(event)}
+        >
           <DialogHeader>
             <DialogTitle>
               {t("codexAccounts.editTitle", "编辑账号")}
             </DialogTitle>
             <DialogDescription>
-              {t(
-                "codexAccounts.editDescription",
-                "显示信息只保存在本地，不影响登录身份、额度或当前使用的账号。",
-              )}
+              {t("codexAccounts.editDescription", "管理账号信息和登录选项。")}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 px-6 py-4">
+          <div className="min-h-0 space-y-4 overflow-y-auto px-6 py-4">
             <div className="space-y-1.5">
               <Label htmlFor="codex-account-identity">
                 {t("codexAccounts.loginIdentity", "登录身份")}
@@ -194,6 +215,94 @@ export function EditCodexAccountDialog({
                 className="h-9 w-12 cursor-pointer rounded-md border bg-background p-1 disabled:opacity-50"
               />
             </div>
+            {accountOptions && (
+              <fieldset
+                disabled={
+                  saving || isRemoving || isSettingDefault || isReauthenticating
+                }
+              >
+                {accountOptions}
+              </fieldset>
+            )}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
+              {onReauthenticate && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={
+                    saving ||
+                    isReauthenticating ||
+                    isRemoving ||
+                    isSettingDefault
+                  }
+                  onClick={onReauthenticate}
+                >
+                  <RefreshCw
+                    className="mr-1.5 h-3.5 w-3.5"
+                    aria-hidden="true"
+                  />
+                  {t("codexOauth.reauthLogin", "重新登录")}
+                </Button>
+              )}
+              {isDefault ? (
+                <span className="text-xs text-muted-foreground">
+                  {t("codexOauth.defaultAccount", "默认")}
+                </span>
+              ) : (
+                onSetDefault && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={saving || isSettingDefault || isRemoving}
+                    onClick={onSetDefault}
+                  >
+                    <Star className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                    {t("codexOauth.setAsDefault", "设为默认")}
+                  </Button>
+                )
+              )}
+              {onRemove && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  disabled={
+                    saving ||
+                    isRemoving ||
+                    isSettingDefault ||
+                    isReauthenticating
+                  }
+                  onClick={onRemove}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                  {t("codexOauth.removeAccount", "移除账号")}
+                </Button>
+              )}
+              <HelpButton
+                label={t("codexAccounts.accountHelpLabel", "账号说明")}
+              >
+                <p>
+                  {t(
+                    "codexAccounts.directSwitchHelp",
+                    "登录后的 ChatGPT 账号可以直接切换。默认账号仅供高级托管配置使用，与当前使用的账号无关。",
+                  )}
+                </p>
+                <p>
+                  {t(
+                    "codexAccounts.credentialStoreHelp",
+                    "部分高级登录存储设置暂不支持账号切换。无法切换时，应用会说明具体原因。",
+                  )}
+                </p>
+              </HelpButton>
+            </div>
+            {actionError && (
+              <p role="alert" className="break-words text-sm text-destructive">
+                {actionError}
+              </p>
+            )}
             {error && (
               <p role="alert" className="break-words text-sm text-destructive">
                 {error}
@@ -209,7 +318,12 @@ export function EditCodexAccountDialog({
             >
               {t("common.cancel", "取消")}
             </Button>
-            <Button type="submit" disabled={saving}>
+            <Button
+              type="submit"
+              disabled={
+                saving || isRemoving || isSettingDefault || isReauthenticating
+              }
+            >
               {saving && (
                 <Loader2
                   className="mr-2 h-4 w-4 animate-spin"

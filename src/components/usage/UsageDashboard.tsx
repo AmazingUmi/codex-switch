@@ -16,6 +16,7 @@ import {
   DatabaseBackup,
   Loader2,
   ScanSearch,
+  Settings,
 } from "lucide-react";
 import {
   Select,
@@ -34,11 +35,13 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { PricingConfigPanel } from "@/components/usage/PricingConfigPanel";
-import { getLocaleFromLanguage } from "./format";
+import { formatUsageDateTime, getLocaleFromLanguage } from "./format";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
 import { UsageDateRangePicker } from "./UsageDateRangePicker";
+import { UsageSessionSourceDialog } from "./UsageSessionSourceDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { HelpButton } from "@/components/ui/help-button";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { usageApi } from "@/lib/api/usage";
@@ -70,6 +73,8 @@ interface UsageDashboardProps {
   onSessionAutoSyncEnabledChange?: (
     next: boolean,
   ) => Promise<boolean> | boolean | void;
+  codexUsageSourceDir?: string;
+  onCodexUsageSourceDirChange?: (next?: string) => Promise<boolean>;
 }
 
 export function UsageDashboard({
@@ -77,6 +82,8 @@ export function UsageDashboard({
   onRefreshIntervalChange,
   sessionAutoSyncEnabled = true,
   onSessionAutoSyncEnabledChange,
+  codexUsageSourceDir,
+  onCodexUsageSourceDirChange,
 }: UsageDashboardProps = {}) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
@@ -92,6 +99,7 @@ export function UsageDashboard({
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [rebuildingCodex, setRebuildingCodex] = useState(false);
   const [syncingSession, setSyncingSession] = useState(false);
+  const [showSessionSource, setShowSessionSource] = useState(false);
 
   useEffect(() => {
     setRefreshIntervalMs(normalizeRefreshInterval(savedRefreshIntervalMs));
@@ -155,8 +163,7 @@ export function UsageDashboard({
     }
   };
 
-  // 手动触发一次会话日志同步：手动模式下是唯一的直连用量补录途径，
-  // 入口按钮仅在关闭自动扫描时展示（自动模式有后台定时扫描，无需手动触发）
+  // Keep explicit sync available in automatic mode to verify a changed source.
   const runManualSessionSync = async () => {
     setSyncingSession(true);
     try {
@@ -191,16 +198,20 @@ export function UsageDashboard({
       return getUsageRangePresetLabel(range.preset, t);
     }
 
-    const startStr = new Date(resolvedRange.startDate * 1000).toLocaleString(
+    const startStr = formatUsageDateTime(
+      new Date(resolvedRange.startDate * 1000),
       locale,
+      { includeYear: true, includeTimeZone: true },
     );
 
     if (range.liveEndTime) {
       return `${startStr} → ${t("usage.liveEndTimeNow", "现在")}`;
     }
 
-    const endStr = new Date(resolvedRange.endDate * 1000).toLocaleString(
+    const endStr = formatUsageDateTime(
+      new Date(resolvedRange.endDate * 1000),
       locale,
+      { includeYear: true, includeTimeZone: true },
     );
     return `${startStr} - ${endStr}`;
   }, [locale, range, resolvedRange.endDate, resolvedRange.startDate, t]);
@@ -252,21 +263,18 @@ export function UsageDashboard({
       className="space-y-8 pb-8"
     >
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-2">
-        <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
           <h2 className="text-2xl font-bold tracking-tight">
             {t("usage.title")}
           </h2>
-          <details className="text-xs text-muted-foreground">
-            <summary className="cursor-pointer">
-              {t("codexAccounts.localUsageScopeLabel", "统计范围")}
-            </summary>
-            <p className="pt-2 max-w-lg leading-relaxed">
-              {t(
-                "codexAccounts.localUsageScope",
-                "统计本机记录的 Codex 请求及扫描到的会话，按所选时间、连接来源和模型筛选；不会汇总账号在其他设备的用量，也不代表订阅额度。费用按本地价格表估算。",
-              )}
-            </p>
-          </details>
+          <HelpButton
+            label={t("codexAccounts.localUsageScopeLabel", "Statistics scope")}
+          >
+            {t(
+              "codexAccounts.localUsageScope",
+              "统计本机记录的 Codex 请求及扫描到的会话，按所选时间、连接来源和模型筛选；不会汇总账号在其他设备的用量，也不代表订阅额度。费用按本地价格表估算。",
+            )}
+          </HelpButton>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -277,8 +285,9 @@ export function UsageDashboard({
             onValueChange={(v) => changeProviderName(decodeOptionValue(v))}
           >
             <SelectTrigger
-              className="h-9 w-[100px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
+              className="h-9 w-[144px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
               title={providerName ?? t("usage.filterBySource")}
+              aria-label={t("usage.filterBySource")}
             >
               <SelectValue />
             </SelectTrigger>
@@ -302,8 +311,9 @@ export function UsageDashboard({
             onValueChange={(v) => setModel(decodeOptionValue(v))}
           >
             <SelectTrigger
-              className="h-9 w-[100px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
+              className="h-9 w-[144px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
               title={model ?? t("usage.filterByModel")}
+              aria-label={t("usage.filterByModel")}
             >
               <SelectValue />
             </SelectTrigger>
@@ -328,7 +338,7 @@ export function UsageDashboard({
               onValueChange={(v) => changeRefreshInterval(Number(v))}
             >
               <SelectTrigger
-                className="h-9 w-[100px] bg-background text-xs focus:border-border-default"
+                className="h-9 w-[120px] bg-background text-xs focus:border-border-default"
                 title={t("usage.refreshInterval")}
                 aria-label={t("usage.refreshInterval")}
               >
@@ -375,7 +385,7 @@ export function UsageDashboard({
       <div className="space-y-4">
         <Tabs defaultValue="logs" className="w-full">
           <div className="flex items-center justify-between mb-4">
-            <TabsList className="bg-muted/50">
+            <TabsList>
               <TabsTrigger value="logs" className="gap-2">
                 <ListFilter className="h-4 w-4" />
                 {t("usage.requestLogs")}
@@ -435,31 +445,52 @@ export function UsageDashboard({
         <div className="rounded-xl glass-card px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <ScanSearch className="h-5 w-5 text-sky-500" />
-            <div>
+            <div className="flex items-center gap-2">
               <h3 className="text-base font-semibold">
                 {t("usage.sessionSync.title")}
               </h3>
-              <p className="text-sm text-muted-foreground">
+              <HelpButton
+                label={t(
+                  "usage.sessionSync.help",
+                  "About automatic session scanning",
+                )}
+              >
                 {t("usage.sessionSync.description")}
-              </p>
+              </HelpButton>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 rounded-full text-muted-foreground"
+                aria-label={t(
+                  "usage.sessionSource.configure",
+                  "Configure session source",
+                )}
+                disabled={
+                  !onCodexUsageSourceDirChange ||
+                  syncingSession ||
+                  rebuildingCodex
+                }
+                onClick={() => setShowSessionSource(true)}
+              >
+                <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {!sessionAutoSyncEnabled && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={syncingSession}
-                onClick={() => void runManualSessionSync()}
-              >
-                {syncingSession ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                {t("usage.sessionSync.syncNow")}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={syncingSession || rebuildingCodex || showSessionSource}
+              onClick={() => void runManualSessionSync()}
+            >
+              {syncingSession ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              {t("usage.sessionSync.syncNow")}
+            </Button>
             <Switch
               checked={sessionAutoSyncEnabled}
               onCheckedChange={(value) =>
@@ -469,6 +500,14 @@ export function UsageDashboard({
             />
           </div>
         </div>
+
+        {showSessionSource && onCodexUsageSourceDirChange && (
+          <UsageSessionSourceDialog
+            value={codexUsageSourceDir}
+            onSave={onCodexUsageSourceDirChange}
+            onClose={() => setShowSessionSource(false)}
+          />
+        )}
 
         <Accordion
           type="multiple"
@@ -486,9 +525,6 @@ export function UsageDashboard({
                   <h3 className="text-base font-semibold">
                     {t("settings.advanced.pricing.title")}
                   </h3>
-                  <p className="text-sm text-muted-foreground font-normal">
-                    {t("settings.advanced.pricing.description")}
-                  </p>
                 </div>
               </div>
             </AccordionTrigger>
@@ -507,9 +543,6 @@ export function UsageDashboard({
                   <h3 className="text-base font-semibold">
                     {t("usage.rebuildCodex.title")}
                   </h3>
-                  <p className="text-sm text-muted-foreground font-normal">
-                    {t("usage.rebuildCodex.description")}
-                  </p>
                 </div>
               </div>
             </AccordionTrigger>

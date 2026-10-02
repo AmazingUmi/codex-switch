@@ -1,4 +1,4 @@
-import { Suspense, useState, type ComponentType } from "react";
+import { Suspense, type ComponentType } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -8,7 +8,6 @@ import {
   fireEvent,
 } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { proxyKeys } from "@/lib/query/proxy";
 import { usageKeys } from "@/lib/query/usage";
 import type { Provider } from "@/types";
 import { providersApi } from "@/lib/api/providers";
@@ -23,62 +22,14 @@ import { emitTauriEvent } from "../msw/tauriMocks";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
-const routedAccountState = vi.hoisted(() => ({
-  enabled: false,
-  failover: undefined as boolean | undefined,
-  loading: false,
-  error: false,
-}));
-vi.mock("@/hooks/useProxyStatus", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("@/hooks/useProxyStatus")>();
-  return {
-    ...actual,
-    useProxyStatus: () =>
-      routedAccountState.enabled
-        ? {
-            isRunning: true,
-            takeoverStatus: { codex: true },
-            status: {
-              active_targets: [{ app_type: "codex", provider_id: "codex-2" }],
-            },
-          }
-        : actual.useProxyStatus(),
-  };
-});
-vi.mock("@/lib/query/failover", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/query/failover")>();
-  return {
-    ...actual,
-    useAutoFailoverEnabled: (
-      ...args: Parameters<typeof actual.useAutoFailoverEnabled>
-    ) =>
-      routedAccountState.enabled
-        ? {
-            data: routedAccountState.failover,
-            isPlaceholderData: routedAccountState.loading,
-            isError: routedAccountState.error,
-          }
-        : actual.useAutoFailoverEnabled(...args),
-  };
-});
-
+const startAccountLoginMock = vi.fn();
 vi.mock("@/components/settings/SettingsPage", () => ({
-  SettingsPage: ({ onOpenChange, defaultTab, configurations }: any) => {
-    const [tab, setTab] = useState(defaultTab);
-    return (
-      <div>
-        <output data-testid="settings-tab">{tab}</output>
-        <button
-          role="tab"
-          aria-label="Connection configurations"
-          onClick={() => setTab("configurations")}
-        />
-        {tab === "configurations" && configurations}
-        <button onClick={() => onOpenChange(false)}>close-settings</button>
-      </div>
-    );
-  },
+  SettingsPage: ({ onOpenChange, defaultTab }: any) => (
+    <div>
+      <output data-testid="settings-tab">{defaultTab}</output>
+      <button onClick={() => onOpenChange(false)}>close-settings</button>
+    </div>
+  ),
 }));
 
 vi.mock("@/components/usage/HomeUsageDashboard", () => ({
@@ -99,12 +50,16 @@ vi.mock("@/components/codex/CodexAccountsPanel", () => ({
     currentProviderId,
     onSwitchAccount,
     isSwitching,
+    onAddAccount,
   }: any) => (
     <div data-testid="accounts-panel">
       <output>{JSON.stringify(providers)}</output>
       <output data-testid="account-current-provider">
         {currentProviderId}
       </output>
+      <button onClick={() => onAddAccount(startAccountLoginMock)}>
+        add-account-or-connection
+      </button>
       <button
         disabled={isSwitching}
         onClick={() => {
@@ -127,7 +82,6 @@ vi.mock("@/components/providers/ProviderList", () => ({
     onConfigureUsage,
     onOpenWebsite,
     onCreate,
-    onDelete,
   }: any) => (
     <div>
       <div data-testid="provider-list">{JSON.stringify(providers)}</div>
@@ -135,7 +89,29 @@ vi.mock("@/components/providers/ProviderList", () => ({
       <button onClick={() => onSwitch(providers[currentProviderId])}>
         switch
       </button>
+      <button
+        onClick={() =>
+          onSwitch(
+            Object.values<Provider>(providers).find(
+              (provider) => provider.id !== currentProviderId,
+            ),
+          )
+        }
+      >
+        switch-other-connection
+      </button>
       <button onClick={() => onEdit(providers[currentProviderId])}>edit</button>
+      <button
+        onClick={() =>
+          onEdit(
+            Object.values<Provider>(providers).find(
+              (provider) => provider.id !== currentProviderId,
+            ),
+          )
+        }
+      >
+        edit-other-connection
+      </button>
       <button onClick={() => onDuplicate(providers[currentProviderId])}>
         duplicate
       </button>
@@ -145,10 +121,7 @@ vi.mock("@/components/providers/ProviderList", () => ({
       <button onClick={() => onOpenWebsite("https://example.com")}>
         open-website
       </button>
-      <button onClick={() => onDelete(Object.values(providers)[0])}>
-        delete
-      </button>
-      <button onClick={() => onCreate?.()}>create</button>
+      {onCreate && <button onClick={onCreate}>create</button>}
     </div>
   ),
 }));
@@ -160,9 +133,11 @@ vi.mock("@/components/providers/AddProviderDialog", () => ({
     onSubmit,
     appId,
     initialCodexAccountId,
+    apiKeyOnly,
   }: any) =>
     open ? (
       <div data-testid="add-provider-dialog">
+        <output data-testid="api-key-only">{String(apiKeyOnly)}</output>
         <output data-testid="initial-codex-account">
           {initialCodexAccountId}
         </output>
@@ -184,7 +159,15 @@ vi.mock("@/components/providers/AddProviderDialog", () => ({
 }));
 
 vi.mock("@/components/providers/EditProviderDialog", () => ({
-  EditProviderDialog: ({ open, provider, onSubmit, onOpenChange }: any) =>
+  EditProviderDialog: ({
+    open,
+    provider,
+    onSubmit,
+    onOpenChange,
+    onDelete,
+    deleteDisabledReason,
+    deleteConfirmation,
+  }: any) =>
     open ? (
       <div data-testid="edit-provider-dialog">
         <button
@@ -201,6 +184,26 @@ vi.mock("@/components/providers/EditProviderDialog", () => ({
           confirm-edit
         </button>
         <button onClick={() => onOpenChange(false)}>close-edit</button>
+        <button
+          disabled={!!deleteDisabledReason}
+          onClick={() => onDelete(provider)}
+        >
+          delete-connection
+        </button>
+        {deleteDisabledReason && (
+          <p data-testid="delete-disabled-reason">{deleteDisabledReason}</p>
+        )}
+        {deleteConfirmation && (
+          <div data-testid="editor-delete-confirmation">
+            <p>{deleteConfirmation.message}</p>
+            <button onClick={() => void deleteConfirmation.onConfirm()}>
+              confirm-editor-delete
+            </button>
+            <button onClick={deleteConfirmation.onCancel}>
+              cancel-editor-delete
+            </button>
+          </div>
+        )}
       </div>
     ) : null,
 }));
@@ -239,14 +242,11 @@ const renderApp = (AppComponent: ComponentType, client = new QueryClient()) => {
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
-    routedAccountState.enabled = false;
-    routedAccountState.failover = undefined;
-    routedAccountState.loading = false;
-    routedAccountState.error = false;
     resetProviderState();
     setSettings({ firstRunNoticeConfirmed: true });
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
+    startAccountLoginMock.mockReset();
     localStorage.removeItem("cc-switch-last-view");
     localStorage.removeItem("cc-switch-last-app");
   });
@@ -261,10 +261,6 @@ describe("App integration with MSW", () => {
       ),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
-    fireEvent.click(
-      await screen.findByRole("tab", { name: "Connection configurations" }),
-    );
     await waitFor(() =>
       expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
@@ -276,7 +272,9 @@ describe("App integration with MSW", () => {
     fireEvent.click(screen.getByText("save-script"));
     fireEvent.click(screen.getByText("close-usage"));
 
-    fireEvent.click(screen.getByText("create"));
+    expect(screen.queryByText("create")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("add-account-or-connection"));
+    fireEvent.click(screen.getByRole("button", { name: /API Key 连接/ }));
     expect(screen.getByTestId("add-provider-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("confirm-add"));
     await waitFor(() =>
@@ -337,7 +335,7 @@ describe("App integration with MSW", () => {
     providerScrollContainer!.scrollTop = 640;
     providerScrollContainer!.scrollLeft = 24;
 
-    fireEvent.click(screen.getByRole("tab", { name: "本地用量" }));
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     expect(await screen.findByTestId("usage-dashboard")).toBeInTheDocument();
 
     expect(mainScrollContainer.scrollTop).toBe(0);
@@ -437,7 +435,7 @@ describe("App integration with MSW", () => {
     }
   });
 
-  it("refreshes profile and proxy caches after a profile is applied", async () => {
+  it("refreshes profile caches after a profile is applied", async () => {
     const client = new QueryClient();
     const invalidate = vi.spyOn(client, "invalidateQueries");
     const { default: App } = await import("@/App");
@@ -449,12 +447,10 @@ describe("App integration with MSW", () => {
 
     emitTauriEvent("profile-applied", {});
     await waitFor(() =>
-      expect(invalidate).toHaveBeenCalledWith({ queryKey: proxyKeys.status }),
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["profiles"] }),
     );
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["profiles"] });
-    expect(invalidate).toHaveBeenCalledWith({
-      queryKey: proxyKeys.takeoverStatus,
-    });
+    expect(invalidate).not.toHaveBeenCalledWith({ queryKey: ["proxyStatus"] });
   });
 
   it("refreshes providers and tray after a shared provider sync", async () => {
@@ -504,21 +500,22 @@ describe("App integration with MSW", () => {
           "codex-1",
         ),
       );
-      fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
-      fireEvent.click(
-        await screen.findByRole("tab", { name: "Connection configurations" }),
-      );
-      fireEvent.click(await screen.findByText("delete"));
-      expect(screen.getByTestId("confirm-message")).toHaveTextContent(
-        "confirm.deleteProviderMessage",
-      );
-      fireEvent.click(screen.getByText("cancel-delete"));
+      fireEvent.click(await screen.findByText("edit-other-connection"));
+      fireEvent.click(screen.getByText("delete-connection"));
+      expect(
+        screen.getByTestId("editor-delete-confirmation"),
+      ).toHaveTextContent("confirm.deleteProviderMessage");
+      expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText("cancel-editor-delete"));
       expect(deleteProvider).not.toHaveBeenCalled();
+      expect(screen.getByTestId("edit-provider-dialog")).toBeInTheDocument();
       expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
-      fireEvent.click(screen.getByText("delete"));
-      fireEvent.click(screen.getByText("confirm-delete"));
+      fireEvent.click(screen.getByText("delete-connection"));
+      fireEvent.click(screen.getByText("confirm-editor-delete"));
       await waitFor(() =>
-        expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument(),
+        expect(
+          screen.queryByTestId("edit-provider-dialog"),
+        ).not.toBeInTheDocument(),
       );
       expect(deleteProvider).toHaveBeenCalledWith("codex-1", "codex");
       expect(removeFromLiveConfig).not.toHaveBeenCalled();
@@ -529,6 +526,39 @@ describe("App integration with MSW", () => {
     } finally {
       deleteProvider.mockRestore();
       removeFromLiveConfig.mockRestore();
+    }
+  });
+
+  it("keeps current connection deletion disabled in the editor and clears a cancelled confirmation on close", async () => {
+    const deleteProvider = vi.spyOn(providersApi, "delete");
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
+          "codex-1",
+        ),
+      );
+      fireEvent.click(screen.getByText("edit"));
+      expect(screen.getByText("delete-connection")).toBeDisabled();
+      expect(screen.getByTestId("delete-disabled-reason")).toHaveTextContent(
+        "当前使用的连接无法删除，请先切换到其他连接。",
+      );
+      fireEvent.click(screen.getByText("delete-connection"));
+      expect(
+        screen.queryByTestId("editor-delete-confirmation"),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByText("close-edit"));
+      fireEvent.click(screen.getByText("edit-other-connection"));
+      fireEvent.click(screen.getByText("delete-connection"));
+      expect(
+        screen.getByTestId("editor-delete-confirmation"),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByText("close-edit"));
+      expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
+      expect(deleteProvider).not.toHaveBeenCalled();
+    } finally {
+      deleteProvider.mockRestore();
     }
   });
 
@@ -565,10 +595,6 @@ describe("App integration with MSW", () => {
         expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
           original.name,
         ),
-      );
-      fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
-      fireEvent.click(
-        await screen.findByRole("tab", { name: "Connection configurations" }),
       );
       fireEvent.click(await screen.findByText("duplicate"));
       await waitFor(() =>
@@ -694,29 +720,101 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "账户" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
     expect(
-      screen.getByRole("tab", { name: "ChatGPT accounts" }),
-    ).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByTestId("provider-list")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
-    fireEvent.click(
-      await screen.findByRole("tab", { name: "Connection configurations" }),
-    );
-    expect(await screen.findByTestId("settings-tab")).toHaveTextContent(
-      "configurations",
-    );
+      screen.getByRole("heading", { name: "API Key" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("settings-tab")).not.toBeInTheDocument();
     expect(await screen.findByTestId("provider-list")).toHaveTextContent(
       "codex-1",
     );
-    fireEvent.click(screen.getByText("create"));
+    fireEvent.click(screen.getByText("add-account-or-connection"));
+    fireEvent.click(screen.getByRole("button", { name: /API Key 连接/ }));
     expect(screen.getByTestId("initial-codex-account")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("api-key-only")).toHaveTextContent("true");
+  });
+
+  it("starts ChatGPT login from the unified chooser without opening an API Key form", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    fireEvent.click(await screen.findByText("add-account-or-connection"));
+    expect(
+      screen.getByRole("dialog", { name: "添加账号或连接" }),
+    ).toBeVisible();
+    expect(startAccountLoginMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /ChatGPT 登录/ }));
+    expect(startAccountLoginMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
+  });
+
+  it("opens API Key creation directly from its section without starting login", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await screen.findByTestId("accounts-panel");
+    fireEvent.click(screen.getByRole("button", { name: "添加 API Key" }));
+    expect(screen.getByTestId("add-provider-dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("api-key-only")).toHaveTextContent("true");
+    expect(screen.getByTestId("initial-codex-account")).toBeEmptyDOMElement();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(startAccountLoginMock).not.toHaveBeenCalled();
+  });
+
+  it("opens and saves an API Key connection from the unified chooser without logging in", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
+    );
+    fireEvent.click(screen.getByText("add-account-or-connection"));
+    fireEvent.click(screen.getByRole("button", { name: /API Key 连接/ }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("api-key-only")).toHaveTextContent("true");
+    expect(screen.getByTestId("initial-codex-account")).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByText("confirm-add"));
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list")).toHaveTextContent(
+        "New codex Provider",
+      ),
+    );
+    expect(startAccountLoginMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+      "codex-1",
+    );
+  });
+
+  it("cancels the unified chooser without starting login or creating a connection", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    fireEvent.click(await screen.findByText("add-account-or-connection"));
+    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(startAccountLoginMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps connection guidance available through its heading help button", async () => {
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    await screen.findByTestId("accounts-panel");
+    const description =
+      "在这里管理 API Key 连接和已保存的高级配置。ChatGPT 订阅额度显示在对应账号卡片中。";
+    expect(screen.queryByText(description)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "连接配置用途" }));
+    expect(await screen.findByText(description)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "add-account-or-connection" }),
+    ).toBeInTheDocument();
   });
 
   it("offers Usage without requiring local proxy takeover", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
-    fireEvent.click(screen.getByRole("tab", { name: "本地用量" }));
+    fireEvent.click(screen.getByRole("tab", { name: "用量" }));
     expect(await screen.findByTestId("usage-dashboard")).toBeInTheDocument();
     expect(screen.queryByTestId("settings-tab")).not.toBeInTheDocument();
   });
@@ -725,9 +823,11 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
-    const settings = screen.getByRole("button", { name: "common.settings" });
-    const accounts = screen.getByRole("tab", { name: "ChatGPT accounts" });
-    const usage = screen.getByRole("tab", { name: "本地用量" });
+    const settings = screen.getByRole("button", { name: "设置" });
+    const accounts = screen.getByRole("tab", {
+      name: "账户",
+    });
+    const usage = screen.getByRole("tab", { name: "用量" });
 
     fireEvent.click(settings);
     await screen.findByTestId("settings-tab");
@@ -772,6 +872,37 @@ describe("App integration with MSW", () => {
     );
     expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
     switchSpy.mockRestore();
+  });
+
+  it("switches a saved connection directly from the homepage and updates the current account", async () => {
+    const switchConnection = vi.spyOn(providersApi, "switch");
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
+          "codex-2",
+        ),
+      );
+      fireEvent.click(screen.getByText("switch-other-connection"));
+      await waitFor(() =>
+        expect(switchConnection).toHaveBeenCalledWith("codex-2", "codex"),
+      );
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("account-current-provider"),
+        ).toHaveTextContent("codex-2"),
+      );
+      expect(screen.getByTestId("current-provider")).toHaveTextContent(
+        "codex-2",
+      );
+      expect(startAccountLoginMock).not.toHaveBeenCalled();
+      expect(
+        screen.queryByTestId("add-provider-dialog"),
+      ).not.toBeInTheDocument();
+    } finally {
+      switchConnection.mockRestore();
+    }
   });
 
   it("preserves current on failed account switch and explains the failure", async () => {
@@ -819,41 +950,32 @@ describe("App integration with MSW", () => {
         "internal",
       ),
     );
-    fireEvent.click(screen.getByRole("button", { name: "common.settings" }));
-    fireEvent.click(
-      await screen.findByRole("tab", { name: "Connection configurations" }),
-    );
     expect(screen.getByTestId("provider-list")).toHaveTextContent("advanced");
     expect(screen.getByTestId("provider-list")).not.toHaveTextContent(
       "internal",
     );
   });
-  it.each([
-    { failover: undefined, loading: true, error: false, expected: "" },
-    { failover: false, loading: true, error: false, expected: "" },
-    { failover: undefined, loading: false, error: true, expected: "" },
-    { failover: true, loading: false, error: false, expected: "codex-2" },
-    { failover: false, loading: false, error: false, expected: "codex-1" },
-  ])("resolves routed current account conservatively: %j", async (state) => {
-    Object.assign(routedAccountState, state, { enabled: true });
+  it("uses the native configured provider as the current account", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
+      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+        "codex-1",
+      ),
     );
-    const current = screen.getByTestId("account-current-provider");
-    if (state.expected) expect(current).toHaveTextContent(state.expected);
-    else expect(current).toBeEmptyDOMElement();
   });
-  it("supports keyboard navigation between account and usage tabs", async () => {
+  it("supports keyboard navigation across accounts, usage and settings", async () => {
     setSettings({ firstRunNoticeConfirmed: true });
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
-    const accounts = screen.getByRole("tab", { name: "ChatGPT accounts" });
-    const usage = screen.getByRole("tab", {
-      name: "本地用量",
+    const accounts = screen.getByRole("tab", {
+      name: "账户",
     });
+    const usage = screen.getByRole("tab", {
+      name: "用量",
+    });
+    const settings = screen.getByRole("button", { name: "设置" });
     expect(accounts).toHaveAttribute("tabindex", "0");
     expect(usage).toHaveAttribute("tabindex", "-1");
     fireEvent.keyDown(accounts, { key: "ArrowRight" });
@@ -863,6 +985,10 @@ describe("App integration with MSW", () => {
     expect(accounts).toHaveAttribute("aria-selected", "true");
     expect(accounts).toHaveFocus();
     fireEvent.keyDown(accounts, { key: "End" });
+    expect(settings).toHaveFocus();
+    expect(settings).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByTestId("settings-tab")).toBeInTheDocument();
+    fireEvent.keyDown(settings, { key: "ArrowLeft" });
     expect(usage).toHaveFocus();
     fireEvent.keyDown(usage, { key: "ArrowLeft" });
     expect(accounts).toHaveFocus();

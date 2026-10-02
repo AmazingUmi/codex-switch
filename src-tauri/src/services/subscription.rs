@@ -352,7 +352,7 @@ const KNOWN_TIERS: &[&str] = &[
 /// 成功值）；确定性失败（鉴权/非 2xx/响应体非法 JSON）返回 `Ok(success:false)`。
 /// codex/gemini 两个查询函数遵守同一约定。
 async fn query_claude_quota(access_token: &str) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     let resp = client
         .get("https://api.anthropic.com/api/oauth/usage")
@@ -751,7 +751,7 @@ pub(crate) async fn query_codex_quota(
     tool_label: &str,
     expired_message: &str,
 ) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     let mut req = client
         .get("https://chatgpt.com/backend-api/wham/usage")
@@ -1047,7 +1047,7 @@ const GEMINI_OAUTH_CLIENT_SECRET: &str = "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";
 /// Google OAuth access_token 仅有 ~1h 有效期，需要定期用 refresh_token 刷新。
 /// refresh_token 本身不过期（除非用户撤销授权）。
 async fn refresh_gemini_token(refresh_token: &str) -> Option<String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     let resp = client
         .post("https://oauth2.googleapis.com/token")
@@ -1128,7 +1128,7 @@ fn classify_gemini_model(model_id: &str) -> &str {
 /// 1. loadCodeAssist → 获取 cloudaicompanionProject
 /// 2. retrieveUserQuota → 获取按模型分桶的配额数据
 async fn query_gemini_quota(access_token: &str) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     // ── Step 1: loadCodeAssist 获取项目 ID ──
     let load_resp = client

@@ -11,6 +11,7 @@ import type { ReactElement, PropsWithChildren } from "react";
 import type { SubscriptionQuota } from "@/types/subscription";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAccountsPanel } from "@/components/codex/CodexAccountsPanel";
 import {
   getCodexAccountProviders,
@@ -164,13 +165,13 @@ describe("CodexAccountsPanel", () => {
       screen.queryByRole("heading", { name: "ChatGPT 账号" }),
     ).not.toBeInTheDocument();
     expect(screen.getByText("3 个账号")).toBeInTheDocument();
-    const help = screen.getByRole("button", { name: "账号与额度说明" });
+    const help = screen.getByRole("button", { name: "账号说明" });
     await user.tab();
     expect(help).toHaveFocus();
     await user.keyboard("{Enter}");
-    const explanation = screen.getByRole("dialog", { name: "账号与额度说明" });
+    const explanation = screen.getByRole("dialog", { name: "账号说明" });
     expect(explanation).toHaveTextContent(/登录后的 ChatGPT 账号可以直接切换/);
-    expect(explanation).toHaveTextContent(/百分比表示已使用额度/);
+    expect(explanation).not.toHaveTextContent(/百分比表示已使用额度/);
     await user.keyboard("{Escape}");
     expect(help).toHaveFocus();
     expect(
@@ -180,7 +181,7 @@ describe("CodexAccountsPanel", () => {
     ).toHaveAttribute("title", "编辑账号");
     expect(
       within(card("account-2")).queryByRole("button", { name: "设为默认" }),
-    ).not.toBeVisible();
+    ).not.toBeInTheDocument();
   });
 
   it("shows only a concise connection name when API Key is current", () => {
@@ -293,7 +294,7 @@ describe("CodexAccountsPanel", () => {
     expect(card("account-2")).toHaveAttribute("data-current", "false");
   });
 
-  it("preserves optional multiple advanced connections without blocking the ordinary account switch", async () => {
+  it("applies saved connection choices and discards cancelled changes", async () => {
     const user = userEvent.setup();
     const props = {
       ...commonProps(),
@@ -304,13 +305,76 @@ describe("CodexAccountsPanel", () => {
     };
     render(<CodexAccountsPanel {...props} />);
     const account = within(card("account-1"));
+    const edit = () =>
+      user.click(
+        account.getByRole("button", {
+          name: "编辑账号: account-1@example.com",
+        }),
+      );
     expect(account.getByRole("button", { name: "切换到此账号" })).toBeEnabled();
-    expect(account.getByRole("combobox")).not.toBeVisible();
-    await user.click(account.getByText("高级连接"));
-    await user.click(account.getByRole("combobox"));
+    expect(account.queryByRole("combobox")).not.toBeInTheDocument();
+    await edit();
+    await user.click(screen.getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "config-B" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
     await user.click(account.getByRole("button", { name: "切换到此账号" }));
-    expect(props.onSwitchAccount).toHaveBeenCalledWith("account-1", "config-B");
+    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
+      "account-1",
+      undefined,
+    );
+    await edit();
+    expect(screen.getByRole("combobox")).toHaveTextContent("自动选择");
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "config-B" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(account.getByRole("button", { name: "切换到此账号" }));
+    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
+      "account-1",
+      "config-B",
+    );
+    await edit();
+    expect(screen.getByRole("combobox")).toHaveTextContent("config-B");
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "config-A" }));
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await user.click(account.getByRole("button", { name: "切换到此账号" }));
+    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
+      "account-1",
+      "config-B",
+    );
+  });
+
+  it("retains the previous connection choice when saving the editor fails", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      updateAccount: vi
+        .fn()
+        .mockRejectedValue(new Error("Store is not writable")),
+    });
+    const props = {
+      ...commonProps(),
+      providers: [
+        provider("config-A", "account-1"),
+        provider("config-B", "account-1"),
+      ],
+    };
+    render(<CodexAccountsPanel {...props} />);
+    const account = within(card("account-1"));
+    await user.click(
+      account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
+    );
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "config-B" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Store is not writable",
+    );
+    expect(screen.getByRole("combobox")).toHaveTextContent("config-B");
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await user.click(account.getByRole("button", { name: "切换到此账号" }));
+    expect(props.onSwitchAccount).toHaveBeenCalledWith("account-1", undefined);
   });
 
   it("allows an expired account to edit and reauthenticate while blocking switching", async () => {
@@ -328,8 +392,9 @@ describe("CodexAccountsPanel", () => {
     expect(
       account.getByRole("button", { name: "切换到此账号" }),
     ).toBeDisabled();
-    await user.click(account.getByRole("button", { name: "重新登录" }));
-    expect(auth.reauthAccount).toHaveBeenCalledWith("unbound");
+    expect(
+      account.queryByRole("button", { name: "重新登录" }),
+    ).not.toBeInTheDocument();
     await user.click(
       account.getByRole("button", { name: "编辑账号: unbound@example.com" }),
     );
@@ -337,6 +402,12 @@ describe("CodexAccountsPanel", () => {
       screen.getByRole("dialog", { name: "编辑账号" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("登录身份")).toHaveAttribute("readonly");
+    expect(screen.queryByText("高级连接")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "重新登录" }));
+    expect(auth.reauthAccount).toHaveBeenCalledWith("unbound");
+    expect(
+      screen.queryByRole("dialog", { name: "编辑账号" }),
+    ).not.toBeInTheDocument();
   });
 
   it.each(["expired", "not_found"] as const)(
@@ -373,8 +444,9 @@ describe("CodexAccountsPanel", () => {
       expect(
         within(card("unbound")).getByRole("button", { name: "切换到此账号" }),
       ).toBeEnabled();
-      await user.click(first.getByRole("button", { name: "重新登录" }));
-      expect(auth.reauthAccount).toHaveBeenCalledWith("account-1");
+      expect(
+        first.queryByRole("button", { name: "重新登录" }),
+      ).not.toBeInTheDocument();
       await user.click(
         first.getByRole("button", { name: "编辑账号: account-1@example.com" }),
       );
@@ -382,7 +454,8 @@ describe("CodexAccountsPanel", () => {
         screen.getByRole("dialog", { name: "编辑账号" }),
       ).toBeInTheDocument();
       expect(screen.getByLabelText("登录身份")).toHaveAttribute("readonly");
-      await user.click(screen.getByRole("button", { name: "取消" }));
+      await user.click(screen.getByRole("button", { name: "重新登录" }));
+      expect(auth.reauthAccount).toHaveBeenCalledWith("account-1");
       act(() =>
         queryClient.setQueryData(key, {
           ...unavailable,
@@ -415,6 +488,182 @@ describe("CodexAccountsPanel", () => {
       within(card("account-1")).getByRole("button", { name: "切换到此账号" }),
     ).toBeEnabled();
     expect(mocks.getCodexOauthQuota).not.toHaveBeenCalled();
+  });
+
+  it("keeps the OAuth default independent of the current account and manages it in the editor", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    const props = commonProps();
+    const { rerender } = render(<CodexAccountsPanel {...props} />);
+    expect(within(card("account-2")).getByText("当前使用")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "设为默认" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "移除账号" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("高级选项")).not.toBeInTheDocument();
+    await user.click(
+      within(card("account-2")).getByRole("button", {
+        name: "编辑账号: account-2@example.com",
+      }),
+    );
+    const dialog = within(screen.getByRole("dialog", { name: "编辑账号" }));
+    await user.type(dialog.getByLabelText("显示名称"), "Draft");
+    await user.click(dialog.getByRole("button", { name: "设为默认" }));
+    expect(auth.setDefaultAccount).toHaveBeenCalledWith("account-2");
+    expect(props.onSwitchAccount).not.toHaveBeenCalled();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      isSettingDefaultAccount: true,
+    });
+    rerender(<CodexAccountsPanel {...props} />);
+    expect(dialog.getByRole("button", { name: "设为默认" })).toBeDisabled();
+    expect(dialog.getByRole("button", { name: "保存" })).toBeDisabled();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      error: "Default account could not be saved",
+    });
+    rerender(<CodexAccountsPanel {...props} />);
+    expect(dialog.getByRole("alert")).toHaveTextContent(
+      "Default account could not be saved",
+    );
+    expect(dialog.getByLabelText("显示名称")).toHaveValue("Draft");
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      defaultAccountId: "account-2",
+    });
+    rerender(<CodexAccountsPanel {...props} />);
+    expect(dialog.getByText("默认")).toBeInTheDocument();
+    expect(
+      dialog.queryByRole("button", { name: "设为默认" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("removes only the edited account, retains failures, and closes after status confirms removal", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    const props = commonProps();
+    const { rerender } = render(<CodexAccountsPanel {...props} />);
+    await user.click(
+      within(card("account-1")).getByRole("button", {
+        name: "编辑账号: account-1@example.com",
+      }),
+    );
+    const dialog = within(screen.getByRole("dialog", { name: "编辑账号" }));
+    await user.click(dialog.getByRole("button", { name: "移除账号" }));
+    expect(auth.removeAccount).toHaveBeenCalledWith("account-1");
+    expect(auth.logout).not.toHaveBeenCalled();
+    mocks.useCodexOauth.mockReturnValue({ ...auth, isRemovingAccount: true });
+    rerender(<CodexAccountsPanel {...props} />);
+    expect(dialog.getByRole("button", { name: "移除账号" })).toBeDisabled();
+    expect(dialog.getByRole("button", { name: "保存" })).toBeDisabled();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      error: "Account could not be removed",
+    });
+    rerender(<CodexAccountsPanel {...props} />);
+    expect(dialog.getByRole("alert")).toHaveTextContent(
+      "Account could not be removed",
+    );
+    expect(dialog.getByRole("button", { name: "移除账号" })).toBeEnabled();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      accounts: accounts.filter((account) => account.id !== "account-1"),
+    });
+    rerender(<CodexAccountsPanel {...props} />);
+    expect(
+      screen.queryByRole("dialog", { name: "编辑账号" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("account-1@example.com")).not.toBeInTheDocument();
+    expect(card("account-2")).toHaveAttribute("data-current", "true");
+  });
+
+  it("keeps bulk logout exclusively in Settings Authentication, outside the account editor", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    const props = commonProps();
+    const { rerender } = render(<CodexAccountsPanel {...props} />);
+    expect(
+      screen.queryByRole("button", { name: "注销所有账号" }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      within(card("account-1")).getByRole("button", {
+        name: "编辑账号: account-1@example.com",
+      }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "注销所有账号" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    rerender(<AuthCenterPanel accountPanelProps={props} />);
+    expect(
+      screen.queryByRole("button", { name: "注销所有账号" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "更多账号操作" }));
+    await user.click(screen.getByRole("menuitem", { name: "注销所有账号" }));
+    expect(auth.logout).toHaveBeenCalledOnce();
+    expect(auth.removeAccount).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { isLoadingProviders: true, reason: "正在加载..." },
+    { isProvidersError: true, reason: "无法读取连接，请刷新后重试。" },
+    { isSwitching: true, reason: "正在切换账号…" },
+  ])(
+    "keeps switching disabled and explains the reason for %j",
+    async ({ reason, ...state }) => {
+      const user = userEvent.setup();
+      const props = { ...commonProps(), ...state };
+      render(<CodexAccountsPanel {...props} />);
+      const account = within(card("account-1"));
+      const switchButton = account.getByRole("button", {
+        name: "切换到此账号",
+      });
+      expect(switchButton).toBeDisabled();
+      expect(switchButton).toHaveAttribute("title", reason);
+      await user.click(account.getByRole("button", { name: "为何无法切换" }));
+      expect(
+        screen.getByRole("dialog", { name: "为何无法切换" }),
+      ).toHaveTextContent(reason);
+      expect(props.onSwitchAccount).not.toHaveBeenCalled();
+    },
+  );
+
+  it("restores automatic connection choice and uses the effective provider for the current marker", async () => {
+    const user = userEvent.setup();
+    const props = {
+      ...commonProps(),
+      providers: [
+        provider("config-A", "account-1"),
+        provider("config-B", "account-1"),
+      ],
+      currentProviderId: "config-A",
+    };
+    render(<CodexAccountsPanel {...props} />);
+    const account = within(card("account-1"));
+    expect(account.getByRole("button", { name: "当前使用" })).toBeDisabled();
+    await user.click(
+      account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
+    );
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "config-B" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(card("account-1")).toHaveAttribute("data-current", "true");
+    await user.click(account.getByRole("button", { name: "切换到此账号" }));
+    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
+      "account-1",
+      "config-B",
+    );
+    await user.click(
+      account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
+    );
+    expect(screen.getByRole("combobox")).toHaveTextContent("config-B");
+    await user.click(screen.getByRole("combobox"));
+    await user.click(await screen.findByRole("option", { name: "自动选择" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(account.getByRole("button", { name: "当前使用" })).toBeDisabled();
+    expect(props.onSwitchAccount).toHaveBeenCalledTimes(1);
   });
 
   it("saves only account appearance and restores it when reopening an editor", async () => {

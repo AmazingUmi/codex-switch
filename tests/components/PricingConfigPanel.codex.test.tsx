@@ -20,7 +20,7 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: mocks.translate }),
 }));
 vi.mock("@/lib/api/usage", () => ({ usageApi: mocks }));
-vi.mock("@/lib/api/proxy", () => ({ proxyApi: mocks }));
+vi.mock("@/lib/api/usage", () => ({ usageApi: mocks }));
 vi.mock("@/components/usage/ModelsDevAutoSyncPanel", () => ({
   ModelsDevAutoSyncPanel: () => null,
 }));

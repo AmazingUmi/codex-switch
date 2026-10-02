@@ -3,7 +3,6 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { authSwitchCodexAccount } from "@/lib/api/auth";
-import { proxyKeys } from "@/lib/query/proxy";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
 /** Home and Authentication share the committed native switch and query state. */
@@ -26,18 +25,6 @@ export function useCodexAccountSwitch() {
       const reads = await Promise.allSettled([
         queryClient.invalidateQueries(
           { queryKey: ["providers", "codex"] },
-          { throwOnError: true },
-        ),
-        queryClient.invalidateQueries(
-          { queryKey: proxyKeys.status },
-          { throwOnError: true },
-        ),
-        queryClient.invalidateQueries(
-          { queryKey: proxyKeys.takeoverStatus },
-          { throwOnError: true },
-        ),
-        queryClient.invalidateQueries(
-          { queryKey: ["autoFailoverEnabled", "codex"] },
           { throwOnError: true },
         ),
         queryClient.invalidateQueries(

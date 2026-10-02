@@ -51,19 +51,21 @@ export function useDraftEditorProjection(
       category: string | undefined,
       apply: (shown: Record<string, unknown>) => void,
     ) => {
-      if (!onEditorBaseChange) return;
+      if (!onEditorBaseChange) return Promise.resolve(false);
       const current = ++sequence.current;
       onEditorBaseChange(null);
-      providersApi
+      return providersApi
         .getEditorView(appId, settings, category)
         .then((view) => {
-          if (current !== sequence.current) return;
+          if (current !== sequence.current) return false;
           apply(view.settings);
           onEditorBaseChange(view.settings, settings);
+          return true;
         })
         .catch((error: unknown) => {
-          if (current !== sequence.current) return;
+          if (current !== sequence.current) return false;
           toastEditorViewFailed(t, error);
+          return false;
         });
     },
     [appId, onEditorBaseChange, t],

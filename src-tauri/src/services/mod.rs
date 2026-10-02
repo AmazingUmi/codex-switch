@@ -13,7 +13,6 @@ pub(crate) mod pi_state;
 pub mod profile;
 pub mod prompt;
 pub mod provider;
-pub mod proxy;
 pub mod s3;
 pub mod s3_auto_sync;
 pub mod s3_sync;
@@ -41,7 +40,6 @@ pub use mcp::McpService;
 pub use omo::OmoService;
 pub use prompt::PromptService;
 pub use provider::{ProviderService, ProviderSortUpdate, SwitchResult};
-pub use proxy::ProxyService;
 #[allow(unused_imports)]
 pub use skill::{DiscoverableSkill, Skill, SkillRepo, SkillService};
 pub use speedtest::{EndpointLatency, SpeedtestService};

@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { SettingsFormState } from "@/hooks/useSettings";
 import { AppWindow, Power, EyeOff } from "lucide-react";
+import { HelpButton } from "@/components/ui/help-button";
 import { ToggleRow } from "@/components/ui/toggle-row";
 import { AnimatePresence, motion } from "framer-motion";
 import { isLinux } from "@/lib/platform";
@@ -24,7 +25,6 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
         <ToggleRow
           icon={<Power className="h-4 w-4 text-orange-500" />}
           title={t("settings.launchOnStartup")}
-          description={t("settings.launchOnStartupDescription")}
           checked={!!settings.launchOnStartup}
           onCheckedChange={(value) => onChange({ launchOnStartup: value })}
         />
@@ -41,7 +41,11 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
               <ToggleRow
                 icon={<EyeOff className="h-4 w-4 text-green-500" />}
                 title={t("settings.silentStartup")}
-                description={t("settings.silentStartupDescription")}
+                help={
+                  <HelpButton label={t("settings.silentStartup")}>
+                    {t("settings.silentStartupDescription")}
+                  </HelpButton>
+                }
                 checked={!!settings.silentStartup}
                 onCheckedChange={(value) => onChange({ silentStartup: value })}
               />
@@ -52,7 +56,11 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
         <ToggleRow
           icon={<AppWindow className="h-4 w-4 text-blue-500" />}
           title={t("settings.minimizeToTray")}
-          description={t("settings.minimizeToTrayDescription")}
+          help={
+            <HelpButton label={t("settings.minimizeToTray")}>
+              {t("settings.minimizeToTrayDescription")}
+            </HelpButton>
+          }
           checked={settings.minimizeToTrayOnClose}
           onCheckedChange={(value) =>
             onChange({ minimizeToTrayOnClose: value })
@@ -63,7 +71,11 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
           <ToggleRow
             icon={<AppWindow className="h-4 w-4 text-amber-500" />}
             title={t("settings.useAppWindowControls")}
-            description={t("settings.useAppWindowControlsDescription")}
+            help={
+              <HelpButton label={t("settings.useAppWindowControls")}>
+                {t("settings.useAppWindowControlsDescription")}
+              </HelpButton>
+            }
             checked={!!settings.useAppWindowControls}
             onCheckedChange={(value) =>
               onChange({ useAppWindowControls: value })

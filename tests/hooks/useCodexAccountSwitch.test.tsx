@@ -96,9 +96,6 @@ describe("committed Codex account switches", () => {
     });
     for (const key of [
       ["providers", "codex"],
-      ["proxyStatus"],
-      ["proxyTakeoverStatus"],
-      ["autoFailoverEnabled", "codex"],
       ["managed-auth-status", "codex_oauth"],
     ]) {
       expect(invalidate).toHaveBeenCalledWith(

@@ -6,6 +6,7 @@ import {
   type ProviderFormValues,
 } from "@/components/providers/forms/ProviderForm";
 import { Button } from "@/components/ui/button";
+import { HelpButton } from "@/components/ui/help-button";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
 import type { AppId, ManagedAuthProvider } from "@/lib/api";
 import type {
@@ -19,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 interface AddProviderDialogProps {
   productShell?: boolean;
+  apiKeyOnly?: boolean;
   initialCodexAccountId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -30,7 +32,8 @@ interface AddProviderDialogProps {
   ) => Promise<void> | void;
 }
 export function AddProviderDialog(props: AddProviderDialogProps) {
-  if (props.appId !== "codex") return null;
+  // Closing discards the creation draft immediately, including pending live projections.
+  if (props.appId !== "codex" || !props.open) return null;
   return <CodexAddProviderDialog {...props} />;
 }
 function CodexAddProviderDialog({
@@ -39,6 +42,7 @@ function CodexAddProviderDialog({
   appId,
   onSubmit,
   productShell = false,
+  apiKeyOnly = false,
   initialCodexAccountId,
 }: AddProviderDialogProps) {
   const { t } = useTranslation();
@@ -112,7 +116,7 @@ function CodexAddProviderDialog({
       const hasCustomEndpoints =
         providerData.meta?.custom_endpoints &&
         Object.keys(providerData.meta.custom_endpoints).length > 0;
-      if (!hasCustomEndpoints) {
+      if (!productShell && !hasCustomEndpoints) {
         const urlSet = new Set<string>();
         const addUrl = (rawUrl?: string) => {
           const url = (rawUrl || "").trim().replace(/\/+$/, "");
@@ -168,13 +172,24 @@ function CodexAddProviderDialog({
       };
       await submitWithConflictRetry(submit);
     },
-    [appId, onSubmit, closeDialog, draftEditorBase, submitWithConflictRetry],
+    [
+      appId,
+      onSubmit,
+      closeDialog,
+      draftEditorBase,
+      submitWithConflictRetry,
+      productShell,
+    ],
   );
   const footer = (
     <>
-      <span className="mr-auto min-w-0 text-xs text-muted-foreground truncate">
-        {t("provider.addFooterHint")}
-      </span>
+      <div className="mr-auto">
+        <HelpButton
+          label={t("providerForm.connectionHelp", "Connection setup help")}
+        >
+          {t("provider.addFooterHint")}
+        </HelpButton>
+      </div>
       <Button
         variant="outline"
         onClick={closeDialog}
@@ -201,9 +216,11 @@ function CodexAddProviderDialog({
     <FullScreenPanel
       isOpen={open}
       title={
-        productShell
-          ? t("codexAccounts.addConnectionTitle", "添加连接配置")
-          : t("provider.addNewProvider")
+        apiKeyOnly
+          ? t("codexAccounts.addApiConnectionTitle", "添加 API Key 连接")
+          : productShell
+            ? t("codexAccounts.addConnectionTitle", "添加连接配置")
+            : t("provider.addNewProvider")
       }
       onClose={handlePanelClose}
       footer={footer}
@@ -213,6 +230,7 @@ function CodexAddProviderDialog({
         key={initialCodexAccountId ?? "new-provider"}
         initialCodexAccountId={initialCodexAccountId}
         productShell={productShell}
+        apiKeyOnly={apiKeyOnly}
         restrictCodexCreation={productShell}
         appId={appId}
         submitLabel={t("common.add")}

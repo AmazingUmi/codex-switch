@@ -413,7 +413,7 @@ const getCodexProviderSectionName = (
   return providerName ? `model_providers.${providerName}` : undefined;
 };
 
-const isCustomCodexModelProviderId = (providerName: string): boolean => {
+export const isCustomCodexModelProviderId = (providerName: string): boolean => {
   // Exact match, mirroring upstream Codex and the backend predicate: the
   // built-in provider lookup is case-sensitive, so "OpenAI" etc. are
   // legitimate custom ids whose tables carry the bearer token.

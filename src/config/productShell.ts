@@ -4,7 +4,6 @@ import type { DeepLinkImportRequest } from "@/lib/api/deeplink";
 // Product navigation is separate from the shared backend capability registry.
 // Existing records for other apps remain valid and are never migrated away.
 export const PRODUCT_APP_IDS: AppId[] = ["codex"];
-export const PRODUCT_PROXY_APP_IDS = ["codex"] as const;
 export const PRODUCT_VIEW_IDS = ["providers", "settings"] as const;
 export type ProductView = (typeof PRODUCT_VIEW_IDS)[number];
 

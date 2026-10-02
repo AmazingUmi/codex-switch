@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from "react";
 import { motion } from "framer-motion";
 import {
@@ -17,8 +16,6 @@ import {
   ScrollText,
   HardDriveDownload,
   Settings2,
-  Cable,
-  Network,
   KeyRound,
   SlidersHorizontal,
   Info,
@@ -49,11 +46,8 @@ import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { BackupListSection } from "@/components/settings/BackupListSection";
 import { WebdavSyncSection } from "@/components/settings/WebdavSyncSection";
 import { AboutSection } from "@/components/settings/AboutSection";
-import { ProxyTabContent } from "@/components/settings/ProxyTabContent";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
-import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
-import type { CodexAccountsPanelProps } from "@/components/codex/CodexAccountsPanel";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -64,8 +58,6 @@ interface SettingsDialogProps {
   onOpenChange: (open: boolean) => void;
   onImportSuccess?: () => void | Promise<void>;
   defaultTab?: string;
-  configurations?: ReactNode;
-  accountPanelProps?: CodexAccountsPanelProps;
 }
 
 export function SettingsPage({
@@ -73,8 +65,6 @@ export function SettingsPage({
   onOpenChange,
   onImportSuccess,
   defaultTab = "general",
-  configurations,
-  accountPanelProps,
 }: SettingsDialogProps) {
   const { t } = useTranslation();
   const {
@@ -110,13 +100,17 @@ export function SettingsPage({
     resetStatus,
   } = useImportExport({ onImportSuccess });
 
-  const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  const normalizeTab = (tab: string) =>
+    ["general", "auth", "advanced", "about"].includes(tab) ? tab : "general";
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    normalizeTab(defaultTab),
+  );
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
   const tabScrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
-      setActiveTab(defaultTab);
+      setActiveTab(normalizeTab(defaultTab));
       resetStatus();
     }
   }, [open, resetStatus, defaultTab]);
@@ -220,12 +214,6 @@ export function SettingsPage({
       Icon: Settings2,
     },
     {
-      value: "configurations",
-      label: t("codexAccounts.configurationsTab", "Connection configurations"),
-      Icon: Cable,
-    },
-    { value: "proxy", label: t("settings.tabProxy"), Icon: Network },
-    {
       value: "auth",
       label: t("settings.tabAuth", "Authentication"),
       Icon: KeyRound,
@@ -254,7 +242,7 @@ export function SettingsPage({
         >
           <TabsList
             aria-label={t("settings.title")}
-            className="self-start mb-6 glass rounded-lg"
+            className="self-start mb-6"
           >
             {settingsTabs.map(({ value, label, Icon }) => (
               <TabsTrigger
@@ -262,13 +250,13 @@ export function SettingsPage({
                 value={value}
                 aria-label={label}
                 title={label}
-                className="min-w-0 h-10 w-10 p-0"
+                className="capsule-option-icon"
               >
                 <Icon className="h-5 w-5" aria-hidden="true" />
               </TabsTrigger>
             ))}
           </TabsList>
-          {activeTab !== "configurations" && activeTab !== "about" && (
+          {activeTab !== "about" && (
             <h2 className="mb-4 text-lg font-semibold">
               {settingsTabs.find((tab) => tab.value === activeTab)?.label}
             </h2>
@@ -292,10 +280,6 @@ export function SettingsPage({
                       onChange={(lang) => handleAutoSave({ language: lang })}
                     />
                     <ThemeSettings />
-                    <CodexAuthSettings
-                      settings={settings}
-                      onChange={handleAutoSave}
-                    />
                     <WindowSettings
                       settings={settings}
                       onChange={handleAutoSave}
@@ -310,19 +294,6 @@ export function SettingsPage({
                 ) : null}
               </TabsContent>
 
-              <TabsContent value="configurations" className="mt-0">
-                {configurations}
-              </TabsContent>
-
-              <TabsContent value="proxy" className="space-y-6 mt-0 pb-4">
-                {settings ? (
-                  <ProxyTabContent
-                    settings={settings}
-                    onAutoSave={handleAutoSave}
-                  />
-                ) : null}
-              </TabsContent>
-
               <TabsContent value="auth" className="space-y-6 mt-0 pb-4">
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -330,7 +301,12 @@ export function SettingsPage({
                   transition={{ duration: 0.3 }}
                   className="space-y-6"
                 >
-                  <AuthCenterPanel accountPanelProps={accountPanelProps} />
+                  {settings && (
+                    <CodexAuthSettings
+                      settings={settings}
+                      onChange={handleAutoSave}
+                    />
+                  )}
                 </motion.div>
               </TabsContent>
 
@@ -358,12 +334,6 @@ export function SettingsPage({
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.configDir.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.configDir.description", {
-                                  defaultValue:
-                                    "Manage Codex configuration and app storage paths.",
-                                })}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -393,9 +363,6 @@ export function SettingsPage({
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.data.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.data.description")}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -427,12 +394,6 @@ export function SettingsPage({
                                   defaultValue: "Backup & Restore",
                                 })}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.backup.description", {
-                                  defaultValue:
-                                    "Manage automatic backups, view and restore database snapshots",
-                                })}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -458,9 +419,6 @@ export function SettingsPage({
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.cloudSync.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.cloudSync.description")}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -485,9 +443,6 @@ export function SettingsPage({
                               <h3 className="text-base font-semibold">
                                 {t("settings.advanced.logConfig.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.logConfig.description")}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>

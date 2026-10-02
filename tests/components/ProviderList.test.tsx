@@ -13,11 +13,6 @@ const useDragSortMock = vi.fn();
 const useSortableMock = vi.fn();
 const providerCardRenderSpy = vi.fn();
 const checkProviderMock = vi.fn();
-const addToQueueMock = vi.fn();
-const removeFromQueueMock = vi.fn();
-let autoFailoverEnabled: boolean | undefined = false;
-let failoverQueue: { providerId: string }[] | undefined = [];
-
 vi.mock("@/hooks/useDragSort", () => ({
   useDragSort: (...args: unknown[]) => useDragSortMock(...args),
 }));
@@ -98,14 +93,6 @@ vi.mock("@/hooks/useStreamCheck", () => ({
   }),
 }));
 
-vi.mock("@/lib/query/failover", () => ({
-  useAutoFailoverEnabled: () => ({ data: autoFailoverEnabled }),
-  useFailoverQueue: () => ({ data: failoverQueue }),
-  useAddToFailoverQueue: () => ({ mutate: addToQueueMock }),
-  useRemoveFromFailoverQueue: () => ({ mutate: removeFromQueueMock }),
-  useReorderFailoverQueue: () => ({ mutate: vi.fn() }),
-}));
-
 function createProvider(overrides: Partial<Provider> = {}): Provider {
   return {
     id: overrides.id ?? "provider-1",
@@ -134,10 +121,6 @@ beforeEach(() => {
   useSortableMock.mockReset();
   providerCardRenderSpy.mockClear();
   checkProviderMock.mockClear();
-  addToQueueMock.mockClear();
-  removeFromQueueMock.mockClear();
-  autoFailoverEnabled = false;
-  failoverQueue = [];
 
   useSortableMock.mockImplementation(({ id }: { id: string }) => ({
     setNodeRef: vi.fn(),
@@ -168,6 +151,7 @@ describe("ProviderList Component", () => {
         onDuplicate={vi.fn()}
         onOpenWebsite={vi.fn()}
         isLoading
+        emptyState={<span>custom-empty</span>}
       />,
     );
 
@@ -175,6 +159,27 @@ describe("ProviderList Component", () => {
       ".border-dashed.border-muted-foreground\\/40",
     );
     expect(placeholders).toHaveLength(3);
+    expect(screen.queryByText("custom-empty")).not.toBeInTheDocument();
+  });
+
+  it("uses a supplied empty state while retaining the generic default for other callers", () => {
+    renderWithQueryClient(
+      <ProviderList
+        providers={{}}
+        currentProviderId=""
+        appId="codex"
+        onSwitch={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onDuplicate={vi.fn()}
+        onOpenWebsite={vi.fn()}
+        emptyState={<span>custom-empty</span>}
+      />,
+    );
+    expect(screen.getByText("custom-empty")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "provider.importCurrent" }),
+    ).not.toBeInTheDocument();
   });
 
   it("should show empty state and trigger create callback when no providers exist", () => {
@@ -278,45 +283,6 @@ describe("ProviderList Component", () => {
     );
   });
 
-  it("marks the direct provider while the app is in routing mode", async () => {
-    const providerA = createProvider({ id: "a", name: "A" });
-    const providerB = createProvider({ id: "b", name: "B" });
-    useDragSortMock.mockReturnValue({
-      sortedProviders: [providerA, providerB],
-      sensors: [],
-      handleDragEnd: vi.fn(),
-    });
-    server.use(
-      http.post(`${TAURI_ENDPOINT}/get_direct_provider`, () =>
-        HttpResponse.json("a"),
-      ),
-    );
-
-    renderWithQueryClient(
-      <ProviderList
-        providers={{ a: providerA, b: providerB }}
-        currentProviderId="b"
-        appId="codex"
-        isProxyTakeover
-        onSwitch={vi.fn()}
-        onEdit={vi.fn()}
-        onDelete={vi.fn()}
-        onDuplicate={vi.fn()}
-        onConfigureUsage={vi.fn()}
-        onOpenWebsite={vi.fn()}
-      />,
-    );
-
-    const lastProps = (id: string) =>
-      providerCardRenderSpy.mock.calls
-        .map((call) => call[0])
-        .filter((props) => props.provider.id === id)
-        .at(-1);
-    await waitFor(() => expect(lastProps("a")?.isDirectProvider).toBe(true));
-    expect(lastProps("b")?.isCurrent).toBe(true);
-    expect(lastProps("b")?.isDirectProvider).toBe(false);
-  });
-
   it("filters providers with the search input", () => {
     const providerAlpha = createProvider({ id: "alpha", name: "Alpha Labs" });
     const providerBeta = createProvider({ id: "beta", name: "Beta Works" });
@@ -330,6 +296,7 @@ describe("ProviderList Component", () => {
     renderWithQueryClient(
       <ProviderList
         providers={{ alpha: providerAlpha, beta: providerBeta }}
+        emptyState={<span>custom-empty</span>}
         currentProviderId=""
         appId="codex"
         onSwitch={vi.fn()}
@@ -358,6 +325,7 @@ describe("ProviderList Component", () => {
     expect(
       screen.getByText("No providers match your search."),
     ).toBeInTheDocument();
+    expect(screen.queryByText("custom-empty")).not.toBeInTheDocument();
   });
 
   it("imports the current Codex configuration through the Codex command", async () => {
@@ -389,48 +357,7 @@ describe("ProviderList Component", () => {
     await waitFor(() => expect(importCalls).toEqual([{ app: "codex" }]));
   });
 
-  it.each([
-    { takeover: false, enabled: true, active: false },
-    { takeover: true, enabled: undefined, active: false },
-    { takeover: true, enabled: false, active: false },
-    { takeover: true, enabled: true, active: true },
-  ])(
-    "keeps failover state scoped to Codex takeover and confirmed enablement: %j",
-    ({ takeover, enabled, active }) => {
-      autoFailoverEnabled = enabled;
-      failoverQueue = [{ providerId: "b" }, { providerId: "a" }];
-      const provider = createProvider({ id: "a", name: "A" });
-      useDragSortMock.mockReturnValue({
-        sortedProviders: [provider],
-        sensors: [],
-        handleDragEnd: vi.fn(),
-      });
-      renderWithQueryClient(
-        <ProviderList
-          providers={{ a: provider }}
-          currentProviderId="a"
-          appId="codex"
-          isProxyRunning
-          isProxyTakeover={takeover}
-          activeProviderId="b"
-          onSwitch={vi.fn()}
-          onEdit={vi.fn()}
-          onDelete={vi.fn()}
-          onDuplicate={vi.fn()}
-          onOpenWebsite={vi.fn()}
-        />,
-      );
-      const card = providerCardRenderSpy.mock.calls.at(-1)![0];
-      expect(card.isAutoFailoverEnabled).toBe(active);
-      expect(card.isInFailoverQueue).toBe(active);
-      expect(card.failoverPriority).toBe(active ? 2 : undefined);
-      expect(card.activeProviderId).toBe("b");
-      expect(card.isCurrent).toBe(true);
-    },
-  );
-
-  it("forwards stream checks, terminal opening and queue mutations for the selected Codex provider", () => {
-    autoFailoverEnabled = true;
+  it("forwards stream checks, terminal opening for the selected Codex provider", () => {
     const provider = createProvider({ id: "a", name: "Codex connection" });
     const onOpenTerminal = vi.fn();
     useDragSortMock.mockReturnValue({
@@ -443,7 +370,6 @@ describe("ProviderList Component", () => {
         providers={{ a: provider }}
         currentProviderId=""
         appId="codex"
-        isProxyTakeover
         onOpenTerminal={onOpenTerminal}
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
@@ -455,17 +381,7 @@ describe("ProviderList Component", () => {
     const card = providerCardRenderSpy.mock.calls.at(-1)![0];
     card.onTest(provider);
     card.onOpenTerminal(provider);
-    card.onToggleFailover(true);
-    card.onToggleFailover(false);
     expect(checkProviderMock).toHaveBeenCalledWith(provider.id, provider.name);
     expect(onOpenTerminal).toHaveBeenCalledWith(provider);
-    expect(addToQueueMock).toHaveBeenCalledWith({
-      appType: "codex",
-      providerId: "a",
-    });
-    expect(removeFromQueueMock).toHaveBeenCalledWith({
-      appType: "codex",
-      providerId: "a",
-    });
   });
 });

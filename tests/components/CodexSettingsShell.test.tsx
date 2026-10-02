@@ -53,7 +53,10 @@ describe("Codex settings shell", () => {
   it("keeps only the existing Codex OAuth account component with quota enabled", () => {
     render(<AuthCenterPanel authScrollTarget="github_copilot" />);
     expect(screen.getByText("codex-accounts")).toBeInTheDocument();
-    expect(oauth).toHaveBeenCalledWith({ showAccountQuota: true });
+    expect(oauth).toHaveBeenCalledWith({
+      showAccountQuota: true,
+      showLogoutAll: true,
+    });
     expect(screen.queryByText("GitHub Copilot")).not.toBeInTheDocument();
     expect(screen.queryByText("xAI (Grok OAuth)")).not.toBeInTheDocument();
   });
@@ -66,7 +69,10 @@ describe("Codex settings shell", () => {
     };
     render(<AuthCenterPanel accountPanelProps={props} />);
     expect(screen.getByText("shared-accounts")).toBeInTheDocument();
-    expect(accountPanel).toHaveBeenCalledWith(props);
+    expect(accountPanel).toHaveBeenCalledWith({
+      ...props,
+      showLogoutAll: true,
+    });
     expect(oauth).not.toHaveBeenCalled();
   });
 

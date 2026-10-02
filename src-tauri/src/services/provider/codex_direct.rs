@@ -3,21 +3,23 @@
 //! pending 前滚或丢弃。
 //!
 //! 写 Codex live 的入口（切换、新增第一个供应商、编辑当前供应商、同步、统一供应商、
-//! 进入 / 退出代理）都走这里。不回填、不合并通用配置片段、不补回 MCP：这些设置本来就
+//! 原生账号切换）都走这里。不回填、不合并通用配置片段、不补回 MCP：这些设置本来就
 //! 留在 live 里。
 //!
 //! 分三步：
 //! 1. [`prepare`]：拿写锁之前做要联网的事（取托管账号的 token、采纳 Codex CLI 轮换过的
 //!    refresh token）；
-//! 2. [`plan`]：在内存里算出 `config.toml` 的补丁、模型目录和代理契约，行有问题就在这里
+//! 2. [`plan`]：在内存里算出 `config.toml` 的补丁和模型目录，行有问题就在这里
 //!    报错，什么都不写；
 //! 3. [`run`]：拿写锁，读 live 的 `auth.json` 决定它的去向（见 `codex_login`），再按
 //!    盘上有没有登录定下路由表的 `requires_openai_auth`，一起提交。
 
 use serde_json::{Map, Value};
-use toml_edit::{Item, Table, Value as TomlValue};
+use toml_edit::{Item, Value as TomlValue};
 
 use crate::app_config::AppType;
+use crate::auth::codex_oauth::CodexLiveAuthSwitchGuard;
+use crate::auth::codex_oauth::CodexOAuthManager;
 use crate::codex_config::{
     codex_auth_has_credential_login_material, codex_config_auth_store_mode,
     codex_disables_web_search, codex_live_auth_is_managed_chatgpt_login,
@@ -29,19 +31,15 @@ use crate::config::sorted_json_bytes;
 use crate::database::Database;
 use crate::error::AppError;
 use crate::live::engine::{digest, read_current, DeviceStore, LiveFile};
-use crate::live::patch::toml::{value_text, TomlDocPatch, TomlSteps};
+use crate::live::patch::toml::{TomlDocPatch, TomlSteps};
 use crate::live::patch::{Guarded, LivePatch, WholeFile};
 use crate::live::project::codex::{
-    official_mirror_table, proxy_route_table, requires_openai_auth, row_catalog_pointer,
-    CodexConfigPatch, CodexProjection, KnownTable, Route, RouteAuth, RouteWrite, RowInput,
-    ROUTE_ID, WEB_SEARCH_DISABLED,
+    requires_openai_auth, row_catalog_pointer, CodexConfigPatch, CodexProjection, KnownTable,
+    Route, RouteAuth, RouteWrite, RowInput, WEB_SEARCH_DISABLED,
 };
-use crate::mode::contract::CONTRACT_VERSION;
 use crate::mode::operation::{AppWrite, FileChange, OperationReport};
 use crate::mode::state::{Contract, PendingTarget};
 use crate::provider::Provider;
-use crate::proxy::providers::codex_oauth_auth::CodexLiveAuthSwitchGuard;
-use crate::proxy::providers::codex_oauth_auth::CodexOAuthManager;
 use std::sync::Arc;
 
 use super::codex_login::{self, AuthInput, AuthTarget, LoginStash, STASH_FILENAME};
@@ -55,25 +53,130 @@ fn app() -> &'static str {
 /// 绑定托管账号时没存 category 的卡）。
 pub(crate) fn is_official(provider: &Provider) -> bool {
     provider.category.as_deref() == Some("official")
-        || crate::proxy::providers::is_codex_official_provider(provider)
+        || crate::codex_config::is_codex_official_provider(provider)
 }
 
 fn managed_account(provider: &Provider) -> Option<String> {
     ProviderService::managed_codex_oauth_account_id(provider)
 }
 
-/// 本地代理给 Codex 的地址（带 `/v1`），不需要代理在运行：官方直连时写休眠表用。
-pub(crate) fn configured_proxy_base_url(db: &Database) -> String {
-    let (address, port) = db.get_proxy_listen_sync();
-    let port = if port == 0 {
-        crate::proxy::types::ProxyConfig::default().listen_port
-    } else {
-        port
+/// Reject configurations that depend on a removed local converter or token injector.
+pub(crate) fn ensure_direct(provider: &Provider) -> Result<(), AppError> {
+    let fail = |detail: &str| {
+        AppError::localized(
+            "provider.codex.native_responses_required",
+            format!("Codex 仅支持官方账号或原生 Responses 供应商：{detail}"),
+            format!("Codex requires an official account or a native Responses provider: {detail}"),
+        )
     };
-    format!(
-        "{}/v1",
-        crate::services::proxy::proxy_origin(&address, port)
-    )
+    if provider.meta.as_ref().and_then(|meta| meta.is_full_url) == Some(true)
+        || ["isFullUrl", "is_full_url", "fullURL", "fullUrl"]
+            .iter()
+            .any(|key| provider.settings_config.get(*key).and_then(Value::as_bool) == Some(true))
+    {
+        return Err(fail("full endpoint URL mode is unsupported"));
+    }
+    if provider.uses_proxy_injected_oauth() {
+        return Err(fail("this OAuth provider requires local token injection"));
+    }
+    let formats = [
+        provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.api_format.as_deref()),
+        provider
+            .settings_config
+            .get("api_format")
+            .and_then(Value::as_str),
+        provider
+            .settings_config
+            .get("apiFormat")
+            .and_then(Value::as_str),
+    ];
+    for format in formats.into_iter().flatten() {
+        if !matches!(
+            format.trim().to_ascii_lowercase().as_str(),
+            "" | "responses" | "openai_responses" | "openai-responses"
+        ) {
+            return Err(fail(
+                "Chat Completions and Anthropic formats require a converter",
+            ));
+        }
+    }
+    let text = provider
+        .settings_config
+        .get("config")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|err| AppError::Config(format!("Invalid Codex config.toml: {err}")))?;
+    let selector = doc.get("model_provider").and_then(Item::as_str);
+    let table = selector.and_then(|id| doc.get("model_providers")?.get(id));
+    let placeholder = crate::live::project::codex::PROXY_TOKEN_PLACEHOLDER;
+    if provider
+        .settings_config
+        .pointer("/auth/OPENAI_API_KEY")
+        .and_then(Value::as_str)
+        .is_some_and(|key| key.trim() == placeholder)
+        || [
+            doc.get("experimental_bearer_token"),
+            table.and_then(|table| table.get("experimental_bearer_token")),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|token| {
+            token
+                .as_str()
+                .is_some_and(|token| token.trim() == placeholder)
+        })
+    {
+        return Err(fail(
+            "legacy local routing placeholder cannot be used as a native credential",
+        ));
+    }
+    for wire in [
+        doc.get("wire_api"),
+        table.and_then(|table| table.get("wire_api")),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if wire
+            .as_str()
+            .is_none_or(|wire| !wire.trim().eq_ignore_ascii_case("responses"))
+        {
+            return Err(fail("selected wire_api must be responses"));
+        }
+    }
+    for url in [
+        doc.get("openai_base_url").and_then(Item::as_str),
+        table
+            .and_then(|table| table.get("base_url"))
+            .and_then(Item::as_str),
+        provider
+            .settings_config
+            .get("base_url")
+            .and_then(Value::as_str),
+        provider
+            .settings_config
+            .get("baseURL")
+            .and_then(Value::as_str),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if url
+            .trim_end_matches('/')
+            .to_ascii_lowercase()
+            .ends_with("/chat/completions")
+        {
+            return Err(fail(
+                "Chat Completions endpoints cannot serve native Responses",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// 写成什么样。
@@ -81,11 +184,6 @@ pub(crate) fn configured_proxy_base_url(db: &Database) -> String {
 pub(crate) enum Target<'a> {
     /// 直连：这个供应商（`None`：没有直连供应商，只清掉关键字段）。
     Direct(Option<&'a Provider>),
-    /// 代理契约：路由供应商；`base_url` 是本地代理给 Codex 的地址（带 `/v1`）。
-    Proxy {
-        route: &'a Provider,
-        base_url: &'a str,
-    },
 }
 
 /// live 现在是谁写进去的：删它带进来的独有字段、认出要切走的托管账号、判断用户是不是
@@ -123,7 +221,6 @@ pub(crate) struct Prepared {
 fn target_provider<'a>(target: &Target<'a>) -> Option<&'a Provider> {
     match target {
         Target::Direct(provider) => *provider,
-        Target::Proxy { route, .. } => Some(route),
     }
 }
 
@@ -140,6 +237,9 @@ pub(crate) fn prepare(
     owner: &Owner<'_>,
     target: &Target<'_>,
 ) -> Result<Prepared, AppError> {
+    if let Some(provider) = target_provider(target) {
+        ensure_direct(provider)?;
+    }
     let target_account = target_account(target);
     let target_login = match &target_account {
         Some(account) => Some((
@@ -179,7 +279,7 @@ fn project(provider: &Provider) -> Result<CodexProjection, AppError> {
 /// 这个供应商的独有字段，含 `web_search`（需要时为 `"disabled"`）。
 fn exclusive_of(provider: &Provider, projection: &CodexProjection) -> Vec<(String, TomlValue)> {
     let mut exclusive = projection.exclusive.clone();
-    let profile = crate::proxy::providers::resolve_codex_catalog_tool_profile(provider);
+    let profile = crate::codex_config::resolve_catalog_tool_profile(provider);
     if codex_disables_web_search(
         &provider.settings_config,
         &projection.catalog_input_text(),
@@ -269,12 +369,12 @@ fn row_facts(db: &Database) -> Result<RowFacts, AppError> {
                 .and_then(Item::as_str)
                 .map(|url| url.trim().to_string())
         };
-        // 旧版整份写入时，路由表用的是行自己的 id（custom 是 CC Switch 现在写的，不算）。
+        // 旧版整份写入时，provider 表用的是行自己的 id；保留当前存储的 id 与地址作为证据。
         let selector = doc
             .get("model_provider")
             .and_then(Item::as_str)
             .map(str::trim)
-            .filter(|id| !id.is_empty() && *id != ROUTE_ID);
+            .filter(|id| !id.is_empty());
         if let Some((id, base_url)) = selector.and_then(|id| Some((id, base_url_of(id)?))) {
             facts.retired.push(KnownTable {
                 id: id.to_string(),
@@ -300,7 +400,7 @@ fn row_facts(db: &Database) -> Result<RowFacts, AppError> {
 #[derive(Debug, Clone)]
 enum AuthGoal {
     ThirdParty,
-    /// 代理的第三方路由，或者没有直连供应商：不动原生登录，只清托管账号的登录。
+    /// 没有直连供应商：不动原生登录，只清托管账号的登录。
     KeepNative,
     Official(Value),
     Managed(Value),
@@ -326,8 +426,6 @@ pub(crate) struct Planned {
     leaving_official: Option<Value>,
     retired_keys: Vec<String>,
     official_logins: Vec<Value>,
-    /// 代理契约（直连时也算，没有用处）。
-    pub contract: Contract,
 }
 
 impl Planned {
@@ -344,8 +442,27 @@ pub(crate) fn plan(
     target: &Target<'_>,
     prepared: &Prepared,
 ) -> Result<Planned, AppError> {
-    let facts = row_facts(db)?;
     let provider = target_provider(target);
+    if let Some(provider) = provider {
+        ensure_direct(provider)?;
+    }
+    let mut facts = row_facts(db)?;
+    // Earlier native projections normalized the outgoing row's selected table to `custom`.
+    // Its recorded upstream proves ownership even when the row still uses its original id.
+    if let Some(outgoing) = owner.provider() {
+        if let Ok(CodexProjection {
+            route: Route::Custom { table, .. },
+            ..
+        }) = project(outgoing)
+        {
+            if let Some(base_url) = table.get("base_url").and_then(Item::as_str) {
+                facts.retired.push(KnownTable {
+                    id: crate::live::project::codex::ROUTE_ID.to_string(),
+                    base_url: base_url.trim().to_string(),
+                });
+            }
+        }
+    }
     let projection = provider.map(project).transpose()?;
 
     let (top, nested, exclusive) = match (&projection, provider) {
@@ -371,13 +488,7 @@ pub(crate) fn plan(
                 Route::Official if crate::settings::unify_codex_session_history() => {
                     (RouteWrite::OfficialMirror, None, auth)
                 }
-                Route::Official => (
-                    RouteWrite::Official {
-                        dormant_base_url: configured_proxy_base_url(db),
-                    },
-                    None,
-                    auth,
-                ),
+                Route::Official => (RouteWrite::Official, None, auth),
                 Route::Custom { table, auth: kind } => {
                     (RouteWrite::Custom(table.clone()), Some(*kind), auth)
                 }
@@ -392,32 +503,13 @@ pub(crate) fn plan(
                 Route::Default => (RouteWrite::Default, None, auth),
             }
         }
-        (Target::Proxy { route, base_url }, Some(_)) => {
-            if official {
-                let auth = match &managed_login {
-                    Some(login) => AuthGoal::Managed(login.clone()),
-                    None => AuthGoal::Official(row_auth(route)),
-                };
-                (
-                    RouteWrite::OfficialProxy(official_mirror_table(Some(base_url), false)),
-                    None,
-                    auth,
-                )
-            } else {
-                (
-                    RouteWrite::Custom(proxy_route_table(ROUTE_ID, base_url, false)),
-                    Some(RouteAuth::Bearer),
-                    AuthGoal::KeepNative,
-                )
-            }
-        }
     };
 
     let catalog_plan = match (provider, &projection) {
         (Some(provider), Some(projection)) => Some(plan_codex_model_catalog(
             &provider.settings_config,
             &projection.catalog_input_text(),
-            crate::proxy::providers::resolve_codex_catalog_tool_profile(provider),
+            crate::codex_config::resolve_catalog_tool_profile(provider),
         )?),
         _ => None,
     };
@@ -440,17 +532,6 @@ pub(crate) fn plan(
         catalog: catalog.is_some(),
         retired: facts.retired,
     };
-    let official_login = match &auth {
-        AuthGoal::Official(row_auth) => codex_login::official_login_requirement(row_auth),
-        _ => None,
-    };
-    let contract = contract_of(
-        target,
-        &config,
-        catalog.as_deref(),
-        prepared,
-        official_login.as_deref(),
-    );
     Ok(Planned {
         config,
         stamp,
@@ -459,80 +540,7 @@ pub(crate) fn plan(
         leaving_official,
         retired_keys: facts.third_party_keys,
         official_logins: facts.official_logins,
-        contract,
     })
-}
-
-fn table_text(table: &Table) -> String {
-    let mut table = table.clone();
-    table.remove("requires_openai_auth");
-    let mut doc = toml_edit::DocumentMut::new();
-    doc.insert("t", Item::Table(table));
-    doc.to_string()
-}
-
-/// 代理契约：路由供应商在客户端那一侧的全部要求。摘要相同，换路由时客户端文件就不读
-/// 也不写。`requires_openai_auth` 跟着盘上的登录走，不算进契约；官方路由要的是谁的登录
-/// （托管账号，或 `official_login`：没绑托管账号的官方卡行里的账号）算进去。
-fn contract_of(
-    target: &Target<'_>,
-    config: &CodexConfigPatch,
-    catalog: Option<&[u8]>,
-    prepared: &Prepared,
-    official_login: Option<&str>,
-) -> Contract {
-    let base_url = match target {
-        Target::Proxy { base_url, .. } => *base_url,
-        Target::Direct(_) => "",
-    };
-    let (selector, table) = match &config.route {
-        RouteWrite::Custom(table) => (ROUTE_ID, table_text(table)),
-        RouteWrite::OfficialProxy(table) => (
-            crate::live::project::codex::OFFICIAL_PROXY_ROUTE_ID,
-            table_text(table),
-        ),
-        _ => ("", String::new()),
-    };
-    let pairs = |entries: &[(String, TomlValue)]| -> Vec<Value> {
-        let mut pairs: Vec<Value> = entries
-            .iter()
-            .map(|(key, value)| serde_json::json!([key, value_text(value)]))
-            .collect();
-        pairs.sort_by_key(|pair| pair[0].as_str().unwrap_or_default().to_string());
-        pairs
-    };
-    let nested: Vec<Value> = config
-        .nested
-        .iter()
-        .map(|(path, value)| serde_json::json!([path.join("."), value_text(value)]))
-        .collect();
-    let parts = serde_json::json!({
-        "app": "codex",
-        "version": CONTRACT_VERSION,
-        "url": base_url,
-        "top": pairs(&config.top),
-        "nested": nested,
-        "exclusive": pairs(&config.exclusive),
-        "selector": selector,
-        "table": table,
-        "catalog": digest(catalog),
-        "managed": prepared.target_login.as_ref().map(|(account, _)| account),
-        "login": official_login,
-    });
-    let key = digest(Some(
-        &serde_json::to_vec(&parts).expect("contract parts serialize"),
-    ))
-    .expect("digest");
-    Contract {
-        version: CONTRACT_VERSION,
-        key,
-        exclusive: config
-            .exclusive
-            .iter()
-            .chain(row_catalog_pointer(&config.top))
-            .map(|(key, value)| (key.clone(), Value::String(value_text(value))))
-            .collect(),
-    }
 }
 
 /// 读登录暂存。
@@ -655,7 +663,7 @@ pub(crate) fn run_with_edits(
     let preserve = crate::settings::preserve_codex_official_auth_on_switch();
     let target = match &planned.auth {
         AuthGoal::ThirdParty => AuthTarget::ThirdParty { preserve },
-        AuthGoal::KeepNative => AuthTarget::ProxyThirdParty,
+        AuthGoal::KeepNative => AuthTarget::KeepNative,
         AuthGoal::Official(row_auth) => AuthTarget::Official { row_auth },
         AuthGoal::Managed(auth) => AuthTarget::Managed { auth },
     };
@@ -685,8 +693,8 @@ pub(crate) fn run_with_edits(
     }
 
     // Codex 把登录存在哪由 `cli_auth_credentials_store` 决定：只存 auth.json 时看它；
-    // 存在系统钥匙串（keyring、auto）或认不出时看不到登录，直连按保留登录开关、代理按
-    // 「登录不动」处理；ephemeral 从不落盘，当成没登录。
+    // 存在系统钥匙串（keyring、auto）或认不出时看不到登录，按保留登录开关处理；
+    // ephemeral 从不落盘，当成没登录。
     let login = match codex_config_auth_store_mode(
         &read_current(&get_codex_config_path())
             .ok()
@@ -881,4 +889,139 @@ pub(crate) fn preflight_account_auth_store(
         "Codex 的有效配置",
         "The effective Codex configuration",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider::ProviderMeta;
+    use serde_json::json;
+    use std::path::Path;
+
+    const NATIVE: &str = r#"model_provider = "deepseek"
+model = "deepseek-flash"
+model_reasoning_effort = "high"
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "https://api.deepseek.com"
+wire_api = "responses"
+requires_openai_auth = true
+request_timeout_ms = 60000
+[model_providers.deepseek.http_headers]
+X-Team = "science"
+"#;
+
+    fn native() -> Provider {
+        let mut provider = Provider::with_id(
+            "deepseek".into(),
+            "DeepSeek".into(),
+            json!({"auth": {"OPENAI_API_KEY": "sk-native"}, "config": NATIVE,
+                   "modelCatalog": {"models": [{"model": "deepseek-flash"}]}}),
+            None,
+        );
+        provider.meta = Some(ProviderMeta {
+            api_format: Some("openai_responses".into()),
+            ..Default::default()
+        });
+        provider
+    }
+
+    #[test]
+    fn rejects_conversion_configs_before_oauth_prepare_or_planning() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = Arc::new(CodexOAuthManager::new(temp.path().join("accounts")));
+        for kind in ["openai_chat", "anthropic", "chat_completions"] {
+            let mut provider = native();
+            provider.meta.as_mut().unwrap().api_format = Some(kind.into());
+            assert!(ensure_direct(&provider).is_err(), "{kind}");
+            assert!(prepare(&manager, &Owner::None, &Target::Direct(Some(&provider))).is_err());
+        }
+        let mut provider = native();
+        provider.settings_config["apiFormat"] = json!("openai_chat");
+        assert!(
+            ensure_direct(&provider).is_err(),
+            "all declared format sources must agree"
+        );
+        provider
+            .settings_config
+            .as_object_mut()
+            .unwrap()
+            .remove("apiFormat");
+        provider.settings_config["config"] =
+            json!(NATIVE.replace("wire_api = \"responses\"", "wire_api = \"chat\""));
+        assert!(
+            ensure_direct(&provider).is_err(),
+            "metadata cannot override unsupported selected wire_api"
+        );
+        provider.settings_config["config"] = json!(NATIVE);
+        provider.settings_config["auth"]["OPENAI_API_KEY"] = json!("PROXY_MANAGED");
+        assert!(
+            ensure_direct(&provider).is_err(),
+            "legacy local credentials cannot be published"
+        );
+        provider.settings_config["auth"]["OPENAI_API_KEY"] = json!("sk-native");
+        provider.meta.as_mut().unwrap().is_full_url = Some(true);
+        assert!(ensure_direct(&provider).is_err());
+        provider.meta.as_mut().unwrap().is_full_url = None;
+        provider.meta.as_mut().unwrap().provider_type = Some("github_copilot".into());
+        assert!(ensure_direct(&provider).is_err());
+        assert!(
+            !temp.path().join("accounts").exists(),
+            "rejected targets must not publish account state"
+        );
+    }
+
+    #[test]
+    fn deepseek_native_plan_preserves_auth_config_and_official_catalog() {
+        let provider = native();
+        ensure_direct(&provider).unwrap();
+        let db = Database::memory().unwrap();
+        let planned = plan(
+            &db,
+            &Owner::None,
+            &Target::Direct(Some(&provider)),
+            &Prepared::default(),
+        )
+        .unwrap();
+        assert!(matches!(planned.auth, AuthGoal::ThirdParty));
+        let RouteWrite::Custom(table) = &planned.config.route else {
+            panic!("native custom table")
+        };
+        assert_eq!(table["base_url"].as_str(), Some("https://api.deepseek.com"));
+        assert_eq!(table["wire_api"].as_str(), Some("responses"));
+        assert_eq!(
+            table["experimental_bearer_token"].as_str(),
+            Some("sk-native")
+        );
+        assert_eq!(table["request_timeout_ms"].as_integer(), Some(60000));
+        assert_eq!(table["http_headers"]["X-Team"].as_str(), Some("science"));
+        let catalog: Value = serde_json::from_slice(planned.catalog.as_deref().unwrap()).unwrap();
+        let model = &catalog["models"][0];
+        assert_eq!(model["slug"], "deepseek-flash");
+        assert!(
+            model.get("apply_patch_tool_type").is_some(),
+            "DeepSeek's native official tools survive"
+        );
+        assert_eq!(
+            provider.settings_config["auth"]["OPENAI_API_KEY"],
+            "sk-native"
+        );
+        let mut live: toml_edit::DocumentMut = "approval_policy = 'never'\n[model_providers.mine]\nname = 'User'\nbase_url = 'https://mine.example/v1'\n[profiles.mine]\nmodel_provider = 'mine'\n".parse().unwrap();
+        planned
+            .config
+            .apply_to(Path::new("config.toml"), &mut live)
+            .unwrap();
+        assert_eq!(live["model_provider"].as_str(), Some("custom"));
+        assert_eq!(live["approval_policy"].as_str(), Some("never"));
+        assert_eq!(
+            live["profiles"]["mine"]["model_provider"].as_str(),
+            Some("mine")
+        );
+        assert_eq!(
+            live["model_providers"]["mine"]["base_url"].as_str(),
+            Some("https://mine.example/v1")
+        );
+        assert!(!live.to_string().contains("PROXY_MANAGED"));
+        assert!(!live.to_string().contains("127.0.0.1"));
+    }
 }

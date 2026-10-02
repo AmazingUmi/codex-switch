@@ -1,9 +1,11 @@
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+import { HelpButton } from "@/components/ui/help-button";
 import { Form, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import {
   codexProviderPresets,
   generateThirdPartyConfig,
+  getCodexDirectPresetEntries,
   type CodexProviderPreset,
 } from "@/config/codexProviderPresets";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
@@ -24,7 +26,10 @@ import type {
   ProviderCategory,
   ProviderMeta,
 } from "@/types";
-import { resolveCodexOfficialIdentity } from "@/utils/providerCapabilities";
+import {
+  providerSupportsDirectConnection,
+  resolveCodexOfficialIdentity,
+} from "@/utils/providerCapabilities";
 import {
   codexApiFormatFromWireApi,
   extractCodexModelName,
@@ -96,7 +101,7 @@ export const normalizeCodexCatalogModelsForSave = (
       model,
       ...(displayName ? { displayName } : {}),
       ...(contextWindow && contextWindow > 0 ? { contextWindow } : {}),
-      // Native Responses profile overrides (ignored by the chat/proxy profile).
+      // Native Responses profile overrides.
       ...(typeof item.supportsParallelToolCalls === "boolean"
         ? { supportsParallelToolCalls: item.supportsParallelToolCalls }
         : {}),
@@ -149,6 +154,8 @@ type LocalProxyRequestOverridesBuildResult = ReturnType<
 >;
 export interface ProviderFormProps {
   productShell?: boolean;
+  /** API Key creation branch; existing managed and native login editors stay available. */
+  apiKeyOnly?: boolean;
   /** Account chosen explicitly on the homepage when creating an official configuration. */
   initialCodexAccountId?: string;
   /** Restrict the product's new-provider chooser; existing providers keep their full editor. */
@@ -190,6 +197,7 @@ function ProviderFormFull({
   onCancel,
   onManageAuthAccounts,
   onSubmittingChange,
+  onSubmitReadyChange,
   initialData,
   showButtons = true,
   isProxyTakeover = false,
@@ -197,14 +205,30 @@ function ProviderFormFull({
   onEditorBaseChange,
   restrictCodexCreation = false,
   productShell = false,
+  apiKeyOnly = false,
   initialCodexAccountId,
 }: ProviderFormProps) {
   const { t } = useTranslation();
   const isEditMode = Boolean(initialData);
-  const useOpenAiCreation = restrictCodexCreation && !initialData;
+  const isLegacyUnsupportedConnection =
+    Boolean(initialData) &&
+    !providerSupportsDirectConnection(appId, {
+      id: providerId ?? "",
+      name: initialData?.name ?? "",
+      settingsConfig: initialData?.settingsConfig ?? {},
+      category: initialData?.category,
+      meta: initialData?.meta,
+    });
+  // Editing a stored unsupported record must not require a working upstream login.
+  const preserveLegacyConnection =
+    productShell && isLegacyUnsupportedConnection;
+  const useApiKeyCreation = apiKeyOnly && !initialData;
+  const useDirectCreation =
+    (productShell || restrictCodexCreation || useApiKeyCreation) &&
+    !initialData;
   const getCreationTemplate = useCallback(
     () =>
-      useOpenAiCreation
+      useDirectCreation
         ? {
             auth: { OPENAI_API_KEY: "" },
             config: generateThirdPartyConfig(
@@ -213,7 +237,7 @@ function ProviderFormFull({
             ),
           }
         : getCodexCustomTemplate(),
-    [useOpenAiCreation],
+    [useDirectCreation],
   );
   const initialCodexOfficialIdentity = initialData
     ? resolveCodexOfficialIdentity(appId, {
@@ -286,7 +310,9 @@ function ProviderFormFull({
   }, [appId, initialData, initialCodexAccountId]);
   const defaultValues: ProviderFormData = useMemo(
     () => ({
-      name: initialData?.name ?? "",
+      name:
+        initialData?.name ??
+        (useApiKeyCreation ? t("productShell.openAiApi", "OpenAI API") : ""),
       websiteUrl: initialData?.websiteUrl ?? "",
       notes: initialData?.notes ?? "",
       settingsConfig: initialData?.settingsConfig
@@ -295,7 +321,7 @@ function ProviderFormFull({
       icon: initialData?.icon ?? "",
       iconColor: initialData?.iconColor ?? "",
     }),
-    [initialData],
+    [initialData, useApiKeyCreation, t],
   );
   const form = useForm<ProviderFormData>({
     resolver: zodResolver(providerSchema),
@@ -316,7 +342,7 @@ function ProviderFormFull({
   useEffect(() => {
     onSubmittingChange?.(isSubmitting || isConfirmSubmitting);
   }, [isSubmitting, isConfirmSubmitting, onSubmittingChange]);
-  // Codex OAuth 认证状态（ChatGPT Plus/Pro 反代）
+  // Official ChatGPT account authentication state.
   const {
     isAuthenticated: isCodexOauthAuthenticated,
     isStatusSuccess: isCodexOauthStatusSuccess,
@@ -397,17 +423,17 @@ function ProviderFormFull({
             ) ?? "openai_responses");
   const [localCodexApiFormat, setLocalCodexApiFormat] =
     useState<CodexApiFormat>(initialCodexApiFormat);
-  // Auth-field choice for the Anthropic Messages upstream (defaults to the Bearer form)
+  // Stored legacy Anthropic authentication metadata.
   const initialCodexAnthropicAuthField: ClaudeApiKeyField =
     initialData?.meta?.apiKeyField === "ANTHROPIC_API_KEY"
       ? "ANTHROPIC_API_KEY"
       : "ANTHROPIC_AUTH_TOKEN";
   const [localCodexAnthropicAuthField, setLocalCodexAnthropicAuthField] =
     useState<ClaudeApiKeyField>(initialCodexAnthropicAuthField);
-  // Emulate the Claude Code client: off by default, enabled only when the user explicitly turns it on (true)
+  // Preserve legacy client metadata without exposing conversion controls.
   const [localCodexImpersonateClaudeCode, setLocalCodexImpersonateClaudeCode] =
     useState<boolean>(initialData?.meta?.impersonateClaudeCode === true);
-  // Codex → Anthropic output ceiling override (empty string = use the 8192 default).
+  // Stored legacy output ceiling.
   // Kept as a string so the numeric input can be cleared; parsed on save.
   const [localCodexMaxOutputTokens, setLocalCodexMaxOutputTokens] =
     useState<string>(
@@ -428,7 +454,7 @@ function ProviderFormFull({
   const handleCodexApiFormatChange = useCallback(
     (format: CodexApiFormat) => {
       setLocalCodexApiFormat(format);
-      // wire_api is always "responses" for Codex; format controls proxy-layer conversion
+      // Legacy protocol state is retained by old callers; native creation uses Responses.
       setCodexConfig((prev) => {
         const updated = setCodexWireApi(prev, "responses");
         debouncedValidate(updated);
@@ -439,28 +465,34 @@ function ProviderFormFull({
   );
   // 新增：预设或模板投影到当前配置文件上显示。每次重置显示内容都要重新投影，否则保存时
   // 三方比较的底和显示内容对不上。
-  const { projectDraft } = useDraftEditorProjection(appId, onEditorBaseChange);
-  const projectCodexDraft = useCallback(
-    (auth: Record<string, unknown>, config: string, category?: string) =>
-      projectDraft({ auth, config }, category, (shown) =>
-        setCodexConfig(typeof shown.config === "string" ? shown.config : ""),
-      ),
-    [projectDraft, setCodexConfig],
+  const { projectDraft, clearDraftProjection } = useDraftEditorProjection(
+    appId,
+    onEditorBaseChange,
   );
+  const needsDraftProjection = useRef(true);
+  const [isDraftProjectionPending, setIsDraftProjectionPending] =
+    useState(false);
+  const restartDraftProjection = useCallback(() => {
+    needsDraftProjection.current = true;
+    clearDraftProjection();
+  }, [clearDraftProjection]);
+  useEffect(() => {
+    onSubmitReadyChange?.(!isDraftProjectionPending);
+  }, [onSubmitReadyChange, isDraftProjectionPending]);
   useEffect(() => {
     if (!initialData && selectedPresetId === "custom") {
       const template = getCreationTemplate();
+      restartDraftProjection();
       resetCodexConfig(template.auth, template.config);
       setCodexChatReasoning({});
       setPromptCacheRouting("auto");
-      projectCodexDraft(template.auth, template.config);
     }
   }, [
     appId,
     initialData,
     selectedPresetId,
     resetCodexConfig,
-    projectCodexDraft,
+    restartDraftProjection,
     getCreationTemplate,
   ]);
   useEffect(() => {
@@ -483,18 +515,20 @@ function ProviderFormFull({
     }),
     [t],
   );
-  const presetEntries = useMemo(
-    () =>
-      codexProviderPresets
-        .map<PresetEntry>((preset, index) => ({ id: `codex-${index}`, preset }))
-        .filter(
-          (entry) =>
-            !useOpenAiCreation ||
-            (entry.preset.category === "official" &&
-              getPresetProviderType(entry.preset) === "codex_oauth"),
-        ),
-    [useOpenAiCreation],
-  );
+  const presetEntries = useMemo(() => {
+    const entries = useDirectCreation
+      ? getCodexDirectPresetEntries()
+      : codexProviderPresets.map<PresetEntry>((preset, index) => ({
+          id: `codex-${index}`,
+          preset,
+        }));
+    return useApiKeyCreation
+      ? entries.filter(
+          ({ preset }) =>
+            !getPresetProviderType(preset) && !preset.requiresOAuth,
+        )
+      : entries;
+  }, [useDirectCreation, useApiKeyCreation]);
   const selectedPresetEntry = useMemo(
     () =>
       selectedPresetId && selectedPresetId !== "custom"
@@ -517,10 +551,76 @@ function ProviderFormFull({
   const isCodexOfficialManagedOauthBound =
     isCodexOfficialProvider && Boolean(selectedCodexAccountId);
   const requiresExplicitCodexOfficialSelection =
-    isCodexOfficialProvider && !hasValidCodexOfficialSelection;
-  const requiresCodexOauthLogin = isCodexOfficialManagedOauthBound;
-  const shouldApplyLocalProxyRequestOverrides = category !== "official";
+    !preserveLegacyConnection &&
+    isCodexOfficialProvider &&
+    !hasValidCodexOfficialSelection;
+  const requiresCodexOauthLogin =
+    !preserveLegacyConnection && isCodexOfficialManagedOauthBound;
+  const shouldApplyLocalProxyRequestOverrides =
+    category !== "official" && !productShell;
+  useEffect(() => {
+    if (initialData || !onEditorBaseChange || !needsDraftProjection.current)
+      return;
+    // Empty API-key templates are unfinished drafts, not broken live files. The
+    // backend's strict credential guard still runs once the draft is complete.
+    let auth: Record<string, unknown>;
+    try {
+      auth = JSON.parse(codexAuth || "{}");
+      if (!auth || typeof auth !== "object" || Array.isArray(auth))
+        throw new Error("Incomplete auth draft");
+    } catch {
+      clearDraftProjection();
+      setIsDraftProjectionPending(false);
+      return;
+    }
+    if (
+      !isCodexOfficialProvider &&
+      !isXaiOauthProvider &&
+      (!codexApiKey.trim() || !codexBaseUrl.trim())
+    ) {
+      clearDraftProjection();
+      setIsDraftProjectionPending(false);
+      return;
+    }
+    let active = true;
+    let settled = false;
+    setIsDraftProjectionPending(true);
+    // Wait for input to settle; edits and preset changes invalidate both the
+    // timer and any request before an older projection can overwrite them.
+    const timer = setTimeout(() => {
+      void projectDraft({ auth, config: codexConfig }, category, (shown) => {
+        needsDraftProjection.current = false;
+        settled = true;
+        setIsDraftProjectionPending(false);
+        setCodexConfig(typeof shown.config === "string" ? shown.config : "");
+      }).then(() => {
+        if (!active) return;
+        settled = true;
+        needsDraftProjection.current = false;
+        setIsDraftProjectionPending(false);
+      });
+    }, 200);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      if (!settled) clearDraftProjection();
+    };
+  }, [
+    initialData,
+    onEditorBaseChange,
+    codexAuth,
+    codexConfig,
+    codexApiKey,
+    codexBaseUrl,
+    category,
+    isCodexOfficialProvider,
+    isXaiOauthProvider,
+    projectDraft,
+    clearDraftProjection,
+    setCodexConfig,
+  ]);
   const handleSubmit = async (values: ProviderFormData) => {
+    if (isDraftProjectionPending) return;
     const overridesResult = shouldApplyLocalProxyRequestOverrides
       ? buildLocalProxyRequestOverrides(
           localProxyHeadersOverride,
@@ -578,7 +678,11 @@ function ProviderFormFull({
       );
       return;
     }
-    if (isXaiOauthProvider && !isXaiOauthAuthenticated) {
+    if (
+      !preserveLegacyConnection &&
+      isXaiOauthProvider &&
+      !isXaiOauthAuthenticated
+    ) {
       toast.error(
         t("xaiOauth.loginRequired", {
           defaultValue: "请先登录 xAI 账号",
@@ -617,6 +721,7 @@ function ProviderFormFull({
       return;
     }
     if (
+      !preserveLegacyConnection &&
       isXaiOauthProvider &&
       !selectedXaiAccountIsUsable(selectedXaiAccountId)
     ) {
@@ -630,8 +735,7 @@ function ProviderFormFull({
     // 非官方供应商端点 / API Key 空：A 类
     // cloud_provider（如 Bedrock）通过模板变量处理认证，跳过通用校验
     if (category !== "official" && category !== "cloud_provider") {
-      // 托管 OAuth 预设（xAI）：端点由 adapter 硬定向、token 由代理注入，
-      // 两项都不需要用户填写
+      // Saved managed OAuth records do not require a static API key to remain editable.
       if (!isXaiOauthProvider && !codexBaseUrl.trim()) {
         issues.push(
           t("providerForm.endpointRequired", {
@@ -672,20 +776,20 @@ function ProviderFormFull({
     let settingsConfig: string;
     try {
       const shouldStripCodexOfficialAuth =
-        isCodexOfficialManagedOauthBound || wasCodexOfficialManagedOauthBound;
+        !preserveLegacyConnection &&
+        (isCodexOfficialManagedOauthBound || wasCodexOfficialManagedOauthBound);
       const authJson = shouldStripCodexOfficialAuth
         ? {}
         : JSON.parse(codexAuth);
       const codexConfigForSave = codexConfig ?? "";
       let normalizedCodexConfig =
-        category !== "official" && codexConfigForSave.trim()
+        !isEditMode && category !== "official" && codexConfigForSave.trim()
           ? setCodexWireApi(codexConfigForSave, "responses")
           : codexConfigForSave;
-      // 模型映射与「路由接管」解耦：对所有非官方供应商，填了就持久化
-      //（Chat 生成兼容路由、原生 Responses 生成 model-catalogs.json），
-      // 留空归一化为 [] 即不写。后端只看 modelCatalog.models 是否非空。
+      // Native Responses catalogs persist per-model customizations. Legacy catalogs
+      // remain editable without converting their saved protocol.
       const normalizedCatalogModels =
-        category !== "official"
+        category !== "official" || preserveLegacyConnection
           ? normalizeCodexCatalogModelsForSave(codexCatalogModels)
           : [];
       // The default-model field writes the top-level `model` into the TOML
@@ -701,6 +805,8 @@ function ProviderFormFull({
         );
       }
       const configObj = {
+        // Preserve raw legacy protocol flags and future native settings when editing.
+        ...(isEditMode ? (initialData?.settingsConfig ?? {}) : {}),
         auth: authJson,
         config: normalizedCodexConfig,
       } as {
@@ -712,6 +818,8 @@ function ProviderFormFull({
       };
       if (normalizedCatalogModels.length > 0) {
         configObj.modelCatalog = { models: normalizedCatalogModels };
+      } else {
+        delete configObj.modelCatalog;
       }
       settingsConfig = JSON.stringify(configObj);
     } catch (err) {
@@ -804,7 +912,9 @@ function ProviderFormFull({
       ...(baseMeta ?? {}),
       // Preserve the existing frozen common-config marker; new rows use the backend default.
       commonConfigEnabled: initialData?.meta?.commonConfigEnabled,
-      endpointAutoSelect,
+      endpointAutoSelect: productShell
+        ? initialData?.meta?.endpointAutoSelect
+        : endpointAutoSelect,
       claudeDesktopMode: undefined,
       // Preserve the existing managed-provider identity.
       providerType,
@@ -834,13 +944,16 @@ function ProviderFormFull({
         promptCacheRouting !== "auto"
           ? promptCacheRouting
           : undefined,
-      customUserAgent:
-        category !== "official"
+      customUserAgent: productShell
+        ? initialData?.meta?.customUserAgent
+        : category !== "official"
           ? customUserAgent.trim() || undefined
           : undefined,
-      localProxyRequestOverrides: shouldApplyLocalProxyRequestOverrides
-        ? overridesResult.overrides
-        : undefined,
+      localProxyRequestOverrides: productShell
+        ? initialData?.meta?.localProxyRequestOverrides
+        : shouldApplyLocalProxyRequestOverrides
+          ? overridesResult.overrides
+          : undefined,
       apiFormat:
         category !== "official"
           ? isXaiOauthProvider
@@ -885,7 +998,8 @@ function ProviderFormFull({
     if (!nextMeta.githubAccountId && "githubAccountId" in nextMeta) {
       delete nextMeta.githubAccountId;
     }
-    payload.meta = nextMeta;
+    // Hidden legacy protocol/auth/request fields retain their exact stored values.
+    payload.meta = preserveLegacyConnection ? baseMeta : nextMeta;
     await onSubmit(payload);
   };
   const shouldShowSpeedTest =
@@ -912,6 +1026,7 @@ function ProviderFormFull({
     initialData,
   });
   const handlePresetChange = (value: string) => {
+    restartDraftProjection();
     setSelectedPresetId(value);
     if (value === "custom") {
       setActivePreset(null);
@@ -924,7 +1039,6 @@ function ProviderFormFull({
         codexApiFormatFromWireApi(extractCodexWireApi(template.config)) ??
           "openai_responses",
       );
-      projectCodexDraft(template.auth, template.config);
       return;
     }
     const entry = presetEntries.find((item) => item.id === value);
@@ -955,7 +1069,6 @@ function ProviderFormFull({
       icon: preset.icon ?? "",
       iconColor: preset.iconColor ?? "",
     });
-    projectCodexDraft(auth, config, preset.category);
     return;
   };
   const seededCodexAccountRef = useRef(false);
@@ -998,7 +1111,7 @@ function ProviderFormFull({
           {!initialData && (
             <ProviderPresetSelector
               customLabel={
-                useOpenAiCreation
+                useDirectCreation
                   ? t("productShell.openAiApi", "OpenAI API")
                   : undefined
               }
@@ -1007,6 +1120,16 @@ function ProviderFormFull({
               presetCategoryLabels={presetCategoryLabels}
               onPresetChange={handlePresetChange}
               category={category}
+              categoryHint={
+                <HelpButton
+                  label={t(
+                    "providerForm.connectionHelp",
+                    "Connection setup help",
+                  )}
+                >
+                  {t("provider.addFooterHint")}
+                </HelpButton>
+              }
             />
           )}
 
@@ -1014,6 +1137,7 @@ function ProviderFormFull({
 
           <CodexFormFields
             productShell={productShell}
+            isLegacyUnsupported={isLegacyUnsupportedConnection}
             providerId={providerId}
             isXaiOauthPreset={
               presetProviderType === "xai_oauth" ||
@@ -1084,23 +1208,22 @@ function ProviderFormFull({
             onLocalProxyHeadersOverrideChange={setLocalProxyHeadersOverride}
             localProxyBodyOverride={localProxyBodyOverride}
             onLocalProxyBodyOverrideChange={setLocalProxyBodyOverride}
+            advancedContent={
+              <CodexConfigEditor
+                authValue={codexAuth}
+                configValue={codexConfig}
+                providerName={form.watch("name")}
+                showRemoteCompaction={category !== "official"}
+                isProxyTakeover={isProxyTakeover}
+                onAuthChange={setCodexAuth}
+                onConfigChange={handleCodexConfigChange}
+                authError={codexAuthError}
+                configError={codexConfigError}
+                inactiveFields={inactiveFields}
+              />
+            }
           />
-
-          <>
-            <CodexConfigEditor
-              authValue={codexAuth}
-              configValue={codexConfig}
-              providerName={form.watch("name")}
-              showRemoteCompaction={category !== "official"}
-              isProxyTakeover={isProxyTakeover}
-              onAuthChange={setCodexAuth}
-              onConfigChange={handleCodexConfigChange}
-              authError={codexAuthError}
-              configError={codexConfigError}
-              inactiveFields={inactiveFields}
-            />
-            {settingsConfigErrorField}
-          </>
+          {settingsConfigErrorField}
 
           {showButtons && (
             <div className="flex justify-end gap-2">
@@ -1109,7 +1232,11 @@ function ProviderFormFull({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting || isConfirmSubmitting}
+                disabled={
+                  isSubmitting ||
+                  isConfirmSubmitting ||
+                  isDraftProjectionPending
+                }
               >
                 {submitLabel}
               </Button>

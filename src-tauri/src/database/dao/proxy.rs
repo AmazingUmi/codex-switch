@@ -3,7 +3,7 @@
 //! 处理代理配置、Provider健康状态和使用统计的数据库操作
 
 use crate::error::AppError;
-use crate::proxy::types::*;
+use crate::legacy_routing::*;
 
 use super::super::{lock_conn, Database};
 
@@ -633,7 +633,7 @@ impl Database {
     /// 此方法保留用于兼容旧代码，建议使用 get_proxy_config_for_app
     pub async fn get_circuit_breaker_config(
         &self,
-    ) -> Result<crate::proxy::circuit_breaker::CircuitBreakerConfig, AppError> {
+    ) -> Result<crate::legacy_routing::CircuitBreakerConfig, AppError> {
         // 使用 block 限制 conn 的作用域，避免跨 await 持有锁
         let result = {
             let conn = lock_conn!(self.conn);
@@ -643,7 +643,7 @@ impl Database {
                  FROM proxy_config WHERE app_type = 'claude'",
                 [],
                 |row| {
-                    Ok(crate::proxy::circuit_breaker::CircuitBreakerConfig {
+                    Ok(crate::legacy_routing::CircuitBreakerConfig {
                         failure_threshold: row.get::<_, i32>(0)? as u32,
                         success_threshold: row.get::<_, i32>(1)? as u32,
                         timeout_seconds: row.get::<_, i64>(2)? as u64,
@@ -660,7 +660,7 @@ impl Database {
             Err(rusqlite::Error::QueryReturnedNoRows) => {
                 // 如果不存在，初始化默认配置
                 self.init_proxy_config_rows().await?;
-                Ok(crate::proxy::circuit_breaker::CircuitBreakerConfig::default())
+                Ok(crate::legacy_routing::CircuitBreakerConfig::default())
             }
             Err(e) => Err(AppError::Database(e.to_string())),
         }
@@ -672,7 +672,7 @@ impl Database {
     /// 此方法保留用于兼容旧代码，建议使用 update_proxy_config_for_app
     pub async fn update_circuit_breaker_config(
         &self,
-        config: &crate::proxy::circuit_breaker::CircuitBreakerConfig,
+        config: &crate::legacy_routing::CircuitBreakerConfig,
     ) -> Result<(), AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -789,7 +789,7 @@ impl Database {
     /// 本地地址用，不需要代理在运行。
     pub fn get_proxy_listen_sync(&self) -> (String, u16) {
         let fallback = || {
-            let defaults = crate::proxy::types::ProxyConfig::default();
+            let defaults = crate::legacy_routing::ProxyConfig::default();
             (defaults.listen_address, defaults.listen_port)
         };
         let Ok(conn) = self.conn.lock() else {

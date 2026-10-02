@@ -36,8 +36,6 @@ pub(crate) use dao::providers_seed::{
     is_official_seed_id, CLAUDE_DESKTOP_OFFICIAL_PROVIDER_ID, CODEX_OFFICIAL_PROVIDER_ID,
     GROKBUILD_OFFICIAL_PROVIDER_ID,
 };
-pub(crate) use dao::proxy::{PRICING_SOURCE_REQUEST, PRICING_SOURCE_RESPONSE};
-pub use dao::FailoverQueueItem;
 pub use dao::Profile;
 
 use crate::config::get_app_config_dir;

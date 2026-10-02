@@ -1,4 +1,8 @@
 import React, { useState } from "react";
+import {
+  supportsApiBalance,
+  apiBalanceProviderLabel,
+} from "@/utils/apiBalance";
 import { Play, Wand2, Eye, EyeOff, Save, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -141,25 +145,6 @@ const TEMPLATE_NAME_KEYS: Record<string, string> = {
   [TEMPLATE_TYPES.OFFICIAL_SUBSCRIPTION]:
     "usageScript.templateOfficialSubscription",
 };
-
-/** 官方余额查询供应商检测 */
-const BALANCE_PROVIDERS = [
-  { id: "deepseek", label: "DeepSeek", pattern: /api\.deepseek\.com/i },
-  { id: "stepfun", label: "StepFun", pattern: /api\.stepfun\.(ai|com)/i },
-  {
-    id: "siliconflow",
-    label: "SiliconFlow",
-    pattern: /api\.siliconflow\.(cn|com)/i,
-  },
-  { id: "openrouter", label: "OpenRouter", pattern: /openrouter\.ai/i },
-  { id: "novita", label: "Novita AI", pattern: /api\.novita\.ai/i },
-] as const;
-
-/** 根据 Base URL 自动检测余额查询供应商 */
-function detectBalanceProvider(baseUrl: string | undefined): boolean {
-  if (!baseUrl) return false;
-  return BALANCE_PROVIDERS.some((bp) => bp.pattern.test(baseUrl));
-}
 
 function isOfficialSubscriptionProvider(provider: Provider, appId: AppId) {
   if (!["claude", "codex", "gemini", "grokbuild"].includes(appId)) return false;
@@ -362,7 +347,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
       return createUsageScript({ codingPlanProvider: autoDetected });
     }
 
-    if (detectBalanceProvider(providerCredentials.baseUrl)) {
+    if (supportsApiBalance(providerCredentials.baseUrl)) {
       return createUsageScript();
     }
 
@@ -465,7 +450,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
         return TEMPLATE_TYPES.TOKEN_PLAN;
       }
       // 新配置：如果 URL 匹配官方余额查询供应商，自动选择 Balance 模板
-      if (detectBalanceProvider(providerCredentials.baseUrl)) {
+      if (supportsApiBalance(providerCredentials.baseUrl)) {
         return TEMPLATE_TYPES.BALANCE;
       }
       // 默认使用 GENERAL（与默认代码模板一致）
@@ -953,7 +938,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                       variant={isSelected ? "default" : "outline"}
                       size="sm"
                       className={cn(
-                        "rounded-lg border",
+                        "border",
                         isSelected
                           ? "shadow-sm"
                           : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",
@@ -1051,18 +1036,12 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                   {t("usageScript.balanceHint")}
                 </p>
                 <div className="flex gap-2 flex-wrap">
-                  {BALANCE_PROVIDERS.filter(
-                    (bp) =>
-                      !productShell &&
-                      bp.pattern.test(providerCredentials.baseUrl || ""),
-                  ).map((bp) => (
-                    <span
-                      key={bp.id}
-                      className="inline-flex items-center px-2.5 py-1 rounded-md bg-primary/10 text-primary text-xs font-medium"
-                    >
-                      {bp.label}
-                    </span>
-                  ))}
+                  {!productShell &&
+                    apiBalanceProviderLabel(providerCredentials.baseUrl) && (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-md bg-primary/10 text-primary text-xs font-medium">
+                        {apiBalanceProviderLabel(providerCredentials.baseUrl)}
+                      </span>
+                    )}
                 </div>
               </div>
             )}
@@ -1100,7 +1079,7 @@ const UsageScriptModal: React.FC<UsageScriptModalProps> = ({
                         }
                         size="sm"
                         className={cn(
-                          "rounded-lg border",
+                          "border",
                           script.codingPlanProvider === cp.id
                             ? "shadow-sm"
                             : "bg-background text-muted-foreground hover:bg-accent hover:text-accent-foreground",

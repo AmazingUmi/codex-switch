@@ -1,16 +1,12 @@
 use tauri::State;
 
 use crate::app_config::AppType;
+use crate::auth::codex_oauth::{CodexAccountMetadata, CodexOAuthError, CodexOAuthManager};
+use crate::auth::copilot_auth::{CopilotAuthError, GitHubAccount, GitHubDeviceCodeResponse};
+use crate::auth::xai_oauth::{XaiOAuthAccount, XaiOAuthError};
 use crate::commands::codex_oauth::CodexOAuthState;
 use crate::commands::copilot::CopilotAuthState;
 use crate::commands::xai_oauth::XaiOAuthState;
-use crate::proxy::providers::codex_oauth_auth::{
-    CodexAccountMetadata, CodexOAuthError, CodexOAuthManager,
-};
-use crate::proxy::providers::copilot_auth::{
-    CopilotAuthError, GitHubAccount, GitHubDeviceCodeResponse,
-};
-use crate::proxy::providers::xai_oauth_auth::{XaiOAuthAccount, XaiOAuthError};
 use crate::store::AppState;
 
 const AUTH_PROVIDER_GITHUB_COPILOT: &str = "github_copilot";
@@ -225,8 +221,8 @@ pub async fn auth_poll_for_account(
             match auth_manager
                 .poll_for_token(&device_code, || async {
                     app_state
-                        .proxy_service
-                        .lock_switch_for_app(AppType::Codex.as_str())
+                        .switch_locks
+                        .lock_for_app(AppType::Codex.as_str())
                         .await
                 })
                 .await
@@ -469,8 +465,8 @@ pub(crate) async fn remove_codex_oauth_account_with_switch_lock(
     // add/update/switch/hot-switch. Otherwise a switch that already preflighted
     // a bundle could recreate auth.json after removal.
     let _switch_guard = app_state
-        .proxy_service
-        .lock_switch_for_app(AppType::Codex.as_str())
+        .switch_locks
+        .lock_for_app(AppType::Codex.as_str())
         .await;
     app_state
         .codex_oauth_manager
@@ -540,8 +536,8 @@ pub(crate) async fn logout_codex_oauth_with_switch_lock(
     app_state: &AppState,
 ) -> Result<(), String> {
     let _switch_guard = app_state
-        .proxy_service
-        .lock_switch_for_app(AppType::Codex.as_str())
+        .switch_locks
+        .lock_for_app(AppType::Codex.as_str())
         .await;
     app_state
         .codex_oauth_manager

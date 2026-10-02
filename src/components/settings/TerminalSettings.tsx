@@ -1,3 +1,4 @@
+import { HelpButton } from "@/components/ui/help-button";
 import { useTranslation } from "react-i18next";
 import {
   Select,
@@ -89,11 +90,11 @@ export function TerminalSettings({ value, onChange }: TerminalSettingsProps) {
 
   return (
     <section className="space-y-2">
-      <header className="space-y-1">
+      <header className="flex items-center gap-2">
         <h3 className="text-sm font-medium">{t("settings.terminal.title")}</h3>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.terminal.description")}
-        </p>
+        <HelpButton label={t("settings.terminal.title")}>
+          {t("settings.terminal.fallbackHint")}
+        </HelpButton>
       </header>
       <Select value={currentValue} onValueChange={onChange}>
         <SelectTrigger className="w-[200px]">
@@ -107,9 +108,6 @@ export function TerminalSettings({ value, onChange }: TerminalSettingsProps) {
           ))}
         </SelectContent>
       </Select>
-      <p className="text-xs text-muted-foreground">
-        {t("settings.terminal.fallbackHint")}
-      </p>
     </section>
   );
 }

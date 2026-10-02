@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { APP_IDS, MCP_APP_IDS, PROXY_APP_IDS } from "@/config/appConfig";
+import { APP_IDS, MCP_APP_IDS } from "@/config/appConfig";
 import {
   isProductImportAllowed,
   normalizeProductApp,
@@ -9,7 +9,6 @@ import {
 describe("Codex product shell boundaries", () => {
   it("keeps the shared capability registry intact", () => {
     expect(APP_IDS).toContain("claude");
-    expect(PROXY_APP_IDS).toContain("gemini");
     expect(MCP_APP_IDS).toContain("opencode");
   });
 

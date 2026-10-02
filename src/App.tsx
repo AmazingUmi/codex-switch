@@ -11,20 +11,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { invoke } from "@tauri-apps/api/core";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  Plus,
-  Settings,
-  Minus,
-  Maximize2,
-  Minimize2,
-  X,
-  BarChart2,
-  Users,
-} from "lucide-react";
+import { Minus, Maximize2, Minimize2, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Provider, VisibleApps } from "@/types";
 import type { EnvConflict } from "@/types/env";
-import { proxyKeys, useProvidersQuery, useSettingsQuery } from "@/lib/query";
+import { useProvidersQuery, useSettingsQuery } from "@/lib/query";
 import {
   providersApi,
   settingsApi,
@@ -35,11 +26,9 @@ import { checkEnvConflicts } from "@/lib/api/env";
 import { useProviderActions } from "@/hooks/useProviderActions";
 import { useCodexAccountSwitch } from "@/hooks/useCodexAccountSwitch";
 import type { ProviderEditorSave } from "@/lib/api/providers";
-import { useProxyStatus } from "@/hooks/useProxyStatus";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
-import { useAutoFailoverEnabled } from "@/lib/query/failover";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isTextEditableTarget } from "@/utils/domUtils";
 import { deepClone } from "@/utils/deepClone";
@@ -49,22 +38,22 @@ import {
   DRAG_REGION_ATTR,
   DRAG_REGION_STYLE,
 } from "@/lib/platform";
-import { ProviderList } from "@/components/providers/ProviderList";
+import { CodexSwitchMark } from "@/components/branding/CodexSwitchMark";
 import { CodexAccountsPanel } from "@/components/codex/CodexAccountsPanel";
+import { CodexNavigation } from "@/components/codex/CodexNavigation";
+import { ApiKeyConnectionsSection } from "@/components/codex/ApiKeyConnectionsSection";
+import { AddCodexConnectionDialog } from "@/components/codex/AddCodexConnectionDialog";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { SettingsPage } from "@/components/settings/SettingsPage";
 import { HomeUsageDashboard } from "@/components/usage/HomeUsageDashboard";
 import { EnvWarningBanner } from "@/components/env/EnvWarningBanner";
-import { ProxyToggle } from "@/components/proxy/ProxyToggle";
-import { FailoverToggle } from "@/components/proxy/FailoverToggle";
-import { RoutingActivationBrand } from "@/components/proxy/RoutingActivationBrand";
 import UsageScriptModal from "@/components/UsageScriptModal";
 import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { Button } from "@/components/ui/button";
-import { APP_IDS, isProxyAppId } from "@/config/appConfig";
+import { APP_IDS } from "@/config/appConfig";
 
 import {
   isProductApp,
@@ -108,6 +97,8 @@ function App() {
   }, []);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isAddChoiceOpen, setIsAddChoiceOpen] = useState(false);
+  const startAccountLoginRef = useRef<(() => void) | null>(null);
   const [homeTab, setHomeTab] = useState<"accounts" | "usage">("accounts");
   const {
     switchAccount,
@@ -123,7 +114,7 @@ function App() {
   const useAppWindowControls =
     isLinux() && (settingsData?.useAppWindowControls ?? false);
   const dragBarHeight = useAppWindowControls ? 32 : DEFAULT_DRAG_BAR_HEIGHT;
-  const contentTopOffset = dragBarHeight + HEADER_HEIGHT + 12;
+  const contentTopOffset = dragBarHeight + 8 + HEADER_HEIGHT + 24;
   // This is a presentation mask; never rewrite persisted multi-app settings.
   const visibleApps = useMemo<VisibleApps>(
     () =>
@@ -172,62 +163,21 @@ function App() {
     }
   }, [activeApp, currentView, homeTab]);
 
-  const addActionButtonClass = "rounded-full w-8 h-8";
-
-  const {
-    isRunning: isProxyRunning,
-    takeoverStatus,
-    status: proxyStatus,
-  } = useProxyStatus();
-  const proxyAppId = isProxyAppId(activeApp) ? activeApp : null;
-  const currentAppUsesProxy = proxyAppId !== null;
-  const isCurrentAppTakeoverActive = proxyAppId
-    ? takeoverStatus?.[proxyAppId] || false
-    : false;
-  const activeProviderId = useMemo(() => {
-    if (!proxyAppId) return undefined;
-    const target = proxyStatus?.active_targets?.find(
-      (t) => t.app_type === proxyAppId,
-    );
-    return target?.provider_id;
-  }, [proxyStatus?.active_targets, proxyAppId]);
-
   const {
     data,
     isLoading,
     isError: hasProvidersError,
     refetch,
-  } = useProvidersQuery(activeApp, {
-    isProxyRunning: currentAppUsesProxy && isProxyRunning,
-  });
+  } = useProvidersQuery(activeApp);
   const providers = useMemo(() => data?.providers ?? {}, [data]);
   const currentProviderId = data?.currentProviderId ?? "";
-  const {
-    data: isAutoFailoverEnabled,
-    isPlaceholderData: isFailoverStatusLoading,
-    isError: hasFailoverStatusError,
-  } = useAutoFailoverEnabled(activeApp, proxyAppId !== null);
-  const accountCurrentProviderId =
-    isProxyRunning && isCurrentAppTakeoverActive
-      ? isFailoverStatusLoading ||
-        hasFailoverStatusError ||
-        isAutoFailoverEnabled === undefined
-        ? ""
-        : isAutoFailoverEnabled
-          ? (activeProviderId ?? "")
-          : currentProviderId
-      : currentProviderId;
   const {
     addProvider,
     updateProvider,
     switchProvider,
     deleteProvider,
     saveUsageScript,
-  } = useProviderActions(
-    activeApp,
-    currentAppUsesProxy && isProxyRunning,
-    isProxyRunning && isCurrentAppTakeoverActive,
-  );
+  } = useProviderActions(activeApp);
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     let active = true;
@@ -268,16 +218,11 @@ function App() {
     }
   });
 
-  // 应用项目后刷新相关缓存（providers 由既有 provider-switched 监听承接；
-  // proxy 状态由后端直接改 DB，不走 mutation，必须显式刷新）
+  // Refresh dependent caches after applying a project.
   useTauriEvent("profile-applied", async () => {
     await queryClient.invalidateQueries({ queryKey: ["profiles"] });
     await queryClient.invalidateQueries({ queryKey: ["mcp", "all"] });
     await queryClient.invalidateQueries({ queryKey: ["skills"] });
-    await queryClient.invalidateQueries({
-      queryKey: proxyKeys.takeoverStatus,
-    });
-    await queryClient.invalidateQueries({ queryKey: proxyKeys.status });
     await queryClient.invalidateQueries({
       queryKey: ["providers", "claude-desktop"],
     });
@@ -311,20 +256,6 @@ function App() {
         t("settings.s3Sync.autoSyncFailedToast", {
           error: statusPayload.error || t("common.unknown"),
         }),
-      );
-    },
-  );
-
-  useTauriEvent<{ appType: string; providerName: string }>(
-    "proxy-official-warning",
-    (payload) => {
-      if (!isProductApp(payload.appType)) return;
-      toast.warning(
-        t("notifications.proxyOfficialWarning", {
-          name: payload.providerName,
-          defaultValue: `当前供应商 ${payload.providerName} 是官方供应商，建议切换到第三方供应商后再使用代理接管`,
-        }),
-        { duration: 8000 },
       );
     },
   );
@@ -652,66 +583,36 @@ function App() {
   };
 
   const configurationContent = (
-    <div className="space-y-4 pb-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold">
-          {t("codexAccounts.configurationsTitle", "Connection configurations")}
-        </h2>
-        <Button
-          onClick={() => {
-            setIsAddOpen(true);
-          }}
-          size="icon"
-          className={addActionButtonClass}
-          aria-label={t("codexAccounts.addConfiguration", "Add configuration")}
-          title={t("codexAccounts.addConfiguration", "Add configuration")}
-        >
-          <Plus className="h-5 w-5" aria-hidden="true" />
-        </Button>
-      </div>
-      <details className="glass rounded-xl px-4 py-2 text-xs text-muted-foreground">
-        <summary className="cursor-pointer">
-          {t("codexAccounts.configurationsHelp", "连接配置用途")}
-        </summary>
-        <p className="pt-2 leading-relaxed">
-          {t(
-            "codexAccounts.configurationsDescription",
-            "用于 API Key 连接和可选的高级配置。ChatGPT 账号登录后可在主页直接切换。",
-          )}
-        </p>
-      </details>
-      <ProviderList
-        providers={Object.fromEntries(
-          Object.entries(providers).filter(
-            ([, provider]) => !provider.meta?.codexAccountManaged,
-          ),
-        )}
-        currentProviderId={currentProviderId}
-        appId="codex"
-        isLoading={isLoading}
-        isProxyRunning={currentAppUsesProxy && isProxyRunning}
-        isProxyTakeover={isProxyRunning && isCurrentAppTakeoverActive}
-        activeProviderId={activeProviderId}
-        onSwitch={switchProvider}
-        onEdit={setEditingProvider}
-        onDelete={(provider) => setConfirmAction({ provider })}
-        onDuplicate={handleDuplicateProvider}
-        onConfigureUsage={setUsageProvider}
-        onOpenWebsite={handleOpenWebsite}
-        onCreate={() => {
-          setIsAddOpen(true);
-        }}
-      />
-    </div>
+    <ApiKeyConnectionsSection
+      providers={Object.fromEntries(
+        Object.entries(providers).filter(
+          ([, provider]) => !provider.meta?.codexAccountManaged,
+        ),
+      )}
+      currentProviderId={currentProviderId}
+      isLoading={isLoading}
+      onSwitch={switchProvider}
+      onEdit={setEditingProvider}
+      onDelete={(provider) => setConfirmAction({ provider })}
+      onDuplicate={handleDuplicateProvider}
+      onConfigureUsage={setUsageProvider}
+      onOpenWebsite={handleOpenWebsite}
+      onAddApiKey={() => setIsAddOpen(true)}
+    />
   );
 
   const accountPanelProps = {
     providers: Object.values(providers),
-    currentProviderId: isCurrentUncertain ? "" : accountCurrentProviderId,
+    currentProviderId: isCurrentUncertain ? "" : currentProviderId,
     isSwitching: isAccountSwitching,
     isLoadingProviders: isLoading,
     isProvidersError: hasProvidersError,
     onSwitchAccount: switchAccount,
+    showLogoutAll: true,
+    onAddAccount: (startLogin: () => void) => {
+      startAccountLoginRef.current = startLogin;
+      setIsAddChoiceOpen(true);
+    },
   };
 
   const renderContent = () => {
@@ -724,8 +625,6 @@ function App() {
               onOpenChange={() => setCurrentView("providers")}
               onImportSuccess={handleImportSuccess}
               defaultTab={settingsDefaultTab}
-              configurations={configurationContent}
-              accountPanelProps={accountPanelProps}
             />
           );
         default:
@@ -750,7 +649,10 @@ function App() {
                         id="codex-home-accounts"
                         aria-labelledby="codex-tab-accounts"
                       >
-                        <CodexAccountsPanel {...accountPanelProps} />
+                        <div className="space-y-5">
+                          <CodexAccountsPanel {...accountPanelProps} />
+                          {configurationContent}
+                        </div>
                       </div>
                     ) : (
                       <div
@@ -875,111 +777,33 @@ function App() {
           } as any
         }
       >
-        <div
-          className="glass-header flex h-full min-w-0 items-center px-3 sm:px-4"
-          {...DRAG_REGION_ATTR}
-          style={{ ...DRAG_REGION_STYLE } as any}
-        >
-          <RoutingActivationBrand
-            active={isProxyRunning && isCurrentAppTakeoverActive}
-            contextKey={activeApp}
-            ready={proxyStatus !== undefined && takeoverStatus !== undefined}
-          />
-        </div>
-        <nav
-          className="glass-header app-navigation flex h-full shrink-0 items-center gap-1 p-2"
-          aria-label={t("codexAccounts.homeTabs", "Codex management")}
-          style={{ WebkitAppRegion: "no-drag" } as any}
-        >
-          <div
-            role="tablist"
-            aria-label={t("codexAccounts.homeTabs", "Codex management")}
-            className="flex items-center gap-1"
-          >
-            {(["accounts", "usage"] as const).map((tab) => (
-              <Button
-                key={tab}
-                role="tab"
-                aria-selected={currentView === "providers" && homeTab === tab}
-                tabIndex={homeTab === tab ? 0 : -1}
-                aria-controls={`codex-home-${tab}`}
-                id={`codex-tab-${tab}`}
-                variant={
-                  currentView === "providers" && homeTab === tab
-                    ? "secondary"
-                    : "ghost"
-                }
-                size="icon"
-                aria-label={
-                  tab === "accounts"
-                    ? t("codexAccounts.accountsTab", "ChatGPT accounts")
-                    : t("codexAccounts.localUsageTab", "本地用量")
-                }
-                title={
-                  tab === "accounts"
-                    ? t("codexAccounts.accountsTab", "ChatGPT accounts")
-                    : t("codexAccounts.localUsageTab", "本地用量")
-                }
-                onClick={() => {
-                  setHomeTab(tab);
-                  setCurrentView("providers");
-                }}
-                onKeyDown={(event) => {
-                  if (
-                    !["ArrowLeft", "ArrowRight", "Home", "End"].includes(
-                      event.key,
-                    )
-                  )
-                    return;
-                  event.preventDefault();
-                  const nextTab =
-                    event.key === "Home"
-                      ? "accounts"
-                      : event.key === "End"
-                        ? "usage"
-                        : tab === "accounts"
-                          ? "usage"
-                          : "accounts";
-                  setHomeTab(nextTab);
-                  setCurrentView("providers");
-                  document.getElementById(`codex-tab-${nextTab}`)?.focus();
-                }}
-              >
-                {tab === "accounts" ? (
-                  <Users className="h-5 w-5" aria-hidden="true" />
-                ) : (
-                  <BarChart2 className="h-5 w-5" aria-hidden="true" />
-                )}
-              </Button>
-            ))}
-          </div>
-          <Button
-            variant={currentView === "settings" ? "secondary" : "ghost"}
-            size="icon"
-            aria-pressed={currentView === "settings"}
-            onClick={() => {
+        <CodexNavigation
+          activeView={currentView === "settings" ? "settings" : homeTab}
+          onNavigate={(view) => {
+            if (view === "settings") {
               setSettingsDefaultTab("general");
               setCurrentView("settings");
-            }}
-            aria-label={t("common.settings")}
-            title={t("common.settings")}
-          >
-            <Settings className="h-5 w-5" aria-hidden="true" />
-          </Button>
-        </nav>
-        {currentView === "providers" && proxyAppId && (
+            } else {
+              setHomeTab(view);
+              setCurrentView("providers");
+            }
+          }}
+        />
+        <div className="ml-auto flex h-full min-w-0 items-center gap-2 sm:gap-3">
           <div
-            className="ml-auto flex shrink-0 items-center gap-1.5"
-            style={{ WebkitAppRegion: "no-drag" } as any}
+            className="glass-header flex h-full min-w-0 items-center px-3 sm:px-4 [&>div]:max-w-full [&>div]:min-w-0"
+            {...DRAG_REGION_ATTR}
+            style={{ ...DRAG_REGION_STYLE } as any}
           >
-            {settingsData?.enableLocalProxy && (
-              <ProxyToggle activeApp={proxyAppId} />
-            )}
-            {settingsData?.enableFailoverToggle && (
-              <FailoverToggle activeApp={proxyAppId} />
-            )}
+            <span
+              className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-blue-500 dark:text-blue-400"
+              aria-label="Codex Switch"
+            >
+              <CodexSwitchMark className="h-7 w-7 shrink-0" />
+              <span className="truncate">Codex Switch</span>
+            </span>
           </div>
-        )}
+        </div>
       </header>
 
       <main
@@ -989,12 +813,25 @@ function App() {
         {renderContent()}
       </main>
 
+      <AddCodexConnectionDialog
+        open={isAddChoiceOpen}
+        onOpenChange={setIsAddChoiceOpen}
+        onLogin={() => {
+          setIsAddChoiceOpen(false);
+          startAccountLoginRef.current?.();
+        }}
+        onAddApiKey={() => {
+          setIsAddChoiceOpen(false);
+          setIsAddOpen(true);
+        }}
+      />
       <AddProviderDialog
         open={isAddOpen}
         onOpenChange={setIsAddOpen}
         appId={activeApp}
         onSubmit={addProvider}
         productShell
+        apiKeyOnly
       />
 
       <EditProviderDialog
@@ -1003,12 +840,38 @@ function App() {
         provider={effectiveEditingProvider}
         onOpenChange={(open) => {
           if (!open) {
+            if (confirmAction?.provider.id === editingProvider?.id) {
+              setConfirmAction(null);
+            }
             setEditingProvider(null);
           }
         }}
         onSubmit={handleEditProvider}
+        onDelete={(provider) => {
+          if (provider.id !== currentProviderId) setConfirmAction({ provider });
+        }}
+        deleteDisabledReason={
+          editingProvider?.id === currentProviderId
+            ? t(
+                "provider.deleteCurrentDisabled",
+                "当前使用的连接无法删除，请先切换到其他连接。",
+              )
+            : undefined
+        }
+        deleteConfirmation={
+          confirmAction && confirmAction.provider.id === editingProvider?.id
+            ? {
+                message: confirmActionMessage,
+                onConfirm: async () => {
+                  if (confirmAction.provider.id === currentProviderId) return;
+                  await handleConfirmAction();
+                  setEditingProvider(null);
+                },
+                onCancel: () => setConfirmAction(null),
+              }
+            : undefined
+        }
         appId={activeApp}
-        isProxyTakeover={isCurrentAppTakeoverActive}
       />
 
       {effectiveUsageProvider && (
@@ -1028,7 +891,7 @@ function App() {
       )}
 
       <ConfirmDialog
-        isOpen={Boolean(confirmAction)}
+        isOpen={Boolean(confirmAction) && !editingProvider}
         title={t("confirm.deleteProvider")}
         message={confirmActionMessage}
         onConfirm={() => void handleConfirmAction()}

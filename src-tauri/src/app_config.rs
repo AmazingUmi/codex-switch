@@ -439,7 +439,7 @@ impl AppType {
         )
     }
 
-    pub fn supports_local_proxy(&self) -> bool {
+    pub fn has_legacy_takeover_state(&self) -> bool {
         matches!(
             self,
             AppType::Claude | AppType::Codex | AppType::Gemini | AppType::GrokBuild

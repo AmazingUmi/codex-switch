@@ -425,6 +425,9 @@ pub struct AppSettings {
     pub claude_config_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_config_dir: Option<String>,
+    /// Read-only session usage root; independent of Codex auth/config directories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_usage_source_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gemini_config_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -548,6 +551,7 @@ impl Default for AppSettings {
             visible_apps: None,
             claude_config_dir: None,
             codex_config_dir: None,
+            codex_usage_source_dir: None,
             gemini_config_dir: None,
             grok_config_dir: None,
             opencode_config_dir: None,
@@ -599,6 +603,13 @@ impl AppSettings {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+
+        self.codex_usage_source_dir = self
+            .codex_usage_source_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
 
         self.gemini_config_dir = self
             .gemini_config_dir
@@ -690,11 +701,15 @@ impl AppSettings {
 }
 
 fn save_settings_file(settings: &AppSettings) -> Result<(), AppError> {
-    let mut normalized = settings.clone();
-    normalized.normalize_paths();
     let Some(path) = AppSettings::settings_path() else {
         return Err(AppError::Config("无法获取用户主目录".to_string()));
     };
+    save_settings_file_at(settings, &path)
+}
+
+fn save_settings_file_at(settings: &AppSettings, path: &std::path::Path) -> Result<(), AppError> {
+    let mut normalized = settings.clone();
+    normalized.normalize_paths();
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
@@ -780,15 +795,28 @@ pub fn get_settings_for_frontend() -> AppSettings {
     settings
 }
 
-pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
-    new_settings.normalize_paths();
-    save_settings_file(&new_settings)?;
-
+pub fn update_settings(new_settings: AppSettings) -> Result<(), AppError> {
     let mut guard = settings_store().write().unwrap_or_else(|e| {
         log::warn!("设置锁已毒化，使用恢复值: {e}");
         e.into_inner()
     });
-    *guard = new_settings;
+    persist_settings_update(&mut guard, new_settings, save_settings_file)
+}
+
+fn persist_settings_update(
+    existing: &mut AppSettings,
+    mut incoming: AppSettings,
+    save: impl FnOnce(&AppSettings) -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    incoming.normalize_paths();
+    // Unrelated saves must still work when a previously chosen source is offline.
+    if incoming.codex_usage_source_dir != existing.codex_usage_source_dir {
+        if let Some(raw) = &incoming.codex_usage_source_dir {
+            crate::codex_usage_source::validate_directory(raw)?;
+        }
+    }
+    save(&incoming)?;
+    *existing = incoming;
     Ok(())
 }
 
@@ -1194,6 +1222,74 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::app_config::AppType;
+
+    #[test]
+    fn codex_usage_source_settings_serde_and_normalization() {
+        let mut settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "codexUsageSourceDir": "  ~/.codex  "
+        }))
+        .unwrap();
+        settings.normalize_paths();
+        assert_eq!(settings.codex_usage_source_dir.as_deref(), Some("~/.codex"));
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap()["codexUsageSourceDir"],
+            "~/.codex"
+        );
+        settings.codex_usage_source_dir = Some(" \t ".into());
+        settings.normalize_paths();
+        assert!(settings.codex_usage_source_dir.is_none());
+        assert!(serde_json::to_value(&settings)
+            .unwrap()
+            .get("codexUsageSourceDir")
+            .is_none());
+        assert!(serde_json::from_str::<AppSettings>("{}")
+            .unwrap()
+            .codex_usage_source_dir
+            .is_none());
+    }
+
+    #[test]
+    fn codex_usage_source_failed_save_preserves_settings_and_unrelated_saves_work() {
+        let fixture = tempfile::tempdir().unwrap();
+        let source = fixture.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        let save = |settings: &AppSettings| save_settings_file_at(settings, &settings_path);
+        let mut existing = AppSettings::default();
+        let mut incoming = existing.clone();
+        incoming.codex_usage_source_dir = Some(format!("  {}  ", source.display()));
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert_eq!(existing.codex_usage_source_dir.as_deref(), source.to_str());
+        let saved = fs::read(&settings_path).unwrap();
+        let file_source = fixture.path().join("file.jsonl");
+        fs::write(&file_source, "fixture").unwrap();
+        for invalid in [
+            "relative/sessions".to_string(),
+            fixture.path().join("missing").display().to_string(),
+            file_source.display().to_string(),
+        ] {
+            let mut incoming = existing.clone();
+            incoming.codex_usage_source_dir = Some(invalid);
+            assert!(persist_settings_update(&mut existing, incoming, save).is_err());
+            assert_eq!(fs::read(&settings_path).unwrap(), saved);
+            assert_eq!(existing.codex_usage_source_dir.as_deref(), source.to_str());
+        }
+
+        // A disconnected source does not prevent saving a UI preference.
+        fs::remove_dir(&source).unwrap();
+        let mut incoming = existing.clone();
+        incoming.show_in_tray = false;
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert!(!existing.show_in_tray);
+        let mut incoming = existing.clone();
+        incoming.codex_usage_source_dir = Some("  ".into());
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert!(existing.codex_usage_source_dir.is_none());
+        let mut incoming = existing.clone();
+        incoming.codex_usage_source_dir = Some(" ~/ ".into());
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert_eq!(existing.codex_usage_source_dir.as_deref(), Some("~/"));
+    }
 
     #[test]
     fn visible_apps_old_settings_default_claude_desktop_visible() {

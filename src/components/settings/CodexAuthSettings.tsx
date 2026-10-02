@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { History, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import type { SettingsFormState } from "@/hooks/useSettings";
+import { HelpButton } from "@/components/ui/help-button";
 import { ToggleRow } from "@/components/ui/toggle-row";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { settingsApi } from "@/lib/api";
@@ -98,7 +99,11 @@ export function CodexAuthSettings({
       <ToggleRow
         icon={<KeyRound className="h-4 w-4 text-emerald-500" />}
         title={t("settings.preserveCodexOfficialAuthOnSwitch")}
-        description={t("settings.preserveCodexOfficialAuthOnSwitchDescription")}
+        help={
+          <HelpButton label={t("settings.preserveCodexOfficialAuthOnSwitch")}>
+            {t("settings.preserveCodexOfficialAuthOnSwitchDescription")}
+          </HelpButton>
+        }
         checked={settings.preserveCodexOfficialAuthOnSwitch ?? false}
         onCheckedChange={(value) =>
           onChange({ preserveCodexOfficialAuthOnSwitch: value })
@@ -108,7 +113,11 @@ export function CodexAuthSettings({
       <ToggleRow
         icon={<History className="h-4 w-4 text-sky-500" />}
         title={t("settings.unifyCodexSessionHistory")}
-        description={t("settings.unifyCodexSessionHistoryDescription")}
+        help={
+          <HelpButton label={t("settings.unifyCodexSessionHistory")}>
+            {t("settings.unifyCodexSessionHistoryDescription")}
+          </HelpButton>
+        }
         checked={settings.unifyCodexSessionHistory ?? false}
         onCheckedChange={handleUnifyHistoryChange}
       />

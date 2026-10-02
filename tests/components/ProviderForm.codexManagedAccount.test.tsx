@@ -140,6 +140,7 @@ function renderCodexForm(
   onSubmit: (values: ProviderFormValues) => void,
   restrictCodexCreation = false,
   initialCodexAccountId?: string,
+  apiKeyOnly = false,
 ) {
   const queryClient = createTestQueryClient();
   return render(
@@ -150,6 +151,7 @@ function renderCodexForm(
           initialCodexAccountId={initialCodexAccountId}
           restrictCodexCreation={restrictCodexCreation}
           productShell={restrictCodexCreation}
+          apiKeyOnly={apiKeyOnly}
           submitLabel="save-provider"
           onSubmit={onSubmit}
           onCancel={vi.fn()}
@@ -202,7 +204,7 @@ describe("ProviderForm Codex Official managed account", () => {
     },
   );
 
-  it("only offers OpenAI API and ChatGPT Official creation in the product", async () => {
+  it("offers only OpenAI API, ChatGPT Official and DeepSeek creation in the product", async () => {
     const onSubmit = vi.fn();
     renderCodexForm(onSubmit, true);
     expect(
@@ -210,6 +212,9 @@ describe("ProviderForm Codex Official managed account", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /OpenAI Official/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /DeepSeek/ }),
     ).toBeInTheDocument();
     for (const name of [/MiniMax/i, /Grok/i, /Kimi/i, /Gemini/i]) {
       expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
@@ -236,6 +241,161 @@ describe("ProviderForm Codex Official managed account", () => {
         "https://api.openai.com/v1",
       ),
     );
+  });
+
+  it("creates the API Key branch without choosing a ChatGPT account", async () => {
+    authState.codexStatusSuccess = false;
+    const onSubmit = vi.fn();
+    renderCodexForm(onSubmit, true, undefined, true);
+    expect(
+      screen.queryByRole("button", { name: /OpenAI Official/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("selected-managed-account"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("codexConfig.apiUrlLabel")).toHaveValue(
+      "https://api.openai.com/v1",
+    );
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "openai-test-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const submitted = onSubmit.mock.calls[0][0] as ProviderFormValues;
+    expect(submitted.name).toBe("OpenAI API");
+    expect(JSON.parse(submitted.settingsConfig)).toMatchObject({
+      auth: { OPENAI_API_KEY: "openai-test-key" },
+      config: expect.stringContaining('wire_api = "responses"'),
+    });
+    expect(submitted.meta?.authBinding).toBeUndefined();
+    expect(submitted.meta?.providerType).toBeUndefined();
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "preserves the existing %s managed login editor when apiKeyOnly is supplied",
+    async (managed) => {
+      const onSubmit = vi.fn();
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ProviderForm
+            appId="codex"
+            providerId="codex-official"
+            productShell
+            apiKeyOnly
+            submitLabel="save-provider"
+            onSubmit={onSubmit}
+            onCancel={vi.fn()}
+            initialData={{
+              name: "OpenAI Official",
+              category: "official",
+              settingsConfig: { auth: {}, config: "" },
+              ...(managed
+                ? {
+                    meta: {
+                      providerType: "codex_oauth",
+                      authBinding: {
+                        source: "managed_account",
+                        authProvider: "codex_oauth",
+                        accountId: "acct-managed",
+                      },
+                    },
+                  }
+                : {}),
+            }}
+          />
+        </QueryClientProvider>,
+      );
+      expect(
+        screen.getByRole("button", { name: "select-native-login" }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "select-managed-account" }),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const submitted = onSubmit.mock.calls[0][0] as ProviderFormValues;
+      expect(submitted.presetCategory).toBe("official");
+      if (managed) {
+        expect(submitted.meta?.authBinding?.accountId).toBe("acct-managed");
+      } else {
+        expect(submitted.meta?.authBinding).toBeUndefined();
+      }
+    },
+  );
+
+  it("creates DeepSeek with a native Responses catalog and no routing controls", async () => {
+    const onSubmit = vi.fn();
+    renderCodexForm(onSubmit, true);
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek/ }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("codexConfig.apiUrlLabel")).toHaveValue(
+        "https://api.deepseek.com",
+      ),
+    );
+    expect(screen.getByLabelText("默认模型")).toHaveValue("deepseek-flash");
+    expect(screen.queryByText("上游格式")).not.toBeInTheDocument();
+    expect(screen.queryByText("完整 URL")).not.toBeInTheDocument();
+    expect(screen.queryByText("管理和测速")).not.toBeInTheDocument();
+    expect(screen.queryByText("Custom User-Agent")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "deepseek-test-key" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const submitted = onSubmit.mock.calls[0][0] as ProviderFormValues;
+    const settings = JSON.parse(submitted.settingsConfig);
+    expect(settings.config).toContain('wire_api = "responses"');
+    expect(settings.config).toContain('model = "deepseek-flash"');
+    expect(settings.auth).toEqual({ OPENAI_API_KEY: "deepseek-test-key" });
+    expect(settings.modelCatalog.models[0]).toMatchObject({
+      model: "deepseek-flash",
+      reasoningLevels: ["low", "high", "max"],
+      inputModalities: ["text", "image"],
+    });
+    expect(submitted.meta?.apiFormat).toBe("openai_responses");
+    expect(submitted.meta?.localProxyRequestOverrides).toBeUndefined();
+    expect(submitted.meta?.isFullUrl).toBeUndefined();
+  });
+
+  it("preserves a saved Chat wire protocol and hidden request overrides when editing", async () => {
+    const onSubmit = vi.fn();
+    const config =
+      'model_provider = "custom"\nmodel = "legacy-model"\n[model_providers.custom]\nname = "Legacy"\nbase_url = "https://legacy.example/v1"\nwire_api = "chat"\nrequires_openai_auth = true';
+    const localProxyRequestOverrides = {
+      headers: { "X-Legacy": "kept" },
+      body: { legacy_option: true },
+    };
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ProviderForm
+          appId="codex"
+          productShell
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+          initialData={{
+            name: "Legacy",
+            category: "custom",
+            settingsConfig: { auth: { OPENAI_API_KEY: "saved-key" }, config },
+            meta: {
+              apiFormat: "openai_chat",
+              localProxyRequestOverrides,
+              isFullUrl: true,
+            },
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    const submitted = onSubmit.mock.calls[0][0] as ProviderFormValues;
+    expect(JSON.parse(submitted.settingsConfig).config).toBe(config);
+    expect(submitted.meta?.apiFormat).toBe("openai_chat");
+    expect(submitted.meta?.localProxyRequestOverrides).toEqual(
+      localProxyRequestOverrides,
+    );
+    expect(submitted.meta?.isFullUrl).toBe(true);
   });
 
   it("hides legacy client options without changing an existing provider's saved settings", async () => {
@@ -267,8 +427,8 @@ describe("ProviderForm Codex Official managed account", () => {
         />
       </QueryClientProvider>,
     );
-    // Saved advanced values expand this section automatically. Clicking the
-    // trigger here would close the fields this regression needs to inspect.
+    // The native catalog section must expose no retired controls when expanded.
+    fireEvent.click(screen.getByRole("button", { name: "高级选项" }));
     expect(screen.getByRole("button", { name: "高级选项" })).toHaveAttribute(
       "aria-expanded",
       "true",
@@ -279,9 +439,13 @@ describe("ProviderForm Codex Official managed account", () => {
     expect(
       screen.queryByText("ANTHROPIC_API_KEY（x-api-key）"),
     ).not.toBeInTheDocument();
-    expect(screen.getByDisplayValue("saved-client/1.0")).toHaveValue(
-      "saved-client/1.0",
-    );
+    expect(
+      screen.queryByDisplayValue("saved-client/1.0"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("codex-upstream-format"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("cannot be activated");
     fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit.mock.calls[0][0].meta).toEqual(
@@ -681,8 +845,89 @@ describe("ProviderForm Codex Official managed account", () => {
     },
   );
 
+  it("preserves raw unsupported protocol flags and future native settings on edit", async () => {
+    const onSubmit = vi.fn();
+    const settingsConfig = {
+      auth: { OPENAI_API_KEY: "saved-key" },
+      config:
+        'model_provider = "custom"\nmodel = "legacy-model"\n[model_providers.custom]\nname = "Legacy"\nbase_url = "https://legacy.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true',
+      apiFormat: "openai_chat",
+      fullURL: true,
+      future_native_option: { enabled: true },
+    };
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <ProviderForm
+          appId="codex"
+          productShell
+          submitLabel="save-provider"
+          onSubmit={onSubmit}
+          onCancel={vi.fn()}
+          initialData={{
+            name: "Raw legacy config",
+            category: "custom",
+            settingsConfig,
+          }}
+        />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("cannot be activated");
+    fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(onSubmit.mock.calls[0][0].settingsConfig)).toEqual(
+      settingsConfig,
+    );
+  });
+
+  it.each(["openai_chat", "anthropic"] as const)(
+    "preserves an unsupported %s connection with a stale Official category",
+    async (apiFormat) => {
+      const onSubmit = vi.fn();
+      const config =
+        'model_provider = "custom"\nmodel = "legacy-model"\n[model_providers.custom]\nname = "Legacy"\nbase_url = "https://legacy.example/v1"\nwire_api = "responses"\nrequires_openai_auth = true';
+      const meta = {
+        apiFormat,
+        customUserAgent: "saved-agent",
+        promptCacheRouting: "enabled" as const,
+        codexChatReasoning: { supportsEffort: true },
+        localProxyRequestOverrides: { body: { kept: true } },
+      };
+      const models = [{ model: "legacy-model", reasoningLevels: ["high"] }];
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <ProviderForm
+            appId="codex"
+            productShell
+            submitLabel="save-provider"
+            onSubmit={onSubmit}
+            onCancel={vi.fn()}
+            initialData={{
+              name: "Stale official legacy",
+              category: "official",
+              settingsConfig: {
+                auth: { OPENAI_API_KEY: "saved-key" },
+                config,
+                modelCatalog: { models },
+              },
+              meta,
+            }}
+          />
+        </QueryClientProvider>,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "save-provider" }));
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+      const values = onSubmit.mock.calls[0][0] as ProviderFormValues;
+      expect(values.meta).toEqual(meta);
+      expect(JSON.parse(values.settingsConfig)).toEqual({
+        auth: { OPENAI_API_KEY: "saved-key" },
+        config,
+        modelCatalog: { models },
+      });
+    },
+  );
+
   it("preserves a legacy Codex xAI managed binding without requiring a static API key", async () => {
-    authState.xaiAuthenticated = true;
+    authState.xaiAuthenticated = false;
     const onSubmit = vi.fn();
     const config =
       'model_provider = "custom"\nmodel = "grok-legacy"\n[model_providers.custom]\nname = "Legacy xAI"\nbase_url = "https://api.x.ai/v1"\nwire_api = "responses"\nrequires_openai_auth = false\nfuture_option = "keep"';

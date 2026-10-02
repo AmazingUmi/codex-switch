@@ -2,10 +2,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSettingsQuery } from "@/lib/query";
 import type { Settings } from "@/types";
+import {
+  withoutRoutingPreferences,
+  type RoutingPreference,
+} from "@/utils/settingsPreferences";
 
 type Language = "zh" | "zh-TW" | "en" | "ja";
 
-export type SettingsFormState = Omit<Settings, "language"> & {
+export type SettingsFormState = Omit<
+  Settings,
+  "language" | RoutingPreference
+> & {
   language: Language;
 };
 
@@ -108,7 +115,7 @@ export function useSettingsForm(): UseSettingsFormResult {
     );
 
     const normalized: SettingsFormState = {
-      ...data,
+      ...withoutRoutingPreferences(data),
       showInTray: data.showInTray ?? true,
       minimizeToTrayOnClose: data.minimizeToTrayOnClose ?? true,
       useAppWindowControls: data.useAppWindowControls ?? false,
@@ -121,6 +128,7 @@ export function useSettingsForm(): UseSettingsFormResult {
       unifyCodexSessionHistory: data.unifyCodexSessionHistory ?? false,
       claudeConfigDir: sanitizeDir(data.claudeConfigDir),
       codexConfigDir: sanitizeDir(data.codexConfigDir),
+      codexUsageSourceDir: sanitizeDir(data.codexUsageSourceDir),
       geminiConfigDir: sanitizeDir(data.geminiConfigDir),
       grokConfigDir: sanitizeDir(data.grokConfigDir),
       opencodeConfigDir: sanitizeDir(data.opencodeConfigDir),
@@ -176,7 +184,7 @@ export function useSettingsForm(): UseSettingsFormResult {
       );
 
       const normalized: SettingsFormState = {
-        ...serverData,
+        ...withoutRoutingPreferences(serverData),
         showInTray: serverData.showInTray ?? true,
         minimizeToTrayOnClose: serverData.minimizeToTrayOnClose ?? true,
         useAppWindowControls: serverData.useAppWindowControls ?? false,
@@ -189,6 +197,7 @@ export function useSettingsForm(): UseSettingsFormResult {
         unifyCodexSessionHistory: serverData.unifyCodexSessionHistory ?? false,
         claudeConfigDir: sanitizeDir(serverData.claudeConfigDir),
         codexConfigDir: sanitizeDir(serverData.codexConfigDir),
+        codexUsageSourceDir: sanitizeDir(serverData.codexUsageSourceDir),
         geminiConfigDir: sanitizeDir(serverData.geminiConfigDir),
         grokConfigDir: sanitizeDir(serverData.grokConfigDir),
         opencodeConfigDir: sanitizeDir(serverData.opencodeConfigDir),

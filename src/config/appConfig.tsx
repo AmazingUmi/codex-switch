@@ -54,23 +54,6 @@ export const SKILLS_APP_IDS: AppId[] = [
   "mcode",
 ];
 
-export type ProxyAppId = Extract<
-  AppId,
-  "claude" | "codex" | "gemini" | "grokbuild"
->;
-
-/** Apps with a complete local gateway + failover data plane. */
-export const PROXY_APP_IDS: ProxyAppId[] = [
-  "claude",
-  "codex",
-  "gemini",
-  "grokbuild",
-];
-
-export function isProxyAppId(appId: string): appId is ProxyAppId {
-  return (PROXY_APP_IDS as string[]).includes(appId);
-}
-
 export type AdditiveAppId = Extract<
   AppId,
   "opencode" | "openclaw" | "hermes" | "pi" | "mcode"

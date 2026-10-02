@@ -14,7 +14,7 @@ import type {
   ProviderEditorView,
 } from "@/lib/api/providers";
 import type { Provider } from "@/types";
-import { Save } from "lucide-react";
+import { Loader2, Save, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 interface EditProviderDialogProps {
@@ -28,6 +28,13 @@ interface EditProviderDialogProps {
     editorSave?: ProviderEditorSave;
   }) => Promise<void> | void;
   appId: AppId;
+  onDelete?: (provider: Provider) => void;
+  deleteDisabledReason?: string;
+  deleteConfirmation?: {
+    message: string;
+    onConfirm: () => Promise<void> | void;
+    onCancel: () => void;
+  };
   isProxyTakeover?: boolean; // 代理接管模式下不读取 live（避免显示被接管后的代理配置）
 }
 const asRecord = (value: unknown): Record<string, unknown> | null =>
@@ -45,10 +52,15 @@ function CodexEditProviderDialog({
   onOpenChange,
   onSubmit,
   appId,
+  onDelete,
+  deleteDisabledReason,
+  deleteConfirmation,
   isProxyTakeover = false,
 }: EditProviderDialogProps) {
   const { t } = useTranslation();
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
+  const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
+  const deleteInFlight = useRef(false);
   const [authSettingsTarget, setAuthSettingsTarget] =
     useState<ManagedAuthProvider | null>(null);
   useEffect(() => {
@@ -89,12 +101,37 @@ function CodexEditProviderDialog({
     onOpenChange(false);
   }, [onOpenChange]);
   const handlePanelClose = useCallback(() => {
+    if (deleteInFlight.current) return;
+    if (deleteConfirmation) {
+      deleteConfirmation.onCancel();
+      return;
+    }
     if (authSettingsTarget) {
       setAuthSettingsTarget(null);
       return;
     }
     closeDialog();
-  }, [authSettingsTarget, closeDialog]);
+  }, [authSettingsTarget, closeDialog, deleteConfirmation]);
+  const handleConfirmDelete = async () => {
+    if (
+      !deleteConfirmation ||
+      deleteDisabledReason ||
+      isFormSubmitting ||
+      deleteInFlight.current
+    ) {
+      return;
+    }
+    deleteInFlight.current = true;
+    setIsDeleteSubmitting(true);
+    try {
+      await deleteConfirmation.onConfirm();
+    } catch {
+      // The existing delete mutation reports failures; keep the editor open.
+    } finally {
+      deleteInFlight.current = false;
+      setIsDeleteSubmitting(false);
+    }
+  };
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -163,7 +200,7 @@ function CodexEditProviderDialog({
   ]);
   const handleSubmit = useCallback(
     async (values: ProviderFormValues) => {
-      if (!provider) return;
+      if (!provider || deleteConfirmation || deleteInFlight.current) return;
       // 注意：values.settingsConfig 已经是最终的配置字符串
       // ProviderForm returns the assembled Codex configuration.
       const parsedConfig = JSON.parse(values.settingsConfig) as Record<
@@ -201,6 +238,7 @@ function CodexEditProviderDialog({
       onSubmit,
       closeDialog,
       provider,
+      deleteConfirmation,
       editorView,
       submitWithConflictRetry,
     ],
@@ -216,15 +254,89 @@ function CodexEditProviderDialog({
       onClose={handlePanelClose}
       contentClassName={undefined}
       footer={
-        <Button
-          type="submit"
-          form="provider-form"
-          disabled={isFormSubmitting || !isFormReady}
-          className="bg-primary text-primary-foreground hover:bg-primary/90"
-        >
-          <Save className="h-4 w-4 mr-2" />
-          {t("common.save")}
-        </Button>
+        deleteConfirmation ? (
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-1 text-sm">
+              <p role="alert">{deleteConfirmation.message}</p>
+              {deleteDisabledReason && (
+                <p className="text-xs text-muted-foreground">
+                  {deleteDisabledReason}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isDeleteSubmitting}
+                onClick={deleteConfirmation.onCancel}
+              >
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={
+                  isDeleteSubmitting ||
+                  isFormSubmitting ||
+                  !!deleteDisabledReason
+                }
+                onClick={() => void handleConfirmDelete()}
+              >
+                {isDeleteSubmitting ? (
+                  <Loader2
+                    className="mr-2 h-4 w-4 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                )}
+                {t("common.delete")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex w-full items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              {onDelete && (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={isFormSubmitting || !!deleteDisabledReason}
+                    className="shrink-0 text-destructive hover:text-destructive"
+                    onClick={() => onDelete(provider)}
+                    aria-describedby={
+                      deleteDisabledReason
+                        ? "provider-delete-disabled"
+                        : undefined
+                    }
+                  >
+                    <Trash2 className="mr-2 h-4 w-4" aria-hidden="true" />
+                    {t("common.delete")}
+                  </Button>
+                  {deleteDisabledReason && (
+                    <p
+                      id="provider-delete-disabled"
+                      className="text-xs text-muted-foreground"
+                    >
+                      {deleteDisabledReason}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+            <Button
+              type="submit"
+              form="provider-form"
+              disabled={isFormSubmitting || !isFormReady}
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {t("common.save")}
+            </Button>
+          </div>
+        )
       }
     >
       {waitingForEditorView ? (

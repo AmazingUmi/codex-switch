@@ -6,6 +6,12 @@ use crate::services::usage_stats::*;
 use crate::store::AppState;
 use tauri::State;
 
+/// Report the actual read root and the default used when the override is cleared.
+#[tauri::command]
+pub fn get_codex_usage_source() -> crate::codex_usage_source::CodexUsageSource {
+    crate::codex_usage_source::get_codex_usage_source()
+}
+
 /// 获取使用量汇总
 #[tauri::command]
 pub fn get_usage_summary(
@@ -327,4 +333,63 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(crate::usage_events::take_test_notify_count(), 1);
     }
+}
+
+// Historical pricing preferences remain independent of local routing.
+
+async fn get_pricing_model_source_internal(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    let db = &state.db;
+    db.get_pricing_model_source(app_type).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn get_pricing_model_source_test_hook(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    get_pricing_model_source_internal(state, app_type).await
+}
+
+/// 获取计费模式来源
+#[tauri::command]
+pub async fn get_pricing_model_source(
+    state: tauri::State<'_, AppState>,
+    app_type: String,
+) -> Result<String, String> {
+    get_pricing_model_source_internal(&state, &app_type)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn set_pricing_model_source_internal(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    let db = &state.db;
+    db.set_pricing_model_source(app_type, value).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn set_pricing_model_source_test_hook(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    set_pricing_model_source_internal(state, app_type, value).await
+}
+
+/// 设置计费模式来源
+#[tauri::command]
+pub async fn set_pricing_model_source(
+    state: tauri::State<'_, AppState>,
+    app_type: String,
+    value: String,
+) -> Result<(), String> {
+    set_pricing_model_source_internal(&state, &app_type, &value)
+        .await
+        .map_err(|e| e.to_string())
 }

@@ -18,6 +18,7 @@ import {
   ChevronDown,
   Stethoscope,
 } from "lucide-react";
+import { HelpButton } from "@/components/ui/help-button";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -790,9 +791,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     >
       <header className="space-y-1">
         <h3 className="text-sm font-medium">{t("common.about")}</h3>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.aboutHint")}
-        </p>
       </header>
 
       <motion.div
@@ -821,6 +819,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                     <span className="font-medium">{`v${displayVersion}`}</span>
                   )}
                 </Badge>
+                <HelpButton label={t("common.version")}>
+                  {t("settings.localBuildHint")}
+                </HelpButton>
                 {isPortable && (
                   <Badge variant="secondary" className="gap-1.5">
                     <Info className="h-3 w-3" />
@@ -831,10 +832,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
             </div>
           </div>
         </div>
-
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {t("settings.localBuildHint")}
-        </p>
 
         {IS_CODEX_PREVIEW && (
           <p className="text-sm text-muted-foreground">

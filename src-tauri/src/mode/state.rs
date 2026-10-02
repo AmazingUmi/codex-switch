@@ -1,6 +1,6 @@
 //! `live-state.json`：这台设备上每个应用的客户端文件状态。
 //!
-//! - `mode`、`attached`、`proxy_route`、`contract`：直连 / 代理模式（`mode::controller`）；
+//! - `mode`、`attached`、`proxy_route`、`contract`：历史接管状态，仅供升级迁移清理；
 //! - `written`：CC Switch 上次写进客户端文件、之后要按记录删掉的东西（Grok 的模型表）；
 //! - `pending`：一次写客户端文件的操作在发布前写下的意图，按文件记录写前、写后的
 //!   hash 和已备好的临时文件，崩溃后据此前滚或丢弃（`mode::operation`）。
@@ -55,7 +55,7 @@ pub enum Mode {
     Proxy,
 }
 
-/// 进入代理时写进客户端文件的契约。
+/// Historical ownership record used only to remove old takeover fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Contract {
     pub version: u32,
@@ -70,13 +70,13 @@ pub struct Contract {
 /// 一个应用的模式状态。
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ModeState {
-    /// 没有值：这台设备还没运行过有双模式的版本，启动时按旧版遗留的接管状态定下来。
+    /// Missing on old devices; startup migrates any historical takeover to Direct.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<Mode>,
-    /// 客户端文件当前是否指向代理。退出 CC Switch 时分离、下次启动再接上。
+    /// Historical takeover attachment marker, cleared during startup migration.
     #[serde(default, skip_serializing_if = "is_false")]
     pub attached: bool,
-    /// 代理模式下路由到的供应商。和直连指针互相独立，退出代理时保留。
+    /// Historical selected route, consumed and cleared by one-way migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy_route: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -207,6 +207,9 @@ pub struct PendingTarget {
     /// 直连指针：切换成功后当前供应商是谁。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pointer: Option<String>,
+    /// Clear the device and database pointers when legacy takeover has no usable direct target.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub clear_pointer: bool,
     /// 模式状态：有值时整体替换这个应用的 mode、attached、proxy_route、contract。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub state: Option<ModeState>,

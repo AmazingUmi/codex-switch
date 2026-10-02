@@ -51,7 +51,7 @@ export function ProviderStatsTable({
               {t("usage.tokens", "Tokens")}
             </TableHead>
             <TableHead className="text-right">
-              {t("usage.cost", "成本")}
+              {t("usage.estimatedCost", "Estimated cost")}
             </TableHead>
             <TableHead className="text-right">
               {t("usage.successRate", "成功率")}

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { usageApi } from "@/lib/api/usage";
 import { useTranslation } from "react-i18next";
 import {
   Table,
@@ -30,7 +31,7 @@ import { PricingEditModal } from "./PricingEditModal";
 import type { ModelPricing } from "@/types/usage";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { proxyApi } from "@/lib/api/proxy";
+
 import { ModelsDevAutoSyncPanel } from "./ModelsDevAutoSyncPanel";
 import { isCodexPricingModel } from "./codexPricing";
 
@@ -77,7 +78,7 @@ export function PricingConfigPanel() {
       try {
         const results = await Promise.all(
           PRICING_APPS.map(async (app) => {
-            const source = await proxyApi.getPricingModelSource(app);
+            const source = await usageApi.getPricingModelSource(app);
             return {
               app,
               source: (source === "request"
@@ -122,7 +123,7 @@ export function PricingConfigPanel() {
     try {
       await Promise.all(
         PRICING_APPS.map((app) =>
-          proxyApi.setPricingModelSource(app, sources[app]),
+          usageApi.setPricingModelSource(app, sources[app]),
         ),
       );
       toast.success(t("settings.globalProxy.pricingSaved"));

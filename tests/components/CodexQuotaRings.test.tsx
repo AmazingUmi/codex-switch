@@ -51,6 +51,113 @@ function renderRings(tiers: QuotaTier[], inline = false) {
 }
 
 describe("Codex ring quotas", () => {
+  it("keeps labels beside their values with a larger account gauge", () => {
+    renderRings([
+      { name: "five_hour", utilization: 32, resetsAt: null },
+      { name: "seven_day", utilization: 64, resetsAt: null },
+    ]);
+    expect(screen.getByRole("img")).toHaveClass(
+      "w-[160px]",
+      "min-w-[140px]",
+      "max-w-full",
+    );
+    const valueRow = screen.getByText("32%").parentElement!;
+    expect(valueRow).toHaveTextContent("5-Hour");
+    expect(valueRow).not.toHaveClass("justify-between");
+    expect(valueRow).toHaveClass("justify-end");
+    expect(valueRow.parentElement!.parentElement).toHaveClass(
+      "justify-self-end",
+      "text-right",
+    );
+    expect(screen.getByRole("img").parentElement).toHaveClass("justify-center");
+    expect(screen.getByRole("img").parentElement!.parentElement).toHaveClass(
+      "grid",
+      "grid-cols-[minmax(140px,1fr)_minmax(100px,auto)]",
+    );
+    expect(valueRow.parentElement).toHaveTextContent(
+      en.codexAccounts.quotaResetUnknown,
+    );
+  });
+
+  it("keeps the compact inline gauge without the account two-column layout", () => {
+    renderRings([{ name: "five_hour", utilization: 32, resetsAt: null }], true);
+    expect(screen.getByRole("img")).toHaveClass("h-[76px]", "w-[76px]");
+    expect(screen.getByRole("img").parentElement!.parentElement).toHaveClass(
+      "flex",
+      "flex-wrap",
+    );
+    expect(screen.getByText("32%").parentElement).not.toHaveClass(
+      "justify-end",
+    );
+  });
+
+  it("retains unknown gauges and retry actions across unavailable states", () => {
+    const base: SubscriptionQuota = {
+      tool: "codex",
+      credentialStatus: "valid",
+      credentialMessage: null,
+      success: true,
+      tiers: [
+        { name: "five_hour", utilization: 32, resetsAt: null },
+        { name: "seven_day", utilization: 64, resetsAt: null },
+      ],
+      extraUsage: null,
+      error: null,
+      queriedAt: Date.now(),
+    };
+    const refresh = vi.fn();
+    const view = (quota: SubscriptionQuota | undefined, loading = false) => (
+      <I18nextProvider i18n={i18n}>
+        <SubscriptionQuotaView
+          quota={quota}
+          loading={loading}
+          refetch={refresh}
+          appIdForExpiredHint="codex"
+          visualization="rings"
+        />
+      </I18nextProvider>
+    );
+    const result = render(view(base));
+    const states = [
+      undefined,
+      { ...base, tiers: [] },
+      { ...base, credentialStatus: "not_found" as const, tiers: [] },
+      {
+        ...base,
+        credentialStatus: "parse_error" as const,
+        success: false,
+        tiers: [],
+      },
+      {
+        ...base,
+        credentialStatus: "expired" as const,
+        success: false,
+        tiers: [],
+      },
+      { ...base, success: false, tiers: [], error: "HTTP 503: unavailable" },
+    ];
+    for (const next of states) {
+      result.rerender(view(next, next === undefined));
+      expect(screen.getAllByText("—")).toHaveLength(2);
+      expect(screen.queryByText("0%")).not.toBeInTheDocument();
+      // Only the pending request disables refresh; each terminal state is retryable.
+      if (next === undefined) {
+        expect(
+          screen.getByRole("button", { name: en.subscription.refresh }),
+        ).toBeDisabled();
+      } else {
+        expect(
+          screen.getByRole("button", { name: en.subscription.refresh }),
+        ).toBeEnabled();
+      }
+    }
+    expect(screen.getByText("HTTP 503: unavailable")).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: en.subscription.refresh }),
+    );
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
   it("retains an explicit unknown state and refresh action when no windows are returned", () => {
     const { refresh } = renderRings([]);
     expect(screen.getByRole("status")).toHaveTextContent(
@@ -136,18 +243,27 @@ describe("Codex ring quotas", () => {
     },
   );
 
-  it("keeps help expanded when quota rendering updates", () => {
-    const { container, rerenderQuota } = renderRings([
+  it("opens quota help beside the title and retains it when quota updates", () => {
+    const { container, parentClick, rerenderQuota } = renderRings([
       { name: "five_hour", utilization: 35, resetsAt: null },
     ]);
-    const details = container.querySelector("details")!;
-    expect(details).not.toHaveAttribute("open");
-    fireEvent.click(screen.getByText(en.codexAccounts.helpLabel));
-    // JSDOM does not implement summary's default toggle behavior.
-    details.open = true;
+    expect(container.querySelector("details")).toBeNull();
+    const help = screen.getByRole("button", {
+      name: en.codexAccounts.helpLabel,
+    });
+    expect(help.parentElement).toHaveTextContent(en.subscription.title);
+    expect(
+      screen.queryByText(en.codexAccounts.helpQuota),
+    ).not.toBeInTheDocument();
+    fireEvent.click(help);
+    expect(
+      screen.getByRole("dialog", { name: en.codexAccounts.helpLabel }),
+    ).toHaveTextContent(en.codexAccounts.helpQuota);
+    expect(parentClick).not.toHaveBeenCalled();
     rerenderQuota([{ name: "five_hour", utilization: 45, resetsAt: null }]);
     expect(screen.getByText("45%")).toBeInTheDocument();
-    expect(container.querySelector("details")).toBe(details);
-    expect(details).toHaveAttribute("open");
+    expect(
+      screen.getByRole("dialog", { name: en.codexAccounts.helpLabel }),
+    ).toHaveTextContent(en.codexAccounts.helpQuota);
   });
 });

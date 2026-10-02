@@ -510,12 +510,8 @@ requires_openai_auth = true
     );
 }
 
-#[tokio::test(flavor = "current_thread")]
-#[allow(
-    clippy::await_holding_lock,
-    reason = "this integration-style test must serialize global test HOME and settings mutations across async takeover calls"
-)]
-async fn codex_official_to_deepseek_then_takeover_enters_and_restores_proxy_managed_live_config() {
+#[test]
+fn codex_official_to_deepseek_and_back_preserves_native_login() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
     enable_codex_official_auth_preservation();
@@ -584,14 +580,6 @@ wire_api = "responses"
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
 
-    let mut proxy_config = state.db.get_proxy_config().await.expect("get proxy config");
-    proxy_config.listen_port = 0;
-    state
-        .db
-        .update_proxy_config(proxy_config)
-        .await
-        .expect("use ephemeral proxy port");
-
     ProviderService::switch(&state, AppType::Codex, "deepseek-provider")
         .expect("switch from official subscription to DeepSeek");
 
@@ -606,67 +594,24 @@ wire_api = "responses"
         std::fs::read_to_string(cc_switch_lib::get_codex_config_path()).expect("read config");
     assert!(
         config_after_switch.contains("https://api.deepseek.com/v1"),
-        "normal switch should write the DeepSeek endpoint before takeover"
+        "normal switch should write the DeepSeek endpoint directly"
     );
     assert!(
         config_after_switch.contains("deepseek-key"),
         "normal switch should inject the DeepSeek key into config.toml"
     );
 
-    cc_switch_lib::mode::controller::enter(&state, &AppType::Codex)
-        .await
-        .expect("enter Codex routing mode");
-    let proxy_status = state
-        .proxy_service
-        .get_status()
-        .await
-        .expect("read proxy status after takeover");
-    let codex_proxy_base_url = format!("http://127.0.0.1:{}/v1", proxy_status.port);
-
-    let auth_after_takeover: serde_json::Value =
-        read_json_file(&cc_switch_lib::get_codex_auth_path()).expect("read auth after takeover");
-    assert_eq!(
-        auth_after_takeover, oauth_auth,
-        "enabling takeover must not rewrite Codex OAuth auth.json"
-    );
-
-    let config_after_takeover =
-        std::fs::read_to_string(cc_switch_lib::get_codex_config_path()).expect("read config");
-    assert!(
-        config_after_takeover.contains(&codex_proxy_base_url),
-        "enabling takeover should point Codex config.toml at the local proxy"
-    );
-    assert!(
-        config_after_takeover.contains("PROXY_MANAGED"),
-        "enabling takeover should move the proxy placeholder into config.toml"
-    );
-    assert!(
-        !config_after_takeover.contains("https://api.deepseek.com/v1"),
-        "takeover live config should not keep the upstream DeepSeek endpoint"
-    );
-
-    cc_switch_lib::mode::controller::exit(&state, &AppType::Codex)
-        .await
-        .expect("leave Codex routing mode");
-
+    ProviderService::switch(&state, AppType::Codex, "official-provider")
+        .expect("switch back to official");
     let restored_auth: serde_json::Value =
         read_json_file(&cc_switch_lib::get_codex_auth_path()).expect("read restored auth");
-    assert_eq!(
-        restored_auth, oauth_auth,
-        "disabling takeover should restore without replacing OAuth auth.json"
-    );
-
+    assert_eq!(restored_auth, oauth_auth);
     let restored_config = std::fs::read_to_string(cc_switch_lib::get_codex_config_path())
-        .expect("read restored config");
-    assert!(
-        restored_config.contains("https://api.deepseek.com/v1")
-            && restored_config.contains("deepseek-key"),
-        "disabling takeover should restore the selected DeepSeek live config"
-    );
-    assert!(
-        !restored_config.contains("PROXY_MANAGED"),
-        "restored live config must not keep the proxy placeholder"
-    );
+        .expect("read native official config");
+    let parsed: toml::Value = toml::from_str(&restored_config).expect("parse official config");
+    assert!(parsed.get("model_provider").is_none());
+    assert!(!restored_config.contains("PROXY_MANAGED"));
+    assert!(!restored_config.contains("https://api.deepseek.com/v1"));
 }
 
 #[test]
@@ -1890,7 +1835,7 @@ requires_openai_auth = true
 }
 
 #[test]
-fn sync_current_provider_for_app_leaves_the_proxy_contract_alone() {
+fn sync_current_provider_for_app_updates_native_settings() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
     let _home = ensure_test_home();
@@ -1936,38 +1881,22 @@ fn sync_current_provider_for_app_leaves_the_proxy_contract_alone() {
     std::fs::create_dir_all(settings_path.parent().expect("settings dir")).expect("create dir");
     std::fs::write(
         &settings_path,
-        r#"{"env":{"ANTHROPIC_BASE_URL":"https://claude.example","ANTHROPIC_AUTH_TOKEN":"real-token"}}"#,
+        r#"{"includeCoAuthoredBy":true,"env":{"ANTHROPIC_BASE_URL":"https://claude.example","ANTHROPIC_AUTH_TOKEN":"real-token"}}"#,
     )
     .expect("seed live settings");
 
-    let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
-    rt.block_on(async {
-        let mut proxy_config = state.db.get_proxy_config().await.expect("get proxy config");
-        proxy_config.listen_port = 0;
-        state
-            .db
-            .update_proxy_config(proxy_config)
-            .await
-            .expect("use ephemeral proxy port");
-        cc_switch_lib::mode::controller::enter(&state, &AppType::Claude)
-            .await
-            .expect("enter routing mode");
-    });
-    let contract_bytes = std::fs::read(&settings_path).expect("read proxy contract");
-
     ProviderService::sync_current_provider_for_app(&state, AppType::Claude)
-        .expect("sync current provider should succeed");
-
+        .expect("sync native provider");
+    let settings: serde_json::Value = read_json_file(&settings_path).expect("read native settings");
+    assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "real-token");
     assert_eq!(
-        std::fs::read(&settings_path).expect("read live settings after sync"),
-        contract_bytes,
-        "routing mode: syncing the routed provider must not rewrite live with its direct projection"
+        settings["env"]["ANTHROPIC_BASE_URL"],
+        "https://claude.example"
     );
-    rt.block_on(cc_switch_lib::mode::controller::exit(
-        &state,
-        &AppType::Claude,
-    ))
-    .expect("leave routing mode");
+    assert_eq!(
+        settings["includeCoAuthoredBy"], true,
+        "native user settings survive synchronization"
+    );
 }
 
 #[test]
@@ -2049,7 +1978,6 @@ wire_api = "responses"
     }
 
     let state = create_test_state_with_config(&config).expect("create test state");
-    assert!(!cc_switch_lib::mode::current::is_proxy(&AppType::Codex));
 
     ProviderService::switch(&state, AppType::Codex, "new-provider")
         .expect("switch in direct mode writes the new provider");

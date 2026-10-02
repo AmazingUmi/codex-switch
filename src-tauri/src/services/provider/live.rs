@@ -9,10 +9,10 @@ use serde_json::{json, Value};
 use toml_edit::{DocumentMut, Item, TableLike};
 
 use crate::app_config::AppType;
+use crate::auth::codex_oauth::{CodexLiveAuthSwitchGuard, CodexOAuthManager};
 use crate::config::{get_claude_settings_path, read_json_file};
 use crate::error::AppError;
 use crate::provider::Provider;
-use crate::proxy::providers::codex_oauth_auth::{CodexLiveAuthSwitchGuard, CodexOAuthManager};
 use crate::services::mcp::McpService;
 use crate::store::AppState;
 
@@ -748,35 +748,16 @@ pub(crate) fn sync_additive_app_to_live(
 pub(crate) enum LiveSyncOutcome {
     /// 按直连投影写了 live。
     WroteLive,
-    /// 应用在代理模式：live 是代理契约，没有按直连写。
-    ProxyMode,
 }
 
-/// 把 `provider` 同步到 live，按应用的模式处理：
-/// - 直连模式：按直连投影写 live；
-/// - 代理模式：live 是代理契约。`provider` 是代理路由的那家时按新契约重写（契约没变
-///   就不动）；其余供应商（包括直连指针那家）只在退出代理时写回，这里不碰 live。
-///
-/// `prev` 是 live 现在对应的那一版供应商行（编辑前的行），Claude 按它删上一版带进来的
-/// 独有字段；`None` 表示 live 对应的就是 `provider` 自己。调用方持有这个应用的代理切换锁
-/// （`controller::lock_settled_blocking`），并且在拿锁之后才读谁是当前供应商：不拿锁的
-/// 话，读完模式到写完 live 之间进入代理，直连的关键字段会盖掉刚写的代理契约。
-pub(crate) fn sync_live_for_provider_respecting_mode(
+/// Publish native fields using the prior row for ownership cleanup.
+/// The caller holds the app switch lock and reads current ownership after settling.
+pub(crate) fn sync_live_for_provider(
     state: &AppState,
     app_type: &AppType,
     provider: &Provider,
     prev: Option<&Provider>,
 ) -> Result<LiveSyncOutcome, AppError> {
-    let mode = crate::mode::current::mode_state(app_type);
-    if mode.is_proxy() {
-        if mode.proxy_route.as_deref() == Some(provider.id.as_str()) {
-            futures::executor::block_on(crate::mode::controller::resync_route_locked(
-                state, app_type,
-            ))
-            .map_err(AppError::Message)?;
-        }
-        return Ok(LiveSyncOutcome::ProxyMode);
-    }
     if matches!(app_type, AppType::Claude) {
         super::claude_direct::reapply(state.db.as_ref(), prev.or(Some(provider)), provider)?;
     } else if matches!(app_type, AppType::GrokBuild) {
@@ -788,9 +769,9 @@ pub(crate) fn sync_live_for_provider_respecting_mode(
     Ok(LiveSyncOutcome::WroteLive)
 }
 
-/// 把正在用的那家（代理模式下是代理路由）同步到 live；没有正在用的那家时返回 `None`。
+/// Publish the selected direct connection, or return None when no connection is selected.
 /// 返回时已经放开切换锁。
-pub(crate) fn sync_current_provider_for_app_respecting_mode(
+pub(crate) fn sync_current_provider_for_app(
     state: &AppState,
     app_type: &AppType,
 ) -> Result<Option<LiveSyncOutcome>, AppError> {
@@ -809,7 +790,7 @@ pub(crate) fn sync_current_provider_for_app_respecting_mode(
         return Ok(None);
     };
 
-    sync_live_for_provider_respecting_mode(state, app_type, provider, None).map(Some)
+    sync_live_for_provider(state, app_type, provider, None).map(Some)
 }
 
 /// Sync current provider to live configuration
@@ -834,7 +815,7 @@ pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
             // Switch mode: sync only current provider. During proxy takeover,
             // update the restore backup instead of rewriting the taken-over
             // live file.
-            sync_current_provider_for_app_respecting_mode(state, &app_type).map(|_| ())
+            sync_current_provider_for_app(state, &app_type).map(|_| ())
         };
 
         if let Err(error) = result {
@@ -1009,7 +990,7 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
     // PROXY_MANAGED 占位符和本地代理地址，不是用户的真实配置。一旦导入，
     // 它会成为直连指针（SSOT），退出代理时会把占位符当真实配置写回 Live。
     // 典型触发场景：代理模式下切换 app_config_dir 并重启，新数据库首启导入。
-    if state.proxy_service.live_has_proxy_placeholder(&app_type) {
+    if crate::mode::controller::live_has_proxy_placeholder(&app_type) {
         return Err(AppError::localized(
             "provider.import.live_taken_over",
             "Live 配置当前处于代理接管状态（包含占位符），不能导入为供应商。请先关闭代理接管或恢复 Live 配置后重试。",

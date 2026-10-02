@@ -20,6 +20,7 @@ import {
   fmtUsd,
   formatTokensShort,
   getResolvedLang,
+  getLocaleFromLanguage,
   parseFiniteNumber,
 } from "./format";
 import {
@@ -76,6 +77,7 @@ export function UsageHero({
 }: UsageHeroProps) {
   const { t, i18n } = useTranslation();
   const lang = getResolvedLang(i18n);
+  const locale = getLocaleFromLanguage(lang);
   const appType = "codex";
 
   const { data, isLoading } = useUsageSummary(
@@ -168,12 +170,10 @@ export function UsageHero({
                   <div className="flex items-baseline gap-2">
                     <span
                       className="text-2xl md:text-3xl font-bold tabular-nums tracking-tight leading-none"
-                      title={realTotal.toLocaleString()}
+                      title={realTotal.toLocaleString(locale)}
+                      aria-label={realTotal.toLocaleString(locale)}
                     >
-                      {realTotal.toLocaleString()}
-                    </span>
-                    <span className="text-xs text-muted-foreground font-medium bg-muted/40 px-1.5 py-0.5 rounded-md">
-                      ≈ {formatTokensShort(realTotal, lang, 2)}
+                      {formatTokensShort(realTotal, lang, 2)}
                     </span>
                   </div>
                 </div>
@@ -192,7 +192,7 @@ export function UsageHero({
                 <div className="w-px h-8 bg-border/60" />
                 <div className="flex flex-col">
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                    {t("usage.totalCost")}
+                    {t("usage.estimatedCost", "Estimated cost")}
                   </span>
                   <span className="font-semibold text-green-500 text-sm tabular-nums">
                     {totalCost == null ? "--" : fmtUsd(totalCost, 4)}

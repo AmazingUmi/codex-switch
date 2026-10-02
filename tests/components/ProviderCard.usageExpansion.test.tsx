@@ -19,9 +19,6 @@ vi.mock("@/components/UsageFooter", () => ({
 vi.mock("@/components/SubscriptionQuotaFooter", () => ({
   default: () => <div>official-subscription-quota</div>,
 }));
-vi.mock("@/lib/query/failover", () => ({
-  useProviderHealth: () => ({ data: undefined }),
-}));
 
 function renderCard({
   official = false,
@@ -60,7 +57,6 @@ function renderCard({
         provider={provider}
         appId="codex"
         isCurrent={true}
-        isProxyRunning={false}
         onSwitch={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}

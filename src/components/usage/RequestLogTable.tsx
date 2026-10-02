@@ -28,9 +28,11 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { UsageDateRangePicker } from "./UsageDateRangePicker";
 import {
   formatOutputTokensPerSecond,
+  formatUsageDateTime,
   fmtInt,
   fmtUsd,
   getLocaleFromLanguage,
+  getUsageTimeZone,
   parseFiniteNumber,
 } from "./format";
 
@@ -103,6 +105,7 @@ export function RequestLogTable({
 
   const language = i18n.resolvedLanguage || i18n.language || "en";
   const locale = getLocaleFromLanguage(language);
+  const timeZone = getUsageTimeZone();
 
   return (
     <div className="space-y-4">
@@ -139,6 +142,9 @@ export function RequestLogTable({
               onApply={onRangeChange}
             />
           )}
+          <span className="ml-auto text-xs text-muted-foreground">
+            {timeZone}
+          </span>
         </div>
       </div>
 
@@ -166,7 +172,7 @@ export function RequestLogTable({
                     {t("usage.outputTokens")}
                   </TableHead>
                   <TableHead className="text-center whitespace-nowrap">
-                    {t("usage.totalCost")}
+                    {t("usage.estimatedCost", "Estimated cost")}
                   </TableHead>
                   <TableHead className="text-center whitespace-nowrap">
                     {t("usage.timingInfo")}
@@ -192,18 +198,17 @@ export function RequestLogTable({
                 ) : (
                   logs.map((log) => {
                     const unpriced = isUnpricedUsage(log);
+                    const date = new Date(log.createdAt * 1000);
                     return (
                       <TableRow key={log.requestId}>
-                        <TableCell className="text-center whitespace-nowrap text-xs px-1.5">
-                          {new Date(log.createdAt * 1000).toLocaleString(
-                            locale,
-                            {
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            },
-                          )}
+                        <TableCell
+                          className="text-center whitespace-nowrap text-xs px-1.5 tabular-nums"
+                          title={formatUsageDateTime(date, locale, {
+                            includeYear: true,
+                            includeTimeZone: true,
+                          })}
+                        >
+                          {formatUsageDateTime(date, locale)}
                         </TableCell>
                         <TableCell className="text-center">
                           {log.providerName || t("usage.unknownProvider")}

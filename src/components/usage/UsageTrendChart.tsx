@@ -15,7 +15,9 @@ import { Loader2 } from "lucide-react";
 import {
   fmtInt,
   fmtUsd,
+  formatUsageDateTime,
   getLocaleFromLanguage,
+  getUsageTimeZone,
   parseFiniteNumber,
 } from "./format";
 import { resolveUsageRange } from "@/lib/usageRange";
@@ -80,12 +82,9 @@ export function buildUsageTrendChartData(
       // returns sparse points that share the same local MM/DD across years.
       const xKey = stat.date;
       const tooltipLabel = isHourly
-        ? pointDate.toLocaleString(dateLocale, {
-            year: "numeric",
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
+        ? formatUsageDateTime(pointDate, dateLocale, {
+            includeYear: true,
+            includeTimeZone: true,
           })
         : pointDate.toLocaleDateString(dateLocale, {
             year: "numeric",
@@ -93,12 +92,7 @@ export function buildUsageTrendChartData(
             day: "2-digit",
           });
       const label = isHourly
-        ? pointDate.toLocaleString(dateLocale, {
-            month: "2-digit",
-            day: "2-digit",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
+        ? formatUsageDateTime(pointDate, dateLocale)
         : spansMultipleYears
           ? pointDate.toLocaleDateString(dateLocale, {
               year: "2-digit",
@@ -176,6 +170,7 @@ export function UsageTrendChart({
   const isHourly = durationSeconds <= 24 * 60 * 60;
   const language = i18n.resolvedLanguage || i18n.language || "en";
   const dateLocale = getLocaleFromLanguage(language);
+  const timeZone = getUsageTimeZone();
   const tokenTickFormatter = useMemo(
     () => createUsageTrendTokenTickFormatter(dateLocale),
     [dateLocale],
@@ -233,11 +228,13 @@ export function UsageTrendChart({
 
   return (
     <div className="rounded-xl border border-border/50 bg-card/40 p-6 backdrop-blur-sm">
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-lg font-semibold">
           {t("usage.trends", "使用趋势")}
         </h3>
-        <p className="text-sm text-muted-foreground">{rangeLabel}</p>
+        <p className="text-sm text-muted-foreground">
+          {rangeLabel} · {timeZone}
+        </p>
       </div>
 
       <div className="h-[350px] w-full">
@@ -354,7 +351,7 @@ export function UsageTrendChart({
               yAxisId="cost"
               type="monotone"
               dataKey="cost"
-              name={t("usage.cost", "成本")}
+              name={t("usage.estimatedCost", "Estimated cost")}
               stroke="#f43f5e"
               fill="none"
               strokeWidth={2}

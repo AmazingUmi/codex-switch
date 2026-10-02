@@ -30,6 +30,12 @@
     --ring: 210 100% 56%;
 
     --radius: 1rem;
+    --control-radius: 9999px;
+    --control-height-sm: 32px;
+    --control-height-md: 36px;
+    --control-height-lg: 40px;
+    --capsule-active: hsl(210 90% 42%);
+    --capsule-selection: hsl(210 100% 94%);
     --glass-surface: rgb(255 255 255 / 58%);
     --glass-highlight: rgb(255 255 255 / 82%);
     --glass-line: rgb(255 255 255 / 76%);
@@ -65,6 +71,8 @@
     --border: 218 20% 29%;
     --input: 218 20% 29%;
     --ring: 210 100% 54%;
+    --capsule-active: hsl(210 100% 73%);
+    --capsule-selection: hsl(210 60% 25%);
     --glass-surface: rgb(34 42 60 / 62%);
     --glass-highlight: rgb(255 255 255 / 9%);
     --glass-line: rgb(255 255 255 / 13%);
@@ -112,7 +120,7 @@
 }
 
 .glass-header {
-  border-radius: 22px;
+  border-radius: var(--control-radius);
 }
 
 .glass-popover {
@@ -121,6 +129,10 @@
 }
 
 @layer components {
+  .app-button {
+    border-radius: var(--control-radius);
+  }
+
   .glass-button {
     border: 1px solid var(--glass-line);
     background: var(--glass-surface);
@@ -188,32 +200,6 @@
   }
 }
 
-.glass-tabs {
-  background: hsl(var(--muted-foreground) / 0.09);
-  border: 1px solid var(--glass-line);
-  border-radius: 16px;
-  box-shadow: inset 0 1px 0 var(--glass-highlight);
-}
-
-.glass-tab[data-state="active"],
-.glass-tabs [role="tab"][aria-selected="true"],
-.app-navigation [role="tab"][aria-selected="true"],
-.app-navigation button[aria-pressed="true"] {
-  background: var(--glass-highlight);
-  color: hsl(var(--foreground));
-  border-color: var(--glass-line);
-  box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    0 2px 6px var(--glass-edge);
-}
-
-.glass-tab:focus-visible,
-.glass-tabs [role="tab"]:focus-visible,
-.app-navigation button:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 3px;
-}
-
 .app-shell {
   background:
     radial-gradient(
@@ -278,14 +264,8 @@
 @media (forced-colors: active) {
   .glass-button,
   .glass-card,
-  .glass-tabs {
+  .capsule-bar {
     border: 1px solid ButtonText;
-  }
-  .glass-tab[data-state="active"],
-  .glass-tabs [role="tab"][aria-selected="true"],
-  .app-navigation [role="tab"][aria-selected="true"],
-  .app-navigation button[aria-pressed="true"] {
-    outline: 2px solid Highlight;
   }
 }
 
@@ -474,6 +454,169 @@ input[type="password"]::-ms-clear {
  */
 .usage-range-popover {
   container-type: inline-size;
+}
+
+/* One shared capsule and moving selection; its icon buttons stay transparent. */
+/* Shared navigation and preference controls use one capsule surface. */
+.capsule-bar {
+  --capsule-inset: 4px;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  flex-shrink: 0;
+  height: var(--control-height-lg);
+  align-items: stretch;
+  padding: var(--capsule-inset);
+  border: 1px solid var(--glass-line);
+  border-radius: var(--control-radius);
+  background: var(--glass-surface);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+.capsule-selection {
+  position: absolute;
+  z-index: 0;
+  top: var(--capsule-inset);
+  bottom: var(--capsule-inset);
+  left: 0;
+  border-radius: var(--control-radius);
+  background: var(--capsule-selection);
+  pointer-events: none;
+  transition:
+    transform 180ms ease,
+    width 180ms ease;
+}
+
+.capsule-bar .capsule-option {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: var(--control-radius);
+  background: transparent;
+  box-shadow: none;
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+
+.capsule-bar .capsule-option[aria-selected="true"],
+.capsule-bar .capsule-option[aria-pressed="true"],
+.capsule-bar .capsule-option[data-state="active"] {
+  color: var(--capsule-active);
+}
+
+.capsule-bar .capsule-option:hover:not(:disabled) {
+  color: var(--capsule-active);
+}
+
+.capsule-bar .capsule-option:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: -2px;
+}
+
+.capsule-bar .capsule-option:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.codex-navigation {
+  --capsule-inset: 6px;
+  display: flex;
+  width: 204px;
+  height: 56px;
+}
+
+.codex-navigation-tabs {
+  display: flex;
+  min-width: 0;
+  flex: 2 1 0;
+}
+
+.codex-navigation .codex-navigation-item {
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 0;
+}
+
+.capsule-bar .capsule-option-icon {
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+
+.codex-navigation-item svg {
+  width: 19px;
+  height: 19px;
+}
+
+.section-heading {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+}
+
+.section-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.section-actions > button {
+  width: var(--control-height-sm);
+  height: var(--control-height-sm);
+  border-radius: var(--control-radius);
+}
+
+@media (min-width: 640px) {
+  .codex-navigation {
+    width: 276px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capsule-selection,
+  .capsule-bar .capsule-option {
+    transition: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .capsule-bar {
+    border-color: ButtonText;
+    background: Canvas;
+  }
+  .capsule-selection {
+    background: Highlight;
+  }
+  .capsule-bar .capsule-option[aria-selected="true"],
+  .capsule-bar .capsule-option[aria-pressed="true"],
+  .capsule-bar .capsule-option[data-state="active"] {
+    color: HighlightText;
+    outline: 1px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 
 @container (min-width: 500px) {

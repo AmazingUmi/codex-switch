@@ -1,6 +1,7 @@
 import React from "react";
-import { Clock, Info, RefreshCw } from "lucide-react";
+import { Clock, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { HelpButton } from "@/components/ui/help-button";
 import type { QuotaTier, SubscriptionQuota } from "@/types/subscription";
 
 interface CodexQuotaRingsProps {
@@ -13,6 +14,9 @@ interface CodexQuotaRingsProps {
   updatedLabel: string;
   refreshFailed?: boolean;
   refreshError?: string | null;
+  statusLabel?: string;
+  statusMessage?: string | null;
+  statusTone?: "warning" | "error";
 }
 
 // Missing or corrupt API data must never look like unused quota.
@@ -50,6 +54,9 @@ export function CodexQuotaRings({
   updatedLabel,
   refreshFailed = false,
   refreshError,
+  statusLabel,
+  statusMessage,
+  statusTone,
 }: CodexQuotaRingsProps) {
   const { t } = useTranslation();
   const [now, setNow] = React.useState(Date.now());
@@ -69,13 +76,22 @@ export function CodexQuotaRings({
 
   return (
     <div
-      className={`codex-quota-panel min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-3 py-3 shadow-sm backdrop-blur-xl ${inline ? "w-full max-w-sm" : "mt-3"}`}
+      className={`codex-quota-panel flex min-w-0 flex-col rounded-2xl border border-border-default/70 bg-card/50 px-3 py-2 shadow-sm backdrop-blur-xl ${inline ? "w-full max-w-sm" : "mt-2"}`}
       aria-busy={loading}
     >
-      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
-        <span className="truncate text-[11px] font-medium text-muted-foreground">
-          {t("subscription.title")}
-        </span>
+      <div className="mb-1 flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          <span className="truncate text-[11px] font-medium text-muted-foreground">
+            {t("subscription.title")}
+          </span>
+          <HelpButton
+            label={t("codexAccounts.helpLabel")}
+            align="start"
+            className="h-7 w-7"
+          >
+            <p>{t("codexAccounts.helpQuota")}</p>
+          </HelpButton>
+        </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <span
             className="flex items-center gap-1 text-[10px] text-muted-foreground"
@@ -108,73 +124,71 @@ export function CodexQuotaRings({
         </div>
       </div>
 
-      {refreshFailed && (
-        <p
-          role="status"
-          className="mb-3 break-words text-[11px] text-amber-700 dark:text-amber-400"
-          title={refreshError || undefined}
-        >
-          {t("codexAccounts.quotaRefreshFailed", "刷新失败，显示上次成功数据")}
-        </p>
-      )}
-
-      <div className="flex min-w-0 flex-wrap items-center gap-3">
-        <svg
-          viewBox="0 0 136 136"
-          className={`shrink-0 ${inline ? "h-[76px] w-[76px]" : "h-24 w-24"}`}
-          role="img"
-          aria-label={tiers
-            .slice(0, 2)
-            .map(
-              (tier) =>
-                `${labelFor(tier)}: ${knownPercentage(tier.utilization) ? `${valueFor(tier)} ${usedLabel}` : unknownLabel}`,
-            )
-            .join("; ")}
-        >
-          {tiers.slice(0, 2).map((tier, index) => {
-            const radius = index === 0 ? 56 : 41;
-            const known = knownPercentage(tier.utilization);
-            return (
-              <g key={tier.name} fill="none" strokeWidth={9}>
-                <circle
-                  cx={68}
-                  cy={68}
-                  r={radius}
-                  stroke="currentColor"
-                  className="text-muted-foreground/15"
-                  strokeDasharray={known ? undefined : "3 5"}
-                />
-                {known && tier.utilization > 0 && (
+      <div
+        className={`min-w-0 items-center gap-3 ${inline ? "flex flex-wrap" : "grid grid-cols-[minmax(140px,1fr)_minmax(100px,auto)]"}`}
+      >
+        <div className={inline ? "shrink-0" : "flex min-w-0 justify-center"}>
+          <svg
+            viewBox="0 0 136 136"
+            className={`shrink-0 ${inline ? "h-[76px] w-[76px]" : "aspect-square h-auto w-[160px] min-w-[140px] max-w-full"}`}
+            role="img"
+            aria-label={tiers
+              .slice(0, 2)
+              .map(
+                (tier) =>
+                  `${labelFor(tier)}: ${knownPercentage(tier.utilization) ? `${valueFor(tier)} ${usedLabel}` : unknownLabel}`,
+              )
+              .join("; ")}
+          >
+            {tiers.slice(0, 2).map((tier, index) => {
+              const radius = index === 0 ? 56 : 41;
+              const known = knownPercentage(tier.utilization);
+              return (
+                <g key={tier.name} fill="none" strokeWidth={9}>
                   <circle
                     cx={68}
                     cy={68}
                     r={radius}
-                    pathLength={100}
                     stroke="currentColor"
-                    strokeLinecap={tier.utilization === 100 ? "butt" : "round"}
-                    strokeDasharray={`${tier.utilization} 100`}
-                    transform="rotate(-90 68 68)"
-                    className={ringColor(tier, index)}
-                    data-quota-value={tier.utilization}
+                    className="text-muted-foreground/15"
+                    strokeDasharray={known ? undefined : "3 5"}
                   />
-                )}
-              </g>
-            );
-          })}
-          <text
-            x={68}
-            y={73}
-            textAnchor="middle"
-            fill="currentColor"
-            className="text-muted-foreground"
-            fontSize={inline ? 15 : 13}
-            fontWeight={600}
-          >
-            {usedLabel}
-          </text>
-        </svg>
+                  {known && tier.utilization > 0 && (
+                    <circle
+                      cx={68}
+                      cy={68}
+                      r={radius}
+                      pathLength={100}
+                      stroke="currentColor"
+                      strokeLinecap={
+                        tier.utilization === 100 ? "butt" : "round"
+                      }
+                      strokeDasharray={`${tier.utilization} 100`}
+                      transform="rotate(-90 68 68)"
+                      className={ringColor(tier, index)}
+                      data-quota-value={tier.utilization}
+                    />
+                  )}
+                </g>
+              );
+            })}
+            <text
+              x={68}
+              y={73}
+              textAnchor="middle"
+              fill="currentColor"
+              className="text-muted-foreground"
+              fontSize={inline ? 15 : 13}
+              fontWeight={600}
+            >
+              {usedLabel}
+            </text>
+          </svg>
+        </div>
 
-        <div className="min-w-[125px] flex-1 space-y-3">
+        <div
+          className={`space-y-3 [overflow-wrap:anywhere] ${inline ? "min-w-[125px] flex-1" : "min-w-0 max-w-[180px] justify-self-end text-right"}`}
+        >
           {tiers.map((tier, index) => {
             const known = knownPercentage(tier.utilization);
             const reset = resetCountdown(tier.resetsAt, now);
@@ -188,13 +202,15 @@ export function CodexQuotaRings({
               tier.maxValueUsd != null;
             return (
               <div key={tier.name} className="codex-quota-window min-w-0">
-                <div className="flex items-center justify-between gap-2">
+                <div
+                  className={`flex flex-wrap items-baseline gap-x-2 gap-y-0.5 ${inline ? "" : "justify-end"}`}
+                >
                   <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
                     <span
                       aria-hidden="true"
                       className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${ringColor(tier, index)}`}
                     />
-                    <span className="truncate">{labelFor(tier)}</span>
+                    <span>{labelFor(tier)}</span>
                   </span>
                   <span
                     className={`shrink-0 font-semibold tabular-nums ${inline ? "text-base" : "text-lg"} ${ringColor(tier, index)}`}
@@ -227,6 +243,34 @@ export function CodexQuotaRings({
         </div>
       </div>
 
+      {(refreshFailed || statusLabel || statusMessage) && (
+        <div className="mt-1 text-[11px] leading-4 [overflow-wrap:anywhere]">
+          {(refreshFailed || statusLabel) && (
+            <p
+              role="status"
+              className={
+                refreshFailed || statusTone === "warning"
+                  ? "text-amber-700 dark:text-amber-400"
+                  : statusTone === "error"
+                    ? "text-red-500 dark:text-red-400"
+                    : "text-muted-foreground"
+              }
+              title={refreshError || undefined}
+            >
+              {refreshFailed
+                ? t(
+                    "codexAccounts.quotaRefreshFailed",
+                    "刷新失败，显示上次成功数据",
+                  )
+                : statusLabel}
+            </p>
+          )}
+          {statusMessage && (
+            <p className="mt-1 text-muted-foreground">{statusMessage}</p>
+          )}
+        </div>
+      )}
+
       {quota.extraUsage?.isEnabled && (
         <div className="mt-3 border-t border-border-default/60 pt-2 text-xs text-muted-foreground">
           {t("subscription.extraUsage")}:{" "}
@@ -245,17 +289,6 @@ export function CodexQuotaRings({
             )}
         </div>
       )}
-
-      <details className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-        <summary
-          className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <Info size={11} aria-hidden="true" />
-          {t("codexAccounts.helpLabel")}
-        </summary>
-        <p className="mt-1.5">{t("codexAccounts.helpQuota")}</p>
-      </details>
     </div>
   );
 }

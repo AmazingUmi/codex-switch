@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { SectionHeader } from "@/components/ui/section-header";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -23,8 +30,7 @@ import {
   Pencil,
   AlertTriangle,
   RefreshCw,
-  Star,
-  Trash2,
+  MoreHorizontal,
 } from "lucide-react";
 import { useCodexOauth } from "./hooks/useCodexOauth";
 import { copyText } from "@/lib/clipboard";
@@ -43,8 +49,16 @@ interface CodexOAuthSectionProps {
   /** Explicit effective Codex account; independent of the OAuth default. */
   currentAccountId?: string | null;
   renderAccountActions?: (account: ManagedAuthAccount) => React.ReactNode;
+  renderAccountHeaderActions?: (account: ManagedAuthAccount) => React.ReactNode;
+  renderAccountEditOptions?: (account: ManagedAuthAccount) => React.ReactNode;
+  onAccountEditOpened?: (account: ManagedAuthAccount) => void;
+  onAccountEditSaved?: (account: ManagedAuthAccount) => void;
+  /** Optional bulk operation in the card header menu or below the list. */
+  showLogoutAll?: boolean;
   /** Nearby account help/current API label, shared with the compact account header. */
   headerActions?: React.ReactNode;
+  /** Home's shared chooser can start the existing ChatGPT login flow. */
+  onAddAccount?: (startLogin: () => void) => void;
   /** select 模式只展示账号选择和管理入口；manage 模式展示完整账号管理 */
   mode?: "manage" | "select";
   /** 是否展示每个账号的订阅额度 */
@@ -90,7 +104,13 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
   presentation = "list",
   currentAccountId,
   renderAccountActions,
+  renderAccountHeaderActions,
+  renderAccountEditOptions,
+  onAccountEditOpened,
+  onAccountEditSaved,
+  showLogoutAll = false,
   headerActions,
+  onAddAccount,
   mode = "manage",
   showAccountQuota = false,
   selectedAccountId,
@@ -181,9 +201,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
     selectedAccountId,
   ]);
 
-  const handleRemoveAccount = (accountId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleRemoveAccount = (accountId: string) => {
     removeAccount(accountId);
     if (selectedAccountId === accountId) {
       onSelectionInvalidated?.();
@@ -348,16 +366,113 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
       </div>
     );
 
+  const accountStatusLabel = isStatusError
+    ? t("codexOauth.statusUnavailable", "状态不可用")
+    : !isStatusSuccess
+      ? t("codexOauth.statusLoading", "正在加载...")
+      : hasAnyAccount
+        ? t("codexOauth.accountCount", {
+            count: accounts.length,
+            defaultValue: `${accounts.length} 个账号`,
+          })
+        : t("codexOauth.notAuthenticated", "未认证");
+
+  const canLogoutAll = showLogoutAll && isStatusSuccess && hasAnyAccount;
+
   return (
-    <div
-      className={`${presentation === "cards" ? "space-y-3" : "space-y-4"} ${className || ""}`}
-    >
+    <div className={cn("space-y-4", className)}>
       {/* 认证状态标题 */}
-      {mode === "manage" && (
-        <div className="flex items-center justify-between">
-          <Label className={presentation === "cards" ? "sr-only" : undefined}>
-            {t("codexOauth.authStatus", "认证状态")}
-          </Label>
+      {mode === "manage" && presentation === "cards" && (
+        <SectionHeader
+          title={t("codexAccounts.subscriptionAccounts", "订阅账户")}
+          status={
+            <span
+              className={cn(
+                "shrink-0 text-xs text-muted-foreground",
+                isStatusError && "text-destructive",
+              )}
+            >
+              {accountStatusLabel}
+            </span>
+          }
+          actions={
+            <>
+              {headerActions}
+              {(onAddAccount || isStatusSuccess) && pollingState === "idle" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={
+                    onAddAccount ? () => onAddAccount(addAccount) : addAccount
+                  }
+                  disabled={isAddingAccount}
+                  title={
+                    onAddAccount
+                      ? t("common.add", "添加")
+                      : hasAnyAccount
+                        ? t("codexOauth.addAnotherAccount", "添加其他账号")
+                        : t("codexOauth.loginWithChatGPT", "使用 ChatGPT 登录")
+                  }
+                  aria-label={
+                    onAddAccount
+                      ? t("common.add", "添加")
+                      : hasAnyAccount
+                        ? t("codexOauth.addAnotherAccount", "添加其他账号")
+                        : t("codexOauth.loginWithChatGPT", "使用 ChatGPT 登录")
+                  }
+                >
+                  {isAddingAccount ? (
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  )}
+                </Button>
+              )}
+              {canLogoutAll && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground"
+                      aria-label={t(
+                        "codexAccounts.moreActions",
+                        "更多账号操作",
+                      )}
+                      title={t("codexAccounts.moreActions", "更多账号操作")}
+                    >
+                      <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      disabled={
+                        isAddingAccount ||
+                        isRemovingAccount ||
+                        isSettingDefaultAccount
+                      }
+                      onSelect={logout}
+                    >
+                      <LogOut className="h-4 w-4" aria-hidden="true" />
+                      {t("codexOauth.logoutAll", "注销所有账号")}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </>
+          }
+        />
+      )}
+      {mode === "manage" && presentation !== "cards" && (
+        <div className="flex items-center gap-2">
+          <Label>{t("codexOauth.authStatus", "认证状态")}</Label>
           <Badge
             variant={
               isStatusError
@@ -372,51 +487,8 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                 : ""
             }
           >
-            {isStatusError
-              ? t("codexOauth.statusUnavailable", "状态不可用")
-              : !isStatusSuccess
-                ? t("codexOauth.statusLoading", "正在加载...")
-                : hasAnyAccount
-                  ? t("codexOauth.accountCount", {
-                      count: accounts.length,
-                      defaultValue: `${accounts.length} 个账号`,
-                    })
-                  : t("codexOauth.notAuthenticated", "未认证")}
+            {accountStatusLabel}
           </Badge>
-          {presentation === "cards" && (
-            <div className="flex min-w-0 items-center gap-1">
-              {headerActions}
-              {isStatusSuccess && pollingState === "idle" && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={addAccount}
-                  disabled={isAddingAccount}
-                  title={
-                    hasAnyAccount
-                      ? t("codexOauth.addAnotherAccount", "添加其他账号")
-                      : t("codexOauth.loginWithChatGPT", "使用 ChatGPT 登录")
-                  }
-                  aria-label={
-                    hasAnyAccount
-                      ? t("codexOauth.addAnotherAccount", "添加其他账号")
-                      : t("codexOauth.loginWithChatGPT", "使用 ChatGPT 登录")
-                  }
-                >
-                  {isAddingAccount ? (
-                    <Loader2
-                      className="h-4 w-4 animate-spin"
-                      aria-hidden="true"
-                    />
-                  ) : (
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  )}
-                </Button>
-              )}
-            </div>
-          )}
         </div>
       )}
 
@@ -462,8 +534,8 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
             </p>
             <p className="text-xs leading-relaxed text-amber-800/90 dark:text-amber-200/80">
               {t(
-                "codexOauth.reauthDescription",
-                "部分账号的登录信息需要更新，请点击对应账号的“重新登录”。",
+                "codexAccounts.reauthDescription",
+                "部分账号需要更新登录信息，请进入对应账号的编辑页面重新登录。",
               )}
             </p>
           </div>
@@ -527,7 +599,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
           <div
             className={
               presentation === "cards"
-                ? "grid grid-cols-1 items-start gap-4 min-[900px]:grid-cols-2"
+                ? "grid auto-rows-fr grid-cols-1 items-stretch gap-4 min-[900px]:grid-cols-2"
                 : "space-y-1"
             }
           >
@@ -539,7 +611,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                 data-reauth={
                   !!account.reauth_required || !!account.requires_reauth
                 }
-                className={`min-w-0 space-y-2 border ${presentation === "cards" ? "glass-card p-4" : "rounded-md p-2"} ${
+                className={`min-w-0 border ${presentation === "cards" ? "glass-card flex h-full flex-col gap-2 p-3 [&>.codex-quota-panel]:mt-0" : "space-y-2 rounded-md p-2"} ${
                   account.reauth_required || account.requires_reauth
                     ? "border-amber-300/70 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-950/30"
                     : presentation === "cards"
@@ -547,127 +619,87 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                       : "bg-muted/30"
                 }`}
               >
-                <div className="flex min-w-0 items-start justify-between gap-2">
-                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-                    <CodexAccountIcon account={account} />
-                    <span
-                      className="min-w-0 truncate text-sm font-medium"
+                <div
+                  className={
+                    presentation === "cards" ? "space-y-1" : "space-y-2"
+                  }
+                >
+                  <div className="flex min-w-0 items-start justify-between gap-2">
+                    <div
+                      className={`flex min-w-0 flex-1 items-center gap-2 ${presentation === "cards" ? "" : "flex-wrap"}`}
+                    >
+                      <CodexAccountIcon account={account} />
+                      <span
+                        className={`min-w-0 truncate text-sm font-medium ${presentation === "cards" ? "flex-1" : ""}`}
+                        title={account.display_name || account.login}
+                      >
+                        {account.display_name || account.login}
+                      </span>
+                      {currentAccountId === account.id && (
+                        <Badge className="shrink-0 bg-green-600 text-xs hover:bg-green-600">
+                          {t("codexAccounts.current", "当前使用")}
+                        </Badge>
+                      )}
+                      {selectedAccountId === account.id && (
+                        <Badge variant="outline" className="shrink-0 text-xs">
+                          {t("codexOauth.selected", "已选中")}
+                        </Badge>
+                      )}
+                      {(account.reauth_required || account.requires_reauth) && (
+                        <Badge
+                          variant="outline"
+                          className="shrink-0 gap-1 border-amber-400/70 text-xs text-amber-700 dark:border-amber-500/50 dark:text-amber-300"
+                        >
+                          <AlertTriangle className="h-3 w-3" />
+                          {t("codexOauth.reauthBadge", "需要重新登录")}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-7 w-7 rounded-full"
+                        title={t("codexAccounts.editTitle", "编辑账号")}
+                        aria-label={`${t("codexAccounts.editTitle", "编辑账号")}: ${account.login}`}
+                        onClick={() => {
+                          onAccountEditOpened?.(account);
+                          setEditingAccount(account);
+                        }}
+                      >
+                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
+                      {renderAccountHeaderActions?.(account)}
+                    </div>
+                  </div>
+                  {account.display_name && (
+                    <p
+                      className="truncate text-xs text-muted-foreground"
                       title={account.login}
                     >
-                      {account.display_name || account.login}
-                    </span>
-                    {currentAccountId === account.id && (
-                      <Badge className="shrink-0 bg-green-600 text-xs hover:bg-green-600">
-                        {t("codexAccounts.current", "当前使用")}
-                      </Badge>
-                    )}
-                    {selectedAccountId === account.id && (
-                      <Badge variant="outline" className="shrink-0 text-xs">
-                        {t("codexOauth.selected", "已选中")}
-                      </Badge>
-                    )}
-                    {(account.reauth_required || account.requires_reauth) && (
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 gap-1 border-amber-400/70 text-xs text-amber-700 dark:border-amber-500/50 dark:text-amber-300"
-                      >
-                        <AlertTriangle className="h-3 w-3" />
-                        {t("codexOauth.reauthBadge", "需要重新登录")}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size={presentation === "cards" ? "icon" : "sm"}
-                      title={t("codexOauth.reauthLogin", "重新登录")}
-                      aria-label={t("codexOauth.reauthLogin", "重新登录")}
-                      className={`${presentation === "cards" ? "h-7 w-7" : "h-7 gap-1 px-2 text-xs"} ${
-                        account.reauth_required
-                          ? "border-amber-400/70 text-amber-700 hover:bg-amber-100 dark:border-amber-500/50 dark:text-amber-300 dark:hover:bg-amber-900/40"
-                          : "text-muted-foreground"
-                      }`}
-                      onClick={() => reauthAccount(account.id)}
-                      disabled={isAddingAccount}
+                      {account.login}
+                    </p>
+                  )}
+                  {account.notes && (
+                    <p
+                      className="line-clamp-2 break-words text-xs text-muted-foreground"
+                      title={account.notes}
                     >
-                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                      {presentation !== "cards" &&
-                        t("codexOauth.reauthLogin", "重新登录")}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-7 w-7"
-                      title={t("codexAccounts.editTitle", "编辑账号")}
-                      aria-label={`${t("codexAccounts.editTitle", "编辑账号")}: ${account.login}`}
-                      onClick={() => setEditingAccount(account)}
-                    >
-                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                    </Button>
-                  </div>
+                      {account.notes}
+                    </p>
+                  )}
                 </div>
-                {account.display_name && (
-                  <p
-                    className="truncate text-xs text-muted-foreground"
-                    title={account.login}
-                  >
-                    {account.login}
-                  </p>
-                )}
-                {account.notes && (
-                  <p
-                    className="line-clamp-2 break-words text-xs text-muted-foreground"
-                    title={account.notes}
-                  >
-                    {account.notes}
-                  </p>
-                )}
                 {showAccountQuota && (
                   <CodexOauthAccountQuota accountId={account.id} />
                 )}
-                {renderAccountActions?.(account)}
-                <details className="border-t border-border/50 pt-2 text-xs text-muted-foreground">
-                  <summary className="w-fit cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                    {t("codexAccounts.advancedOptions", "高级选项")}
-                  </summary>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {defaultAccountId === account.id ? (
-                      <Badge variant="secondary" className="text-xs">
-                        {t("codexOauth.defaultAccount", "默认")}
-                      </Badge>
-                    ) : (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1 px-2 text-xs"
-                        onClick={() => setDefaultAccount(account.id)}
-                        disabled={isSettingDefaultAccount}
-                        title={t("codexOauth.setAsDefault", "设为默认")}
-                      >
-                        <Star className="h-3.5 w-3.5" aria-hidden="true" />
-                        {t("codexOauth.setAsDefault", "设为默认")}
-                      </Button>
-                    )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-xs text-destructive"
-                      onClick={(event) =>
-                        handleRemoveAccount(account.id, event)
-                      }
-                      disabled={isRemovingAccount}
-                      aria-label={`${t("codexOauth.removeAccount", "移除账号")}: ${account.login}`}
-                      title={t("codexOauth.removeAccount", "移除账号")}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                      {t("codexOauth.removeAccount", "移除账号")}
-                    </Button>
+                {renderAccountActions && (
+                  <div
+                    className={presentation === "cards" ? "mt-auto" : undefined}
+                  >
+                    {renderAccountActions(account)}
                   </div>
-                </details>
+                )}
               </div>
             ))}
           </div>
@@ -796,24 +828,40 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
         </div>
       )}
 
-      {editingAccount && (
-        <EditCodexAccountDialog
-          key={editingAccount.id}
-          account={editingAccount}
-          onClose={() => setEditingAccount(null)}
-          onSave={updateAccount}
-        />
-      )}
+      {editingAccount &&
+        accounts.some((account) => account.id === editingAccount.id) && (
+          <EditCodexAccountDialog
+            key={editingAccount.id}
+            account={
+              accounts.find((account) => account.id === editingAccount.id)!
+            }
+            isDefault={defaultAccountId === editingAccount.id}
+            isReauthenticating={isAddingAccount}
+            isRemoving={isRemovingAccount}
+            isSettingDefault={isSettingDefaultAccount}
+            actionError={error}
+            onReauthenticate={() => {
+              reauthAccount(editingAccount.id);
+              setEditingAccount(null);
+            }}
+            onSetDefault={() => setDefaultAccount(editingAccount.id)}
+            onRemove={() => handleRemoveAccount(editingAccount.id)}
+            accountOptions={renderAccountEditOptions?.(editingAccount)}
+            onClose={() => setEditingAccount(null)}
+            onSave={async (accountId, appearance) => {
+              await updateAccount(accountId, appearance);
+              onAccountEditSaved?.(editingAccount);
+            }}
+          />
+        )}
 
-      {/* 破坏性操作收进高级选项 */}
-      {mode === "manage" &&
+      {/* Bulk operation remains separate from per-account editing. */}
+      {presentation !== "cards" &&
+        showLogoutAll &&
+        mode === "manage" &&
         isStatusSuccess &&
-        hasAnyAccount &&
-        accounts.length > 1 && (
-          <details className="text-xs text-muted-foreground">
-            <summary className="w-fit cursor-pointer rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-              {t("codexAccounts.accountAdvancedOptions", "账号管理高级选项")}
-            </summary>
+        hasAnyAccount && (
+          <div className="text-xs text-muted-foreground">
             <Button
               type="button"
               variant="ghost"
@@ -825,7 +873,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
               <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
               {t("codexOauth.logoutAll", "注销所有账号")}
             </Button>
-          </details>
+          </div>
         )}
     </div>
   );

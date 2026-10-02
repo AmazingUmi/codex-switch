@@ -3376,3 +3376,15 @@ base_url = "https://cc-api.pipellm.ai/v1"`,
     iconColor: "#3A3B40",
   },
 ];
+
+/** Product chooser entries keep the legacy array index as their persisted identity. */
+export function getCodexDirectPresetEntries() {
+  return codexProviderPresets
+    .map((preset, index) => ({ id: `codex-${index}`, preset }))
+    .filter(
+      ({ preset }) =>
+        (preset.category === "official" &&
+          preset.providerType === "codex_oauth") ||
+        (preset.name === "DeepSeek" && preset.apiFormat === "openai_responses"),
+    );
+}

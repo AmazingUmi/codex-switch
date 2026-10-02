@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { FolderSearch, Undo2 } from "lucide-react";
+import { HelpButton } from "@/components/ui/help-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useTranslation } from "react-i18next";
@@ -32,20 +33,24 @@ export function DirectorySettings({
   onResetDirectory,
 }: DirectorySettingsProps) {
   const { t } = useTranslation();
+  const appDirectoryId = useId();
 
   return (
     <div className="space-y-6">
       {/* CC Switch 配置目录 - 独立区块 */}
       <section className="space-y-4">
-        <header className="space-y-1">
-          <h3 className="text-sm font-medium">{t("settings.appConfigDir")}</h3>
-          <p className="text-xs text-muted-foreground">
+        <header className="flex items-center gap-2">
+          <label htmlFor={appDirectoryId} className="text-sm font-medium">
+            {t("settings.appConfigDir")}
+          </label>
+          <HelpButton label={t("settings.appConfigDir")}>
             {t("settings.appConfigDirDescription")}
-          </p>
+          </HelpButton>
         </header>
 
         <div className="flex items-center gap-2">
           <Input
+            id={appDirectoryId}
             value={appConfigDir ?? resolvedDirs.appConfig ?? ""}
             placeholder={t("settings.browsePlaceholderApp")}
             className="text-xs"
@@ -74,21 +79,12 @@ export function DirectorySettings({
 
       {/* Codex 配置目录 - 独立区块 */}
       <section className="space-y-4">
-        <header className="space-y-1">
-          <h3 className="text-sm font-medium">
-            {t("settings.configDirectoryOverride")}
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            {t("productShell.settings.codexDirectoryDescription", {
-              defaultValue:
-                "Override the Codex configuration directory, including paths in WSL.",
-            })}
-          </p>
-        </header>
-
         <DirectoryInput
           label={t("settings.codexConfigDir")}
-          description={undefined}
+          description={t("productShell.settings.codexDirectoryDescription", {
+            defaultValue:
+              "Override the Codex configuration directory, including paths in WSL.",
+          })}
           value={codexDir}
           resolvedValue={resolvedDirs.codex}
           placeholder={t("settings.browsePlaceholderCodex")}
@@ -123,6 +119,7 @@ function DirectoryInput({
   onReset,
 }: DirectoryInputProps) {
   const { t } = useTranslation();
+  const inputId = useId();
   const displayValue = useMemo(
     () => value ?? resolvedValue ?? "",
     [value, resolvedValue],
@@ -130,14 +127,20 @@ function DirectoryInput({
 
   return (
     <div className="space-y-1.5">
-      <div className="space-y-1">
-        <p className="text-xs font-medium text-foreground">{label}</p>
+      <div className="flex items-center gap-2">
+        <label
+          htmlFor={inputId}
+          className="text-sm font-medium text-foreground"
+        >
+          {label}
+        </label>
         {description ? (
-          <p className="text-xs text-muted-foreground">{description}</p>
+          <HelpButton label={label}>{description}</HelpButton>
         ) : null}
       </div>
       <div className="flex items-center gap-2">
         <Input
+          id={inputId}
           value={displayValue}
           placeholder={placeholder}
           className="text-xs"

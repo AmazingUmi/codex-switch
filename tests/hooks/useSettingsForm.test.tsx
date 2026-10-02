@@ -36,6 +36,7 @@ describe("useSettingsForm Hook", () => {
         enableClaudePluginIntegration: undefined,
         claudeConfigDir: "  /Users/demo  ",
         codexConfigDir: "   ",
+        codexUsageSourceDir: "  /usage-only  ",
         language: "en",
       },
       isLoading: false,
@@ -53,9 +54,37 @@ describe("useSettingsForm Hook", () => {
     expect(settings.enableClaudePluginIntegration).toBe(false);
     expect(settings.claudeConfigDir).toBe("/Users/demo");
     expect(settings.codexConfigDir).toBeUndefined();
+    expect(settings.codexUsageSourceDir).toBe("/usage-only");
     expect(settings.language).toBe("en");
     expect(result.current.initialLanguage).toBe("en");
     expect(changeLanguageSpy).toHaveBeenCalledWith("en");
+  });
+
+  it("drops retired routing preferences from loaded and reset form state", async () => {
+    const persisted = {
+      showInTray: true,
+      minimizeToTrayOnClose: true,
+      enableLocalProxy: true,
+      proxyConfirmed: true,
+      enableFailoverToggle: true,
+      failoverConfirmed: true,
+      language: "en" as const,
+      codexConfigDir: "/codex",
+    };
+    useSettingsQueryMock.mockReturnValue({ data: persisted, isLoading: false });
+    const { result } = renderHook(() => useSettingsForm());
+    await waitFor(() => expect(result.current.settings).not.toBeNull());
+    for (const key of [
+      "enableLocalProxy",
+      "proxyConfirmed",
+      "enableFailoverToggle",
+      "failoverConfirmed",
+    ])
+      expect(result.current.settings).not.toHaveProperty(key);
+    act(() => result.current.resetSettings(persisted));
+    expect(result.current.settings).not.toHaveProperty("enableLocalProxy");
+    expect(result.current.settings?.codexConfigDir).toBe("/codex");
+    expect(persisted.enableLocalProxy).toBe(true);
   });
 
   it("should support japanese language preference from server data", async () => {

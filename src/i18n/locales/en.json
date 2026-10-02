@@ -88,6 +88,8 @@
     "windowClose": "Close window"
   },
   "provider": {
+    "switchConnection": "Switch to this connection",
+    "deleteCurrentDisabled": "The current connection cannot be deleted. Switch to another connection first.",
     "connectivityCheck": "Connectivity check",
     "tabProvider": "Provider",
     "tabUniversal": "Universal",
@@ -100,11 +102,7 @@
     "currentlyUsing": "Currently Using",
     "enable": "Enable",
     "inUse": "In Use",
-    "needsRouting": "Needs Routing",
-    "directProvider": "Direct",
-    "directProviderHint": "Leaving routing mode switches back to this provider",
     "noRoutingSupport": "No Routing Support",
-    "blockedByProxyHint": "Can't switch to an official provider while proxy takeover is active",
     "editProvider": "Edit Provider",
     "editProviderHint": "Configuration will be applied to the current provider immediately after update.",
     "deleteProvider": "Delete Provider",
@@ -170,7 +168,8 @@
       "message": "After the editor opened, the settings below were changed by another program (such as Claude Code). Overwrite them with your edits, or keep the external changes? Your other edits are saved either way.",
       "keepTheirs": "Keep external changes",
       "keepMine": "Overwrite with my edits"
-    }
+    },
+    "unsupportedDirect": "Unsupported direct connection"
   },
   "claudeCode": {
     "needsRouting": "Needs Routing",
@@ -244,7 +243,6 @@
     "geminiRestartRequired": "Switched successfully. Restart Gemini CLI to apply changes.",
     "grokBuildRestartRequired": "Switched successfully. Restart Grok Build to apply changes.",
     "claudeDesktopRestartRequired": "Switched successfully. Restart Claude Desktop to apply changes.",
-    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep CC Switch running and restart Claude Desktop to apply changes.",
     "addToConfigSuccess": "Added to config",
     "removeFromConfigSuccess": "Removed from config",
     "removeFromConfigFailed": "Could not remove provider",
@@ -265,14 +263,6 @@
     "deleteFailed": "Failed to delete provider: {{error}}",
     "settingsSaved": "Settings saved",
     "settingsSaveFailed": "Failed to save settings: {{error}}",
-    "proxyRequiredForSwitch": "This provider {{reason}}, requires the routing service to work properly. Start routing first.",
-    "proxyReasonCopilot": "uses GitHub Copilot as a Claude provider",
-    "proxyReasonOpenAIChat": "uses OpenAI Chat API format",
-    "proxyReasonOpenAIResponses": "uses OpenAI Responses API format",
-    "proxyReasonAnthropicMessages": "uses Anthropic Messages API format",
-    "proxyReasonFullUrl": "has full URL connection mode enabled",
-    "proxyReasonManagedOAuth": "uses managed OAuth login (token injected by local routing)",
-    "proxyReasonRoutingRequired": "requires local routing to process requests",
     "openAIFormatHint": "This provider uses OpenAI-compatible format and requires the routing service to be enabled",
     "copilotProxyHint": "GitHub Copilot as a Claude provider always requires local routing; routing automatically selects Chat Completions or Responses based on the current model.",
     "openLinkFailed": "Failed to open link",
@@ -284,9 +274,7 @@
     "backfillWarning": "Switched successfully, but failed to save changes back to the previous provider",
     "codexAuthCleanupFailed": "Switched successfully, but auth.json could not be removed — the official login credentials are still on disk; delete auth.json from the Codex config directory to remove them",
     "windowControlFailed": "Window control failed: {{error}}",
-    "officialBlockedByProxy": "Cannot switch to official provider while local routing is active. Using routing with official APIs may cause account bans.",
-    "proxyOfficialWarning": "Current provider {{name}} is official. Consider switching to a third-party provider before using local routing.",
-    "proxyReasonClaudeDesktop": "Using Claude Desktop local routing mode"
+    "directConnectionRequired": "Only native Codex Responses connections and OpenAI official accounts can be activated. Edit this saved configuration before enabling it."
   },
   "confirm": {
     "deleteProvider": "Delete Provider",
@@ -294,16 +282,6 @@
     "removeProvider": "Remove Provider",
     "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in Codex Switch. You can re-add it at any time.",
     "piDefaultProviderWarning": "Pi's global default currently points to this provider. If you continue, Pi will try another available model; use /model to choose one or /login to sign in to another provider.",
-    "proxy": {
-      "title": "Enable Local Routing",
-      "message": "Local routing is an advanced feature. Please make sure you understand how it works before enabling.\n\nWe recommend consulting the relevant documentation or your provider for proper configuration.",
-      "confirm": "I understand, enable"
-    },
-    "failover": {
-      "title": "Enable Failover",
-      "message": "Failover is an advanced feature. Please make sure you understand how it works before enabling.\n\nWe recommend configuring provider priorities in the failover queue first.",
-      "confirm": "I understand, enable"
-    },
     "unifyCodexHistory": {
       "title": "Unified Codex session history",
       "message": "When enabled, the official subscription and third-party providers share one session history list. Note: resuming an old session across providers may fail because its encrypted_content reasoning cannot be decrypted by another backend.\n\nYou can also migrate your existing official session history into the shared list (originals are backed up to ~/.cc-switch/backups first and can be restored when you turn this off).",
@@ -329,13 +307,12 @@
   },
   "settings": {
     "previewManualBuild": "Preview · manual builds",
-    "previewDataNotice": "Isolated preview data; existing accounts and Codex installations are not imported automatically.",
+    "previewDataNotice": "Preview accounts and configuration remain isolated. Token usage reads the selected local session logs without changing them; statistics are stored in the preview database.",
     "title": "Settings",
     "general": "General",
     "tabGeneral": "General",
     "tabAuth": "Auth",
     "tabAdvanced": "Advanced",
-    "tabProxy": "Routing",
     "authCenter": {
       "title": "OAuth Authentication Center",
       "description": "Manage ChatGPT accounts for Codex CLI and Codex Desktop.",
@@ -349,27 +326,9 @@
         "title": "Configuration Directory",
         "description": "Manage storage paths for Codex configurations"
       },
-      "proxy": {
-        "title": "Local Routing",
-        "description": "Control routing service toggle, view status and port info",
-        "enableFeature": "Show Routing Toggle on Main Page",
-        "enableFeatureDescription": "When enabled, the routing and failover toggles will appear at the top of the main page",
-        "enableFailoverToggle": "Show Failover Toggle on Main Page",
-        "enableFailoverToggleDescription": "When enabled, the failover toggle will appear independently at the top of the main page",
-        "running": "Running",
-        "stopped": "Stopped"
-      },
-      "failover": {
-        "title": "Auto Failover",
-        "description": "Configure failover queue and circuit breaker strategy"
-      },
       "pricing": {
         "title": "Cost Pricing",
         "description": "Manage token pricing rules for each model"
-      },
-      "globalProxy": {
-        "title": "Global Outbound Proxy",
-        "description": "Configure proxy for Codex Switch to access external APIs"
       },
       "data": {
         "title": "Data Management",
@@ -433,7 +392,7 @@
       }
     },
     "language": "Language",
-    "languageHint": "Preview interface language immediately after switching, takes effect permanently after saving.",
+    "languageHint": "Language changes are saved automatically.",
     "theme": "Theme",
     "themeHint": "Choose the appearance theme for the app, takes effect immediately.",
     "themeLight": "Light",
@@ -692,9 +651,9 @@
     "skipClaudeOnboardingDescription": "When enabled, Claude Code will skip the first-run confirmation",
     "codexAuth": "Codex App Enhancements",
     "preserveCodexOfficialAuthOnSwitch": "Keep official login for direct switches",
-    "preserveCodexOfficialAuthOnSwitchDescription": "Controls third-party switches when local routing is off. Takeover routing always preserves the Codex official login.",
+    "preserveCodexOfficialAuthOnSwitchDescription": "Keep your official Codex login when switching to an API connection without local routing. Local routing always keeps the official login.",
     "unifyCodexSessionHistory": "Unified Codex session history",
-    "unifyCodexSessionHistoryDescription": "When enabled, the official subscription runs under the shared \"custom\" provider id so official and third-party sessions appear in one history list, optionally migrating existing official sessions in (backed up first). When turning it off, the migrated sessions can be restored from backup. Note: resuming an old session across providers may fail because its encrypted_content reasoning can only be decrypted by the backend that created it.",
+    "unifyCodexSessionHistoryDescription": "Show official and API connection sessions in one history list. Existing sessions can be moved after a backup, and moved sessions can be restored when this is turned off. Continuing a session through a different connection may fail.",
     "unifyCodexHistoryRestoreCompleted": "Official session history restored from backup ({{files}} session files, {{rows}} index rows)",
     "unifyCodexHistoryRestoreFailed": "Failed to restore official session history, please try again",
     "unifyCodexHistoryRestoreNothing": "No restorable migration backup for the current Codex directory",
@@ -762,7 +721,7 @@
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
     "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
     "appConfigDir": "Codex Switch Configuration Directory",
-    "appConfigDirDescription": "Customize the storage location for Codex Switch configuration (point to cloud sync folder to enable config sync)",
+    "appConfigDirDescription": "Choose where Codex Switch stores its app data.",
     "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.cc-switch",
     "claudeConfigDir": "Claude Code Configuration Directory",
     "claudeConfigDirDescription": "Override Claude configuration directory (settings.json). Custom directories store .claude.json (MCP) inside the directory; the default ~/.claude directory keeps Claude Code's split ~/.claude.json path.",
@@ -864,18 +823,6 @@
     "devModeRestartHint": "Dev Mode: Automatic restart not supported, please manually restart the application.",
     "saving": "Saving...",
     "globalProxy": {
-      "label": "Global Proxy",
-      "hint": "Proxy all requests (API, Skills download, etc.). When local routing is enabled, app traffic is also routed through this proxy. Leave empty for direct connection.",
-      "username": "Username (optional)",
-      "password": "Password (optional)",
-      "test": "Test Connection",
-      "scan": "Scan Local Proxies",
-      "clear": "Clear",
-      "scanFailed": "Scan failed: {{error}}",
-      "saved": "Proxy settings saved",
-      "saveFailed": "Save failed: {{error}}",
-      "testSuccess": "Connected! Latency {{latency}}ms",
-      "testFailed": "Connection failed: {{error}}",
       "pricingDefaultsTitle": "Pricing Defaults",
       "pricingDefaultsDescription": "Choose whether each app matches pricing by the request model or the response model. Only applies to requests that go through local routing.",
       "pricingAppLabel": "App",
@@ -1333,6 +1280,11 @@
     "quickSetModels": "Quick Set",
     "quickSetSuccess": "Model name applied to all roles",
     "advancedOptionsToggle": "Advanced Options",
+    "connectionHelp": "Connection setup help",
+    "endpointHelp": "API endpoint help",
+    "defaultModelHelp": "Default model help",
+    "advancedHelp": "Advanced settings help",
+    "catalogHelp": "Model catalog help",
     "advancedOptionsHint": "Includes API format, auth field, and model mapping. Defaults work for most use cases.",
     "categoryOfficial": "Official",
     "categoryCnOfficial": "Opensource Official",
@@ -1704,10 +1656,11 @@
     "rawInputLabel": "Raw",
     "sessionSync": {
       "title": "Auto-Scan Session Logs",
-      "description": "Periodically scans each client's local session logs to track usage; when off, logs are only scanned on manual sync",
+      "description": "Scans local session logs at startup and every 60 seconds when enabled. Sync Now also works in either mode; page refresh only reloads recorded statistics.",
       "syncNow": "Sync Now",
       "syncCompleted": "Sync completed: {{imported}} imported, {{files}} files scanned, {{errors}} errors",
-      "syncFailed": "Session usage sync failed: {{error}}"
+      "syncFailed": "Session usage sync failed: {{error}}",
+      "help": "About automatic session scanning"
     },
     "rebuildCodex": {
       "title": "Codex Usage Maintenance",
@@ -1853,7 +1806,28 @@
       "syncNow": "Sync now"
     },
     "cacheReadCostPerMillion": "Cache Read Cost (per million tokens, USD)",
-    "cacheCreationCostPerMillion": "Cache Write Cost (per million tokens, USD)"
+    "cacheCreationCostPerMillion": "Cache Write Cost (per million tokens, USD)",
+    "estimatedCost": "Estimated cost",
+    "sessionSource": {
+      "configure": "Configure Token source",
+      "title": "Token session source",
+      "directory": "Codex root directory",
+      "help": "About the Token source",
+      "description": "Choose the Codex root containing sessions and archived_sessions. Logs are read without changing them. Account configuration and sign-in files use their own directory. Leave blank to use the default.",
+      "placeholder": "Default Codex root",
+      "browse": "Choose folder",
+      "reset": "Restore default",
+      "current": "Currently saved source",
+      "default": "Default source",
+      "loading": "Loading Token source…",
+      "loadFailed": "Unable to read the effective Token source.",
+      "retry": "Retry",
+      "browseFailed": "Unable to choose a folder.",
+      "saveFailed": "Unable to save the Token source. Your draft is still here.",
+      "saved": "Token source saved. Use Sync Now to scan the selected source.",
+      "cancel": "Cancel",
+      "save": "Save"
+    }
   },
   "usageScript": {
     "title": "Configure Usage Query",
@@ -2752,226 +2726,12 @@
     "circuitOpen": "Circuit Open",
     "consecutiveFailures": "{{count}} consecutive failures"
   },
-  "failover": {
-    "enabled": "{{app}} failover enabled",
-    "disabled": "{{app}} failover disabled",
-    "toggleFailed": "Operation failed: {{detail}}",
-    "inQueue": "In queue",
-    "addQueue": "Add",
-    "priority": {
-      "tooltip": "Failover priority {{priority}}"
-    },
-    "tooltip": {
-      "enabled": "{{app}} failover enabled\nRequests follow queue priority (P1→P2→...)",
-      "disabled": "Enable {{app}} failover\nSwitches to queue P1 immediately, then falls back on failures",
-      "takeoverRequired": "Take over {{app}} first, then enable failover"
-    }
-  },
-  "proxy": {
-    "panel": {
-      "serviceAddress": "Service Address",
-      "addressCopied": "Address copied",
-      "currentProvider": "Current Provider:",
-      "waitingFirstRequest": "Current Provider: Waiting for first request...",
-      "stoppedTitle": "Routing Service Stopped",
-      "stoppedDescription": "Use the toggle above to start the service",
-      "openSettings": "Configure Routing Service",
-      "stats": {
-        "activeConnections": "Active Connections",
-        "totalRequests": "Total Requests",
-        "successRate": "Success Rate",
-        "uptime": "Uptime"
-      }
-    },
-    "settings": {
-      "title": "Routing Service Settings",
-      "description": "Configure local routing server listening address, port and runtime parameters. Changes take effect immediately after saving.",
-      "alert": {
-        "autoApply": "Changes will be automatically synced to the running routing service without manual restart."
-      },
-      "basic": {
-        "title": "Basic Settings",
-        "description": "Configure routing service listening address and port."
-      },
-      "advanced": {
-        "title": "Advanced Parameters",
-        "description": "Control request stability and logging."
-      },
-      "timeout": {
-        "title": "Timeout Settings",
-        "description": "Configure timeout for streaming and non-streaming requests."
-      },
-      "fields": {
-        "listenAddress": {
-          "label": "Listen Address",
-          "placeholder": "127.0.0.1",
-          "description": "IP address the routing server listens on (recommended: 127.0.0.1)"
-        },
-        "listenPort": {
-          "label": "Listen Port",
-          "placeholder": "15721",
-          "description": "Port number the routing server listens on (1024 ~ 65535)"
-        },
-        "maxRetries": {
-          "label": "Max Retries",
-          "placeholder": "3",
-          "description": "Number of retries on request failure (0 ~ 10)"
-        },
-        "requestTimeout": {
-          "label": "Request Timeout (sec)",
-          "placeholder": "0 (unlimited) or 300",
-          "description": "Maximum wait time for a single request (0 = unlimited, or 10 ~ 600 seconds)"
-        },
-        "enableLogging": {
-          "label": "Record Request Usage",
-          "description": "Write routing request usage and status to the local statistics database"
-        },
-        "streamingFirstByteTimeout": {
-          "label": "Streaming First Byte Timeout (sec)",
-          "description": "Maximum time to wait for the first data chunk"
-        },
-        "streamingIdleTimeout": {
-          "label": "Streaming Idle Timeout (sec)",
-          "description": "Maximum interval between data chunks"
-        },
-        "nonStreamingTimeout": {
-          "label": "Non-Streaming Timeout (sec)",
-          "description": "Total timeout for non-streaming requests"
-        }
-      },
-      "validation": {
-        "addressInvalid": "Please enter a valid IP address",
-        "portMin": "Port must be greater than 1024",
-        "portMax": "Port must be less than 65535",
-        "retryMin": "Retry count cannot be negative",
-        "retryMax": "Retry count cannot exceed 10",
-        "timeoutNonNegative": "Timeout cannot be negative",
-        "timeoutMax": "Timeout cannot exceed 600 seconds",
-        "timeoutRange": "Please enter 0 or a value between 10-600",
-        "streamingTimeoutMin": "Timeout must be at least 5 seconds",
-        "streamingTimeoutMax": "Timeout cannot exceed 300 seconds"
-      },
-      "actions": {
-        "save": "Save Configuration"
-      },
-      "toast": {
-        "saved": "Routing configuration saved",
-        "saveFailed": "Save failed: {{error}}"
-      },
-      "invalidPort": "Invalid port, please enter a number between 1024-65535",
-      "invalidAddress": "Invalid address. Enter an IPv4 (e.g. 127.0.0.1), IPv6 (e.g. ::1), or localhost",
-      "configSaved": "Routing configuration saved",
-      "configSaveFailed": "Failed to save configuration",
-      "restartRequired": "Restart routing service for address or port changes to take effect"
-    },
-    "switchFailed": "Switch failed: {{error}}",
-    "takeover": {
-      "ariaLabel": "{{appLabel}} local routing",
-      "hint": "Select apps to route — once enabled, requests from that app will go through local routing",
-      "enabled": "{{app}} routing enabled",
-      "disabled": "{{app}} routing disabled",
-      "failed": "Failed to toggle routing: {{detail}}",
-      "tooltip": {
-        "active": "{{appLabel}} is routing - {{address}}:{{port}}\nSwitching providers changes the route only; the direct provider stays",
-        "broken": "{{appLabel}} is routing, but routing service is not running",
-        "inactive": "Route {{appLabel}}'s requests through local routing"
-      }
-    },
-    "failover": {
-      "proxyRequired": "Routing service must be started to configure failover",
-      "autoSwitch": "Auto Failover",
-      "autoSwitchDescription": "When enabled, switches to queue P1 immediately and automatically tries the next provider in the queue on failures"
-    },
-    "failoverQueue": {
-      "title": "Failover Queue",
-      "description": "Manage failover order for each app's providers",
-      "info": "When auto failover is enabled, requests follow the queue priority order (P1 first). On failures, the system will try the next provider in the queue.",
-      "selectProvider": "Select a provider to add to queue",
-      "noAvailableProviders": "No providers available to add",
-      "empty": "Failover queue is empty. Add providers to enable automatic failover.",
-      "orderHint": "Queue order matches the provider list order on the Home page. Reorder providers on the Home page to change priority.",
-      "dragHint": "Drag providers to adjust failover order. Lower numbers have higher priority.",
-      "toggleEnabled": "Enable/Disable",
-      "addSuccess": "Added to failover queue",
-      "addFailed": "Failed to add",
-      "removeSuccess": "Removed from failover queue",
-      "removeFailed": "Failed to remove",
-      "reorderSuccess": "Queue order updated",
-      "reorderFailed": "Failed to update order",
-      "toggleFailed": "Failed to update status"
-    },
-    "autoFailover": {
-      "info": "When the failover queue has multiple providers, the system will try them in priority order when requests fail. When a provider reaches the consecutive failure threshold, the circuit breaker will open and skip it temporarily.",
-      "configSaved": "Auto failover config saved",
-      "configSaveFailed": "Failed to save",
-      "validationFailed": "The following fields are out of valid range: {{fields}}",
-      "retrySettings": "Retry & Timeout Settings",
-      "failureThreshold": "Failure Threshold",
-      "failureThresholdHint": "Open circuit breaker after this many consecutive failures (recommended: 3-10)",
-      "timeout": "Recovery Wait Time (seconds)",
-      "timeoutHint": "Wait this long before trying to recover after circuit opens (recommended: 30-120)",
-      "circuitBreakerSettings": "Circuit Breaker Settings",
-      "successThreshold": "Recovery Success Threshold",
-      "successThresholdHint": "Close circuit breaker after this many successes in half-open state",
-      "errorRate": "Error Rate Threshold (%)",
-      "errorRateHint": "Open circuit breaker when error rate exceeds this value",
-      "minRequests": "Minimum Requests",
-      "minRequestsHint": "Minimum requests before calculating error rate",
-      "explanationTitle": "How It Works",
-      "failureThresholdLabel": "Failure Threshold",
-      "failureThresholdExplain": "Circuit breaker opens after this many consecutive failures, making the provider temporarily unavailable",
-      "timeoutLabel": "Recovery Wait Time",
-      "timeoutExplain": "After circuit opens, wait this long before trying half-open state",
-      "successThresholdLabel": "Recovery Success Threshold",
-      "successThresholdExplain": "In half-open state, close circuit breaker after this many successes, making provider available again",
-      "errorRateLabel": "Error Rate Threshold",
-      "errorRateExplain": "Open circuit breaker when error rate exceeds this value, even if failure threshold not reached",
-      "maxRetries": "Max Retries",
-      "timeoutSettings": "Timeout Settings",
-      "streamingFirstByte": "Streaming First Byte Timeout",
-      "streamingIdle": "Streaming Idle Timeout",
-      "nonStreaming": "Non-Streaming Timeout",
-      "maxRetriesHint": "Number of retries on request failure (0-10)",
-      "streamingFirstByteHint": "Max time to wait for first data chunk, range 1-120s, default 60s",
-      "streamingIdleHint": "Max interval between data chunks, range 60-600s, 0 to disable (prevents mid-stream stalls)",
-      "nonStreamingHint": "Total timeout for non-streaming requests, range 60-1200s, default 600s (10 min)"
-    },
-    "logging": {
-      "enabled": "Logging enabled",
-      "disabled": "Logging disabled",
-      "failed": "Failed to toggle logging"
-    },
-    "server": {
-      "started": "Routing service started - {{address}}:{{port}}",
-      "startFailed": "Failed to start routing service: {{detail}}",
-      "stopped": "Routing service stopped",
-      "stopFailed": "Failed to stop routing service: {{detail}}"
-    },
-    "stoppedWithRestore": "Routing service stopped; all apps are back on direct connections",
-    "stopWithRestoreFailed": "Stop failed: {{detail}}"
-  },
   "streamCheck": {
     "reachable": "{{providerName}} is reachable ({{responseTimeMs}}ms)",
     "reachableSlow": "{{providerName}} reachable but slow ({{responseTimeMs}}ms)",
     "unreachable": "{{providerName}} unreachable: {{message}}",
     "unreachableHint": "Could not establish a connection (DNS / connect / TLS / timeout). Check the base_url and your network.",
     "error": "{{providerName}} check error: {{error}}"
-  },
-  "proxyConfig": {
-    "proxyEnabled": "Routing Master Switch",
-    "appTakeover": "Routing Enabled",
-    "perAppConfig": "Per-App Config",
-    "circuitBreaker": "Circuit Breaker",
-    "circuitBreakerSettings": "Circuit Breaker Settings",
-    "failureThreshold": "Failure Threshold",
-    "successThreshold": "Success Threshold",
-    "recoveryTimeout": "Recovery Timeout",
-    "errorRateThreshold": "Error Rate Threshold",
-    "minRequests": "Min Requests",
-    "timeoutConfig": "Timeout Config",
-    "streamingFirstByte": "Streaming First Byte Timeout",
-    "streamingIdle": "Streaming Idle Timeout",
-    "nonStreaming": "Non-Streaming Timeout"
   },
   "universalProvider": {
     "duplicate": "Duplicate",
@@ -3256,14 +3016,19 @@
     "storedUpstreamFormat": "Stored upstream format",
     "upstreamFormatHint": "Use Responses for native Codex requests, or Chat Completions with local routing enabled.",
     "officialQuotaHint": "Quota is read from the selected Codex or ChatGPT account.",
-    "reasoningModeHint": "Enable this when the upstream supports an explicit thinking mode."
+    "reasoningModeHint": "Enable this when the upstream supports an explicit thinking mode.",
+    "nativeConnectionHint": "Codex connects directly using the native Responses API. Models and reasoning levels remain customizable.",
+    "legacyConnectionHint": "This saved connection requires a removed protocol conversion. Its configuration is preserved for editing, but it cannot be activated.",
+    "nativeEndpointHint": "Base URL for the provider's native Responses API.",
+    "nativeCatalogHint": "The catalog adds models to Codex's /model menu. The request uses each model's exact identifier and native reasoning levels."
   },
   "codexAccounts": {
-    "accountsTab": "ChatGPT accounts",
-    "configurationsTab": "Connection configurations",
-    "configurationsTitle": "Connection configurations",
-    "configurationsDescription": "For API-key connections and optional advanced settings. Signed-in ChatGPT accounts can switch directly from Home.",
-    "addConfiguration": "Add configuration",
+    "subscriptionAccounts": "Subscription accounts",
+    "moreActions": "More account actions",
+    "configurationsTitle": "API Key",
+    "noApiKeys": "No API Key connections",
+    "addApiKeyConnection": "Add API Key",
+    "configurationsDescription": "Manage API-key connections and saved advanced settings here. ChatGPT subscription quota is shown on its account card.",
     "title": "ChatGPT accounts",
     "current": "Current",
     "configuration": "Account configuration",
@@ -3271,8 +3036,8 @@
     "switch": "Switch to this account",
     "restartHint": "Switching updates local Codex credentials and configuration. Running clients may cache their login; reopen them if they still show the previous account.",
     "homeTabs": "Codex management",
-    "quotaExpiredHint": "Use Re-authenticate on this account to sign in again.",
-    "reauthDescription": "Some accounts need updated sign-in information. Use Re-authenticate on the affected account.",
+    "quotaExpiredHint": "Open Edit account to sign in again.",
+    "reauthDescription": "Some accounts need updated sign-in information. Open Edit account on the affected account to sign in again.",
     "apiKey": "OpenAI API",
     "configurationLoading": "Loading configuration…",
     "helpLabel": "Account and quota help",
@@ -3285,9 +3050,9 @@
     "switchFailedInline": "Switch did not complete.",
     "connectionLoadFailed": "Connections could not be loaded. Refresh and try again.",
     "directSwitchHelp": "Signed-in ChatGPT accounts can switch directly. The default account is used only by advanced managed configurations and is independent of the current account.",
-    "credentialStoreHelp": "Account switching currently supports file credential storage. Advanced keyring, auto or ephemeral storage settings are preserved, and an unsupported switch explains its reason.",
+    "credentialStoreHelp": "Some advanced sign-in storage settings do not support account switching. If switching is unavailable, the app will explain why.",
     "editTitle": "Edit account",
-    "editDescription": "Display details are saved locally and do not change your login identity, quota, or current account.",
+    "editDescription": "Manage account details and sign-in options.",
     "loginIdentity": "Login identity",
     "displayName": "Display name",
     "notes": "Notes",
@@ -3306,8 +3071,6 @@
     },
     "configurationsHelp": "About connection configurations",
     "addConnectionTitle": "Add connection configuration",
-    "sharedAccountsHelp": "This view and Home share the same accounts, display details and authentication state. Everyday switching is also available on Home.",
-    "localUsageTab": "Local usage",
     "localUsageScopeLabel": "Statistics scope",
     "localUsageScope": "Locally recorded Codex requests and scanned sessions, filtered by time, connection source and model. This excludes other devices and does not measure subscription quota. Costs are estimated using the local pricing table.",
     "quotaRefreshFailed": "Refresh failed; showing the last successful data",
@@ -3316,6 +3079,31 @@
     "switchFailed": "Switch failed; the previous account is retained: {{error}}",
     "switchWarning": "Account switched with a configuration warning: {{error}}",
     "switchRecovered": "Switch completed and the interrupted write was recovered.",
-    "switchUncertain": "Unable to confirm switch state: {{error}}"
+    "switchUncertain": "Unable to confirm switch state: {{error}}",
+    "switchPending": "Switching account…",
+    "switchUnavailable": "Why switching is unavailable",
+    "accountHelpLabel": "Account help",
+    "navigationAccounts": "Accounts",
+    "navigationUsage": "Usage",
+    "addTitle": "Add an account or connection",
+    "addDescription": "Choose a ChatGPT account or API Key to connect Codex.",
+    "addChatGpt": "ChatGPT login",
+    "addChatGptDescription": "View subscription quota and switch between signed-in accounts.",
+    "addApiKey": "API Key connection",
+    "addApiKeyDescription": "Enter an API key and service address to connect OpenAI or another supported service.",
+    "addApiConnectionTitle": "Add API Key connection"
+  },
+  "apiBalance": {
+    "label": "Balance",
+    "details": "Balance details",
+    "unsupported": "Balance queries are not available for this provider",
+    "missingKey": "Enter an API key first",
+    "explanation": "Balances come from the provider account API. Each currency is shown separately.",
+    "loading": "Querying balance…",
+    "unavailable": "The provider reports this balance is unavailable for API calls.",
+    "updated": "Updated",
+    "supported": "Supports official DeepSeek, StepFun, SiliconFlow, OpenRouter and Novita AI APIs. OpenRouter requires a management key for balance queries.",
+    "refresh": "Refresh balance",
+    "empty": "The provider returned no valid balance"
   }
 }

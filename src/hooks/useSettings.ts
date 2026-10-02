@@ -10,6 +10,7 @@ import {
   useSaveSettingsMutation,
 } from "@/lib/query";
 import type { Settings } from "@/types";
+import { withoutRoutingPreferences } from "@/utils/settingsPreferences";
 import { useSettingsForm, type SettingsFormState } from "./useSettingsForm";
 import {
   useDirectorySettings,
@@ -186,12 +187,30 @@ export function useSettings(): UseSettingsResult {
   // 保存基础配置 + 独立的系统 API 调用（开机自启）
   const autoSaveSettings = useCallback(
     async (updates: Partial<SettingsFormState>): Promise<SaveResult | null> => {
-      const mergedSettings = settings ? { ...settings, ...updates } : null;
+      const updateKeys = Object.keys(updates);
+      const usageOnly =
+        updateKeys.length > 0 &&
+        updateKeys.every((key) =>
+          [
+            "usageDashboardRefreshIntervalMs",
+            "sessionAutoSyncEnabled",
+            "codexUsageSourceDir",
+          ].includes(key),
+        );
+      // Usage preferences must not publish unrelated drafts or rewrite a live
+      // client configuration. Merge only into the latest persisted settings.
+      const baseline = usageOnly
+        ? (queryClient.getQueryData<Settings>(["settings"]) ?? data)
+        : settings;
+      const mergedSettings = baseline ? { ...baseline, ...updates } : null;
       if (!mergedSettings) return null;
 
       try {
         const sanitizedClaudeDir = sanitizeDir(mergedSettings.claudeConfigDir);
         const sanitizedCodexDir = sanitizeDir(mergedSettings.codexConfigDir);
+        const sanitizedUsageSourceDir = sanitizeDir(
+          mergedSettings.codexUsageSourceDir,
+        );
         const sanitizedGeminiDir = sanitizeDir(mergedSettings.geminiConfigDir);
         const sanitizedGrokDir = sanitizeDir(mergedSettings.grokConfigDir);
         const sanitizedOpencodeDir = sanitizeDir(
@@ -205,12 +224,13 @@ export function useSettings(): UseSettingsResult {
           webdavSync: _ignoredWebdavSync,
           s3Sync: _ignoredS3Sync,
           ...restSettings
-        } = mergedSettings;
+        } = withoutRoutingPreferences(mergedSettings);
 
         const payload: Settings = {
           ...restSettings,
           claudeConfigDir: sanitizedClaudeDir,
           codexConfigDir: sanitizedCodexDir,
+          codexUsageSourceDir: sanitizedUsageSourceDir,
           geminiConfigDir: sanitizedGeminiDir,
           grokConfigDir: sanitizedGrokDir,
           opencodeConfigDir: sanitizedOpencodeDir,
@@ -230,6 +250,7 @@ export function useSettings(): UseSettingsResult {
 
         // 如果开机自启状态改变，调用系统 API
         if (
+          !usageOnly &&
           payload.launchOnStartup !== undefined &&
           payload.launchOnStartup !== data?.launchOnStartup
         ) {
@@ -275,10 +296,12 @@ export function useSettings(): UseSettingsResult {
           }
         }
 
-        await syncClaudePluginIfChanged(
-          payload.enableClaudePluginIntegration,
-          prevPluginEnabled,
-        );
+        if (!usageOnly) {
+          await syncClaudePluginIfChanged(
+            payload.enableClaudePluginIntegration,
+            prevPluginEnabled,
+          );
+        }
 
         // 持久化语言偏好
         try {
@@ -327,6 +350,9 @@ export function useSettings(): UseSettingsResult {
         const sanitizedAppDir = sanitizeDir(appConfigDir);
         const sanitizedClaudeDir = sanitizeDir(mergedSettings.claudeConfigDir);
         const sanitizedCodexDir = sanitizeDir(mergedSettings.codexConfigDir);
+        const sanitizedUsageSourceDir = sanitizeDir(
+          mergedSettings.codexUsageSourceDir,
+        );
         const sanitizedGeminiDir = sanitizeDir(mergedSettings.geminiConfigDir);
         const sanitizedGrokDir = sanitizeDir(mergedSettings.grokConfigDir);
         const sanitizedOpencodeDir = sanitizeDir(
@@ -348,12 +374,13 @@ export function useSettings(): UseSettingsResult {
           webdavSync: _ignoredWebdavSync,
           s3Sync: _ignoredS3Sync,
           ...restSettings
-        } = mergedSettings;
+        } = withoutRoutingPreferences(mergedSettings);
 
         const payload: Settings = {
           ...restSettings,
           claudeConfigDir: sanitizedClaudeDir,
           codexConfigDir: sanitizedCodexDir,
+          codexUsageSourceDir: sanitizedUsageSourceDir,
           geminiConfigDir: sanitizedGeminiDir,
           grokConfigDir: sanitizedGrokDir,
           opencodeConfigDir: sanitizedOpencodeDir,

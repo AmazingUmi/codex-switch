@@ -1,4 +1,9 @@
 import { isCodexCatalogEntry } from "./codexPricing";
+import {
+  formatUsageDateTime,
+  getLocaleFromLanguage,
+  getResolvedLang,
+} from "./format";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -545,7 +550,11 @@ export function ModelsDevAutoSyncPanel() {
   }
 
   const lastSync = data.config.lastSyncAt
-    ? new Date(data.config.lastSyncAt).toLocaleString(i18n.resolvedLanguage)
+    ? formatUsageDateTime(
+        new Date(data.config.lastSyncAt),
+        getLocaleFromLanguage(getResolvedLang(i18n)),
+        { includeYear: true, includeTimeZone: true },
+      )
     : t("usage.modelsDevAutoSync.neverSynced");
 
   const handleAutoSyncChange = (autoSyncEnabled: boolean) => {

@@ -2,29 +2,33 @@
 
 ## Accounts and connections
 
-Home displays ChatGPT accounts and their independent quota windows/reset times.
+Home displays ChatGPT accounts and their independent quota windows/reset times,
+alongside API-key and saved advanced connections. The shared Add chooser offers
+ChatGPT login or an API-key-only connection form. Settings contains global
+authentication policies rather than a second account or connection list.
 Signed-in OAuth accounts switch directly: the backend reuses a compatible saved
 binding or creates a private official connection at switch time. Adding an account
 only saves its login and does not replace the active connection. Private account
-connections are hidden from Settings → connection configurations; that view keeps
+connections are hidden from the saved connections list on Home; that list keeps
 API-key connections and user-created advanced settings. Existing connection rows
-and custom TOML are preserved. Multiple compatible bindings can be selected under
-the account card's advanced connection control.
+and custom TOML are preserved. Multiple compatible bindings can be selected in
+the account editor for the next switch. Save applies the choice; Cancel or a
+failed save keeps the previous choice.
 
 The direct account action currently supports file credential storage. It checks
 the configuration that would actually be published before writing. Effective
 `cli_auth_credentials_store` values of `keyring`, `auto` or `ephemeral`, and
 advanced targets explicitly requesting those modes, are rejected with a reason;
 their settings and active account are preserved. The application does not write
-the OS keyring or inject credentials into another client's memory. API-key and
-existing advanced connection operations retain their original paths.
+the OS keyring or inject credentials into another client's memory. API-key connections publish native Codex configuration through the same provider service.
 
 The pencil edits display name, notes, icon and color on the account itself. These
 fields persist in the OAuth account store and survive reauthentication without
 altering credentials, quota, identity or the active connection. Expired accounts
-remain editable and provide a sign-in action. Home and Settings → Authentication
-share the same account data and operations. The default account is an advanced
-fallback for unspecified managed bindings; it is independent of “Current”.
+remain editable. Reauthentication, default-account selection and removal are
+available in the editor. Bulk sign-out is available below the Home account list.
+The default account is an advanced fallback for unspecified managed bindings;
+it is independent of “Current”.
 
 A successful switch updates live configuration through the provider service.
 The UI updates “Current” from committed backend state, without optimistic account
@@ -33,18 +37,43 @@ and credentials; it does not establish that already-running clients have adopted
 them. Reopen a client if it continues showing the old account. Codex supports file,
 keyring and in-memory credential caching ([official authentication reference](https://learn.chatgpt.com/docs/auth)).
 
-## Protocols
+## Direct connections
 
-The Codex editor preserves custom TOML, API keys, account bindings, model catalogs
-and existing `openai_chat` / `anthropic` configurations. Local routing translates
-those protocols when required. Protocol names such as Anthropic do not imply a
-separate Claude application UI.
+Codex connects directly to OpenAI with official login or to a provider's native
+Responses API. Home → Add → API Key connection offers DeepSeek and an OpenAI API
+template; official ChatGPT login has its own branch. DeepSeek's preset uses
+`https://api.deepseek.com`, `wire_api = "responses"` and `deepseek-flash`; enter
+the DeepSeek API key before activation. API keys, base URL, default model, custom
+TOML and native model catalogs remain editable.
 
-Provider presets keep their stable `codex-<index>` identities. New preset selection
-is restricted by product policy; saved configurations remain editable. Relevant
-sources are `src/config/codexProviderPresets.ts`,
-`src/components/providers/forms/ProviderForm.tsx` and
-`src-tauri/src/services/provider/codex_editor.rs`.
+The model catalog produces Codex's `model_catalog_json` for the `/model` menu.
+Model identifiers, context windows, modalities and native reasoning levels are
+preserved. DeepSeek uses its official catalog profile, with saved per-model
+customizations applied when generating the local catalog. See the
+[DeepSeek Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)
+and [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference).
+
+Local routing, automatic failover, request overrides and Chat/Anthropic protocol
+conversion have been removed. The application starts no local request listener.
+Saved connections requiring conversion, proxy-only OAuth or full request URLs
+remain editable, with their original protocol and metadata preserved; activation
+rejects them with a reason. Their provider protocol is not silently converted. New
+connections expose native Responses settings only. Legacy presets retain their
+stable `codex-<index>` identities, while the new chooser offers only Official and
+DeepSeek presets.
+
+## Retiring historical takeover state
+
+Startup performs a one-way cleanup of historical local takeover state. It first
+settles interrupted writes, then restores a compatible saved direct connection
+when available and clears owned takeover fields and enable/failover markers.
+If no saved connection can run directly, the retired route is not activated.
+Saved connection records keep their original protocol and metadata for editing;
+changing the startup mode does not make unsupported connections compatible.
+Existing takeover backups are archived under the application's local backup
+folder. This cleanup never starts a local request listener and provides no switch
+back to local routing. It is separate from the optional session-history migration
+below.
 
 ## Official authentication and history
 
@@ -61,13 +90,25 @@ The application does not provide a session-management page.
 
 ## Usage, storage and recovery
 
-Home → Local usage shows locally recorded Codex requests and scanned sessions,
-filtered by time, connection source and model. It does not aggregate other devices
-or subscription quota, and cost uses the local pricing table. Account cards show
+Home → Local usage shows local historical request records and scanned Codex sessions,
+filtered by time, connection source and model. Direct request statistics come
+from session scanning; the application does not intercept live requests. It does not aggregate other devices
+or subscription quota, and estimated cost uses the local pricing table. Scope
+and quota explanations open from help icons beside their headings. Account cards show
 subscription quota with per-account refresh state. Unknown windows remain unknown;
 failed refreshes can show a marked last-success snapshot for up to ten minutes.
 Expired credentials immediately clear that snapshot. The usage view also manages refresh
 and session-scanning preferences through the settings autosave path.
+The configuration icon beside automatic scanning opens the independent Token
+source setting (`codexUsageSourceDir`). It selects a Codex root containing
+`sessions` and `archived_sessions`, accepts an absolute path or `~/`, and takes
+effect without restarting. Empty values restore the default. Preview builds
+default to the real user's `~/.codex`; regular builds follow the Codex configuration
+directory. Scanning reads source logs without changing them and writes statistics
+only to the application's database. Saving this preference does not publish other
+unsaved settings or rewrite client configuration. Sync Now remains available in
+both automatic and manual modes. Changing the source retains recorded history;
+use the separate maintenance action when a full rebuild is intended.
 Successful reauthentication clears only that account's obsolete credential error
 and refreshes its quota; a quota outage does not turn a completed login into failure.
 
@@ -76,6 +117,9 @@ synchronization and logging. Regular builds retain the `.cc-switch` storage
 identity and configured Codex directory. Preview defaults live below
 `~/.codex-switch-preview`; do not import a running profile's credentials or directory
 overrides into the preview.
+The independent Token source is the read-only exception: it can observe real
+local sessions while preview account state, configuration writes and statistics
+storage remain isolated.
 
 If the database comes from a newer schema, the recovery screen provides the local
 configuration folder and exit action. Use a compatible build or restore a suitable

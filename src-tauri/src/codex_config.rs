@@ -242,10 +242,9 @@ pub enum CodexCatalogToolProfile {
 impl CodexCatalogToolProfile {
     /// Pick the catalog tool profile from a provider's `apiFormat` meta value.
     ///
-    /// Prefer [`crate::proxy::providers::codex::resolve_codex_catalog_tool_profile`],
-    /// which also honors settings-level `apiFormat` and the TOML `wire_api` (matching
-    /// the proxy router). This string-only mapping is the fallback for non-Anthropic
-    /// cases.
+    /// The native runtime uses [`resolve_catalog_tool_profile`]. This mapping is
+    /// retained for interpreting historical catalog profiles.
+    #[cfg(test)]
     pub fn from_api_format(api_format: Option<&str>) -> Self {
         match api_format {
             Some("anthropic") => CodexCatalogToolProfile::Anthropic,
@@ -255,6 +254,103 @@ impl CodexCatalogToolProfile {
             _ => CodexCatalogToolProfile::ProxyChat,
         }
     }
+}
+
+fn has_explicit_codex_third_party_upstream(provider: &crate::provider::Provider) -> bool {
+    let non_empty_setting = |key: &str| {
+        provider
+            .settings_config
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let config = provider
+        .settings_config
+        .get("config")
+        .and_then(Value::as_str)
+        .map(|text| {
+            crate::codex_config::strip_codex_unified_session_bucket(text)
+                .unwrap_or_else(|_| text.to_string())
+        });
+    let config = config.as_deref();
+
+    ["baseUrl", "baseURL", "base_url"]
+        .into_iter()
+        .any(non_empty_setting)
+        || config
+            .and_then(crate::codex_config::extract_codex_experimental_bearer_token)
+            .is_some()
+        || config
+            .and_then(crate::codex_config::extract_codex_base_url)
+            .is_some()
+        || config
+            .and_then(|text| text.parse::<toml::Value>().ok())
+            .and_then(|doc| {
+                doc.get("model_provider")
+                    .and_then(toml::Value::as_str)
+                    .map(str::trim)
+                    .filter(|provider_id| !provider_id.is_empty())
+                    .map(str::to_string)
+            })
+            // Exact match, mirroring upstream: the built-in lookup is
+            // case-sensitive, so `OpenAI` routes to a custom table — a
+            // third-party upstream, not the official provider.
+            .is_some_and(|provider_id| provider_id != "openai")
+}
+
+/// Codex Official ChatGPT cards receive authentication from the calling Codex
+/// client (`requires_openai_auth = true`). Unbound cards with a stored API key
+/// stay on the direct OpenAI API path instead of being sent to the ChatGPT
+/// backend. The fixed legacy card keeps its existing behavior.
+pub fn is_codex_official_provider(provider: &crate::provider::Provider) -> bool {
+    let is_fixed_official_id = provider.id == crate::database::CODEX_OFFICIAL_PROVIDER_ID;
+    if is_fixed_official_id && provider.category.as_deref() == Some("official") {
+        return true;
+    }
+
+    let has_auth_object = provider
+        .settings_config
+        .get("auth")
+        .is_some_and(Value::is_object);
+    let has_valid_config_shape = provider
+        .settings_config
+        .get("config")
+        .is_none_or(|config| config.is_null() || config.is_string());
+    if !has_auth_object || !has_valid_config_shape {
+        return false;
+    }
+
+    if has_explicit_codex_third_party_upstream(provider) {
+        return false;
+    }
+
+    let has_managed_account = provider
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.managed_account_id_for("codex_oauth"))
+        .is_some_and(|account_id| !account_id.trim().is_empty());
+    if has_managed_account {
+        return true;
+    }
+
+    let has_stored_api_key = provider
+        .settings_config
+        .get("auth")
+        .and_then(|auth| auth.get("OPENAI_API_KEY"))
+        .and_then(Value::as_str)
+        .is_some_and(|key| !key.trim().is_empty());
+    if has_stored_api_key {
+        return false;
+    }
+
+    is_fixed_official_id || provider.category.as_deref() == Some("official")
+}
+
+/// The active runtime writes native Codex Responses configuration only.
+pub(crate) fn resolve_catalog_tool_profile(
+    _provider: &crate::provider::Provider,
+) -> CodexCatalogToolProfile {
+    CodexCatalogToolProfile::NativeResponses
 }
 
 /// Reserved built-in provider IDs from OpenAI Codex's config/model-provider
@@ -569,29 +665,6 @@ pub fn codex_auth_matches_recorded_managed_oauth(
             }
             _ => false,
         })
-}
-
-/// Verify that a proxied Codex request still uses the exact live access token
-/// owned by the selected local account. Workspace IDs alone are not sufficient:
-/// different Team users can share one value.
-pub(crate) fn codex_live_auth_matches_managed_request(
-    account_id: &str,
-    request_access_token: &str,
-) -> Result<bool, AppError> {
-    let auth_path = get_codex_auth_path();
-    if !auth_path.exists() {
-        return Ok(false);
-    }
-    let auth: Value = read_json_file(&auth_path)?;
-    if !codex_auth_matches_recorded_managed_oauth(&auth, account_id)? {
-        return Ok(false);
-    }
-    let live_access_token = auth
-        .pointer("/tokens/access_token")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|token| !token.is_empty());
-    Ok(live_access_token == Some(request_access_token.trim()))
 }
 
 pub(crate) fn clear_codex_managed_oauth_live_auth_marker_for_account(
@@ -2159,11 +2232,6 @@ pub(crate) fn read_limited_string(path: &Path, max_bytes: u64) -> Result<String,
     fs::read_to_string(path).map_err(|error| AppError::io(path, error))
 }
 
-/// Read the cc-switch Codex model catalog file with a size cap.
-pub(crate) fn read_codex_model_catalog_text(path: &Path) -> Result<String, AppError> {
-    read_limited_string(path, MAX_CODEX_CATALOG_BYTES)
-}
-
 /// Given `config.toml` text, resolve the on-disk path of the cc-switch–owned
 /// catalog file (returns `None` if `model_catalog_json` is absent or points at
 /// a file we don't own). Relative paths are resolved under `base_dir`;
@@ -2739,14 +2807,6 @@ base_url = "https://single.example.com/v1"
             .expect("record managed auth marker");
         crate::config::write_json_file(&get_codex_auth_path(), &full_bundle)
             .expect("write managed live auth");
-        assert!(
-            codex_live_auth_matches_managed_request("local-account-a", "access").unwrap(),
-            "the selected account's exact live bearer must match"
-        );
-        assert!(
-            !codex_live_auth_matches_managed_request("local-account-a", "other-access").unwrap(),
-            "another user's bearer in the same workspace must not match"
-        );
         let managed_id_token = full_bundle
             .pointer("/tokens/id_token")
             .and_then(Value::as_str)

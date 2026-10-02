@@ -116,6 +116,10 @@ describe("AboutSection Codex CLI lifecycle", () => {
   it("exposes local build identity without upstream project or update actions", async () => {
     const view = await renderAbout();
     expect(screen.getByText("Codex Switch")).toBeInTheDocument();
+    expect(
+      screen.queryByText("settings.localBuildHint"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.version" }));
     expect(screen.getByText("settings.localBuildHint")).toBeInTheDocument();
     expect(view.container.querySelectorAll("a[href]")).toHaveLength(0);
     for (const name of [

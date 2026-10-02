@@ -1,245 +1,85 @@
-import {
-  Activity,
-  BarChart3,
-  Check,
-  Copy,
-  Edit,
-  Loader2,
-  Play,
-  Plus,
-  Terminal,
-  Trash2,
-} from "lucide-react";
+import { Activity, ArrowRightLeft, Check, Loader2, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
 interface ProviderActionsProps {
   appId?: "codex";
   isCurrent: boolean;
   isTesting?: boolean;
-  isProxyTakeover?: boolean;
+  switchDisabledReason?: string;
   onSwitch: () => void;
   onEdit: () => void;
-  onDuplicate?: () => void;
   onTest?: () => void;
-  onConfigureUsage?: () => void;
-  onDelete: () => void;
-  onOpenTerminal?: () => void;
-  isAutoFailoverEnabled?: boolean;
-  isInFailoverQueue?: boolean;
-  onToggleFailover?: (enabled: boolean) => void;
-  isOfficialBlockedByProxy?: boolean;
-}
-
-// 主按钮的呈现状态。title 用于 disabled 态向用户解释为何不可点击；
-// 因 Button 基类带 disabled:pointer-events-none，title 必须挂在外层非禁用
-// 的 wrapper 上才会在 hover 时显示（见下方 <span> 包裹）。
-interface MainButtonState {
-  disabled: boolean;
-  variant: "default" | "secondary";
-  className: string;
-  icon: JSX.Element;
-  text: string;
-  title?: string;
 }
 
 export function ProviderActions({
   isCurrent,
   isTesting,
-  isProxyTakeover = false,
+  switchDisabledReason,
   onSwitch,
   onEdit,
-  onDuplicate,
   onTest,
-  onConfigureUsage,
-  onDelete,
-  onOpenTerminal,
-  isAutoFailoverEnabled = false,
-  isInFailoverQueue = false,
-  onToggleFailover,
-  isOfficialBlockedByProxy = false,
 }: ProviderActionsProps) {
   const { t } = useTranslation();
-  const iconButtonClass = "h-8 w-8 p-1";
-
-  const isFailoverMode = isAutoFailoverEnabled && onToggleFailover;
-
-  const handleMainButtonClick = () => {
-    if (isFailoverMode) {
-      onToggleFailover(!isInFailoverQueue);
-    } else {
-      onSwitch();
-    }
-  };
-
-  const getMainButtonState = (): MainButtonState => {
-    if (isFailoverMode) {
-      if (isInFailoverQueue) {
-        return {
-          disabled: false,
-          variant: "secondary" as const,
-          className:
-            "bg-blue-100 text-blue-600 hover:bg-blue-200 dark:bg-blue-900/50 dark:text-blue-400 dark:hover:bg-blue-900/70",
-          icon: <Check className="h-4 w-4" />,
-          text: t("failover.inQueue", { defaultValue: "已加入" }),
-        };
-      }
-      return {
-        disabled: false,
-        variant: "default" as const,
-        className:
-          "bg-blue-500 hover:bg-blue-600 dark:bg-blue-600 dark:hover:bg-blue-700",
-        icon: <Plus className="h-4 w-4" />,
-        text: t("failover.addQueue", { defaultValue: "加入" }),
-      };
-    }
-
-    if (isCurrent) {
-      return {
-        disabled: true,
-        variant: "secondary" as const,
-        className:
-          "bg-gray-200 text-muted-foreground hover:bg-gray-200 hover:text-muted-foreground dark:bg-gray-700 dark:hover:bg-gray-700",
-        icon: <Check className="h-4 w-4" />,
-        text: t("provider.inUse"),
-      };
-    }
-
-    if (isOfficialBlockedByProxy) {
-      return {
-        disabled: true,
-        variant: "default" as const,
-        className: "",
-        icon: <Play className="h-4 w-4" />,
-        text: t("provider.enable"),
-        title: t("provider.blockedByProxyHint"),
-      };
-    }
-
-    return {
-      disabled: false,
-      variant: "default" as const,
-      className: isProxyTakeover
-        ? "bg-emerald-500 hover:bg-emerald-600 dark:bg-emerald-600 dark:hover:bg-emerald-700"
-        : "",
-      icon: <Play className="h-4 w-4" />,
-      text: t("provider.enable"),
-    };
-  };
-
-  const buttonState = getMainButtonState();
-  const canDelete = !isCurrent;
+  const iconButtonClass = "h-7 w-7 shrink-0 rounded-full";
+  const switchLabel = isCurrent
+    ? t("provider.inUse")
+    : t("provider.switchConnection", "切换到此连接");
+  const switchDisabled = isCurrent || !!switchDisabledReason;
+  const testLabel = t("provider.connectivityCheck", "检测连通");
 
   return (
-    <div className="flex items-center gap-1.5">
-      {/* disabled:pointer-events-none prevents the native title from firing,
-          so the wrapper owns the explanatory tooltip and cursor. */}
+    <div className="flex items-center gap-1">
+      {/* A wrapper keeps the explanation available for a disabled button. */}
       <span
-        title={buttonState.title}
-        className={cn(
-          "inline-flex",
-          buttonState.disabled && "cursor-not-allowed",
-        )}
+        title={switchDisabledReason || switchLabel}
+        className={cn("inline-flex", switchDisabled && "cursor-not-allowed")}
       >
         <Button
-          size="sm"
-          variant={buttonState.variant}
-          onClick={handleMainButtonClick}
-          disabled={buttonState.disabled}
-          className={cn("w-[4.5rem] px-2.5", buttonState.className)}
-        >
-          {buttonState.icon}
-          {buttonState.text}
-        </Button>
-      </span>
-
-      <div className="flex items-center gap-1">
-        <Button
+          type="button"
           size="icon"
-          variant="ghost"
-          onClick={onEdit}
-          aria-label={t("common.edit")}
-          title={t("common.edit")}
+          variant={isCurrent ? "outline" : "default"}
+          onClick={onSwitch}
+          disabled={switchDisabled}
+          aria-label={switchLabel}
+          title={switchDisabledReason || switchLabel}
           className={iconButtonClass}
         >
-          <Edit className="h-4 w-4" />
-        </Button>
-
-        {onDuplicate && (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={onDuplicate}
-            title={t("provider.duplicate")}
-            className={iconButtonClass}
-          >
-            <Copy className="h-4 w-4" />
-          </Button>
-        )}
-
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={onTest || undefined}
-          disabled={isTesting}
-          title={t("provider.connectivityCheck", "检测连通")}
-          className={cn(
-            iconButtonClass,
-            !onTest && "opacity-40 cursor-not-allowed text-muted-foreground",
-          )}
-        >
-          {isTesting ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+          {isCurrent ? (
+            <Check className="h-3.5 w-3.5" aria-hidden="true" />
           ) : (
-            <Activity className="h-4 w-4" />
+            <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
           )}
         </Button>
-
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={onConfigureUsage || undefined}
-          title={t("provider.configureUsage")}
-          className={cn(
-            iconButtonClass,
-            !onConfigureUsage &&
-              "opacity-40 cursor-not-allowed text-muted-foreground",
-          )}
-        >
-          <BarChart3 className="h-4 w-4" />
-        </Button>
-
-        {onOpenTerminal && (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={onOpenTerminal}
-            title={t("provider.openTerminal", "打开终端")}
-            className={cn(
-              iconButtonClass,
-              "hover:text-emerald-600 dark:hover:text-emerald-400",
-            )}
-          >
-            <Terminal className="h-4 w-4" />
-          </Button>
+      </span>
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        onClick={onTest}
+        disabled={isTesting || !onTest}
+        aria-label={testLabel}
+        title={testLabel}
+        className={iconButtonClass}
+      >
+        {isTesting ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+        ) : (
+          <Activity className="h-3.5 w-3.5" aria-hidden="true" />
         )}
-
-        <Button
-          size="icon"
-          variant="ghost"
-          onClick={canDelete ? onDelete : undefined}
-          disabled={!canDelete}
-          aria-label={t("common.delete")}
-          title={t("common.delete")}
-          className={cn(
-            iconButtonClass,
-            canDelete && "hover:text-red-500 dark:hover:text-red-400",
-            !canDelete && "opacity-40 cursor-not-allowed text-muted-foreground",
-          )}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
+      </Button>
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        onClick={onEdit}
+        aria-label={t("common.edit")}
+        title={t("common.edit")}
+        className={iconButtonClass}
+      >
+        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+      </Button>
     </div>
   );
 }

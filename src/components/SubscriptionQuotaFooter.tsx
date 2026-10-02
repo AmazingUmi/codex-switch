@@ -131,44 +131,72 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
     return () => clearInterval(interval);
   }, [quota?.queriedAt]);
 
-  // Codex account cards must retain a visible, refreshable unknown state when
-  // credentials or API windows are missing rather than implying zero usage.
-  if (
-    visualization === "rings" &&
-    quota &&
-    (quota.credentialStatus === "not_found" ||
-      quota.credentialStatus === "parse_error" ||
-      (quota.success && !quota.tiers?.length))
-  ) {
+  // Account cards share one geometry through loading, missing credentials and
+  // failures. Unavailable windows remain unknown rather than implying zero.
+  if (visualization === "rings") {
+    const hasWindows =
+      !!quota?.success &&
+      !!quota.tiers?.length &&
+      quota.credentialStatus !== "not_found" &&
+      quota.credentialStatus !== "parse_error";
+    const expired = quota?.credentialStatus === "expired" && !quota.success;
+    const failed =
+      !!quota &&
+      !quota.success &&
+      quota.credentialStatus !== "not_found" &&
+      quota.credentialStatus !== "parse_error" &&
+      !expired;
+    const statusLabel = hasWindows
+      ? undefined
+      : !quota && loading
+        ? t("common.loading")
+        : expired
+          ? t("subscription.expired")
+          : failed
+            ? t("subscription.queryFailed")
+            : t("codexAccounts.quotaUnknown", "额度未知");
+    const statusMessage = hasWindows
+      ? undefined
+      : expired
+        ? (expiredHint ??
+          t("subscription.expiredHint", { tool: appIdForExpiredHint }))
+        : quota?.error || quota?.credentialMessage;
+    const unknownQuota: SubscriptionQuota = {
+      tool: appIdForExpiredHint,
+      credentialStatus: "not_found",
+      credentialMessage: null,
+      success: false,
+      tiers: [],
+      extraUsage: null,
+      error: null,
+      queriedAt: null,
+    };
     return (
-      <div
-        className={`codex-quota-panel min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-3 py-3 shadow-sm backdrop-blur-xl ${inline ? "w-full max-w-sm" : "mt-3"}`}
-        aria-busy={loading}
-      >
-        <div className="flex items-center justify-between gap-2">
-          <span role="status" className="text-xs text-muted-foreground">
-            {t("codexAccounts.quotaUnknown", "额度未知")}
-          </span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              refetch();
-            }}
-            disabled={loading}
-            aria-label={t("subscription.refresh")}
-            title={t("subscription.refresh")}
-            className="codex-quota-refresh flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-default/60 bg-card/60 text-muted-foreground shadow-sm backdrop-blur-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-          </button>
-        </div>
-        {(quota.error || quota.credentialMessage) && (
-          <p className="mt-2 break-words text-[11px] text-muted-foreground">
-            {quota.error || quota.credentialMessage}
-          </p>
-        )}
-      </div>
+      <CodexQuotaRings
+        quota={quota ?? unknownQuota}
+        tiers={
+          hasWindows
+            ? quota!.tiers!
+            : [
+                { name: "five_hour", utilization: NaN, resetsAt: null },
+                { name: "seven_day", utilization: NaN, resetsAt: null },
+              ]
+        }
+        labels={TIER_I18N_KEYS}
+        loading={loading}
+        refetch={refetch}
+        inline={inline}
+        updatedLabel={
+          quota?.queriedAt
+            ? formatRelativeTime(quota.queriedAt, now, t)
+            : t("usage.never", { defaultValue: "从未更新" })
+        }
+        refreshFailed={refreshFailed}
+        refreshError={refreshError}
+        statusLabel={statusLabel}
+        statusMessage={statusMessage}
+        statusTone={expired ? "warning" : failed ? "error" : undefined}
+      />
     );
   }
 
@@ -286,29 +314,9 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
 
   // 成功获取数据
   const tiers = (quota.tiers || []).filter(
-    (tier) => visualization === "rings" || tier.name in TIER_I18N_KEYS,
+    (tier) => tier.name in TIER_I18N_KEYS,
   );
   if (tiers.length === 0) return null;
-
-  if (visualization === "rings") {
-    return (
-      <CodexQuotaRings
-        quota={quota}
-        tiers={tiers}
-        labels={TIER_I18N_KEYS}
-        loading={loading}
-        refetch={refetch}
-        inline={inline}
-        updatedLabel={
-          quota.queriedAt
-            ? formatRelativeTime(quota.queriedAt, now, t)
-            : t("usage.never", { defaultValue: "从未更新" })
-        }
-        refreshFailed={refreshFailed}
-        refreshError={refreshError}
-      />
-    );
-  }
 
   // ── inline 模式：紧凑两行显示 ──
   if (inline) {

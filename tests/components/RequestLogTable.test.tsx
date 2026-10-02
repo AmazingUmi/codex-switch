@@ -71,6 +71,43 @@ describe("RequestLogTable", () => {
     );
   });
 
+  it("shows local midnight as 00:00 and labels the table's time zone", () => {
+    useRequestLogsMock.mockReturnValue({
+      data: {
+        data: [
+          {
+            requestId: "midnight",
+            createdAt: new Date(2026, 9, 1, 0, 0).getTime() / 1000,
+            model: "gpt-6.1-sol",
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            totalCostUsd: "0",
+            latencyMs: 0,
+            statusCode: 200,
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+    });
+    render(
+      <RequestLogTable
+        range={{ preset: "today" }}
+        rangeLabel="Today"
+        refreshIntervalMs={0}
+      />,
+    );
+
+    expect(
+      screen.getByText(new Intl.DateTimeFormat().resolvedOptions().timeZone),
+    ).toBeVisible();
+    const timeCell = screen.getByRole("cell", { name: "10/01, 00:00" });
+    expect(timeCell.title).toContain("2026");
+    expect(timeCell.title).toMatch(/GMT(?:[+-]\d{2}:\d{2})?/);
+  });
+
   it("resets pagination when the dashboard range changes", async () => {
     const initialRange: UsageRangeSelection = { preset: "today" };
     const nextRange: UsageRangeSelection = {

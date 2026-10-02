@@ -11,11 +11,11 @@
 use crate::config::get_claude_config_dir;
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::calculator::{CostCalculator, ModelPricing};
-use crate::proxy::usage::parser::TokenUsage;
 use crate::services::usage_stats::{
     effective_usage_log_filter, find_model_pricing, should_skip_session_insert, DedupKey,
 };
+use crate::usage::calculator::{CostCalculator, ModelPricing};
+use crate::usage::TokenUsage;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -653,7 +653,7 @@ fn sync_single_file(
 
         let request_id = format!(
             "{}{}",
-            crate::proxy::usage::parser::SESSION_REQUEST_ID_PREFIX,
+            crate::usage::SESSION_REQUEST_ID_PREFIX,
             msg.message_id
         );
 
@@ -1401,10 +1401,7 @@ mod tests {
             let conn = lock_conn!(db.conn);
             let msg_x_rows: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM proxy_request_logs WHERE request_id = ?1",
-                rusqlite::params![format!(
-                    "{}msg_x",
-                    crate::proxy::usage::parser::SESSION_REQUEST_ID_PREFIX
-                )],
+                rusqlite::params![format!("{}msg_x", crate::usage::SESSION_REQUEST_ID_PREFIX)],
                 |row| row.get(0),
             )?;
             assert_eq!(msg_x_rows, 0, "重写内容不得入库");
@@ -1465,10 +1462,7 @@ mod tests {
         let conn = lock_conn!(db.conn);
         let msg_a_rows: i64 = conn.query_row(
             "SELECT COUNT(*) FROM proxy_request_logs WHERE request_id = ?1",
-            rusqlite::params![format!(
-                "{}msg_a",
-                crate::proxy::usage::parser::SESSION_REQUEST_ID_PREFIX
-            )],
+            rusqlite::params![format!("{}msg_a", crate::usage::SESSION_REQUEST_ID_PREFIX)],
             |row| row.get(0),
         )?;
         drop(conn);

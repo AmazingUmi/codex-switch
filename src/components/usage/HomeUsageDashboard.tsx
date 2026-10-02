@@ -38,6 +38,10 @@ export function HomeUsageDashboard() {
       onSessionAutoSyncEnabledChange={(sessionAutoSyncEnabled) =>
         persistUsageSettings({ sessionAutoSyncEnabled })
       }
+      codexUsageSourceDir={settings?.codexUsageSourceDir}
+      onCodexUsageSourceDirChange={(codexUsageSourceDir) =>
+        persistUsageSettings({ codexUsageSourceDir })
+      }
     />
   );
 }

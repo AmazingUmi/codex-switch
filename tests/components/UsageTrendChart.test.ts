@@ -17,6 +17,25 @@ const day = (isoDate: string) =>
   }) as const;
 
 describe("buildUsageTrendChartData (#6302)", () => {
+  it("uses 00:00 hourly ticks and includes the UTC offset in tooltips", () => {
+    const midnight = new Date(2026, 9, 1, 0, 0);
+    const startDate = midnight.getTime() / 1000;
+    const points = buildUsageTrendChartData(
+      [{ ...day("2026-10-01"), date: midnight.toISOString() }],
+      {
+        isHourly: true,
+        dateLocale: "en-US",
+        startDate,
+        endDate: startDate + 3600,
+      },
+    );
+
+    expect(points[0].label).toBe("10/01, 00:00");
+    expect(points[0].tooltipLabel).toContain("2026");
+    expect(points[0].tooltipLabel).toContain("00:00");
+    expect(points[0].tooltipLabel).toMatch(/GMT(?:[+-]\d{2}:\d{2})?/);
+  });
+
   it("keeps unique x-axis keys when the same MM/DD appears in multiple years", () => {
     // 2025-04-27 and 2026-04-27 share the same MM/DD tick text in single-year
     // formatting. Using that text as the Recharts category key made activeDots

@@ -22,8 +22,6 @@ import CopilotQuotaFooter from "@/components/CopilotQuotaFooter";
 import CodexOauthQuotaFooter from "@/components/CodexOauthQuotaFooter";
 import XaiOauthQuotaFooter from "@/components/XaiOauthQuotaFooter";
 import { PROVIDER_TYPES, TEMPLATE_TYPES } from "@/config/constants";
-import { ProviderHealthBadge } from "@/components/providers/ProviderHealthBadge";
-import { FailoverPriorityBadge } from "@/components/providers/FailoverPriorityBadge";
 import {
   extractCodexBaseUrl,
   extractCodexExperimentalBearerToken,
@@ -31,13 +29,17 @@ import {
 import { resolveManagedAccountId } from "@/lib/authBinding";
 import {
   resolveCodexOfficialIdentity,
-  supportsOfficialProxyTakeover,
-  providerNeedsRouting,
+  providerSupportsDirectConnection,
 } from "@/utils/providerCapabilities";
-import { useProviderHealth } from "@/lib/query/failover";
 import { useUsageQuery } from "@/lib/query/queries";
 import { resolveProviderIcon } from "@/utils/providerIcon";
 import { ProviderStatusBadge } from "@/components/providers/ProviderStatusBadge";
+import { ApiBalance } from "@/components/providers/ApiBalance";
+import {
+  isApiBalanceConnection,
+  resolveApiBalanceCredentials,
+  supportsApiBalance,
+} from "@/utils/apiBalance";
 
 interface DragHandleProps {
   attributes: DraggableAttributes;
@@ -58,15 +60,7 @@ interface ProviderCardProps {
   onTest?: (provider: Provider) => void;
   onOpenTerminal?: (provider: Provider) => void;
   isTesting?: boolean;
-  isProxyRunning: boolean;
-  isProxyTakeover?: boolean; // 路由模式（切换只改代理路由）
-  isDirectProvider?: boolean; // 路由模式下的直连供应商：退出路由时写回它
   dragHandleProps?: DragHandleProps;
-  isAutoFailoverEnabled?: boolean; // 是否开启自动故障转移
-  failoverPriority?: number; // 故障转移优先级（1 = P1, 2 = P2, ...）
-  isInFailoverQueue?: boolean; // 是否在故障转移队列中
-  onToggleFailover?: (enabled: boolean) => void; // 切换故障转移队列
-  activeProviderId?: string; // 代理当前实际使用的供应商 ID（用于故障转移模式下标注绿色边框）
 }
 
 /** 判断是否为官方供应商（无自定义 base URL / API key，直连官方 API） */
@@ -142,22 +136,10 @@ export function ProviderCard({
   appId,
   onSwitch,
   onEdit,
-  onDelete,
-  onConfigureUsage,
   onOpenWebsite,
-  onDuplicate,
   onTest,
-  onOpenTerminal,
   isTesting,
-  isProxyRunning,
-  isProxyTakeover = false,
-  isDirectProvider = false,
   dragHandleProps,
-  isAutoFailoverEnabled = false,
-  failoverPriority,
-  isInFailoverQueue = false,
-  onToggleFailover,
-  activeProviderId,
 }: ProviderCardProps) {
   const { t } = useTranslation();
   const codexOfficialIdentity = resolveCodexOfficialIdentity(appId, provider);
@@ -188,8 +170,6 @@ export function ProviderCard({
           `OpenAI Official (${managedCodexAccount.login})`),
   );
 
-  const { data: health } = useProviderHealth(provider.id, appId, true);
-
   const fallbackUrlText = t("provider.notConfigured", {
     defaultValue: "未配置接口地址",
   });
@@ -217,31 +197,25 @@ export function ProviderCard({
     TEMPLATE_TYPES.OFFICIAL_SUBSCRIPTION;
   const officialSubscriptionEnabled =
     isOfficial && usageEnabled && isOfficialSubscriptionUsage;
-  // 官方判定只认显式 category === "official"（SSOT），不回退 isOfficial 的空字段启发式。
-  // 理由（此判定曾在「纯 category ↔ category+isOfficial 回退」间反复，结论钉死于此）：
-  //  1) 封号保护是高代价决策，不该建立在「base_url/key 缺失」这种脆弱信号上——它无法区分
-  //     「想直连官方」与「自定义但还没填完」，两者都表现为字段为空，必然误伤后者。
-  //  2) 启发式在 UI 多拦的部分，执行层 useProviderActions.ts 也只认 category === "official"、
-  //     并不兑现（绕过 UI 即可切换）→ 属虚保护，却以误伤 category 缺失的自定义供应商为代价。
-  //  3) 预设导入的官方一定带 category="official"，category 缺失的「真官方」现实中≈不存在。
-  // 真官方就该有显式 category；手动新建官方应引导标注，而不是靠空字段猜。
-  const supportsOfficialRouting = supportsOfficialProxyTakeover(
-    appId,
-    provider,
-  );
-  const isOfficialBlockedByProxy =
-    isProxyTakeover &&
-    provider.category === "official" &&
-    !supportsOfficialRouting;
   const isCopilot =
     provider.meta?.providerType === PROVIDER_TYPES.GITHUB_COPILOT ||
     provider.meta?.usage_script?.templateType === "github_copilot";
   const isCodexOauth = isBoundCodexOfficial;
   // xAI OAuth (SuperGrok 反代)：额度经自管 OAuth token 自动显示，与 codex_oauth 同构
   const isXaiOauth = provider.meta?.providerType === PROVIDER_TYPES.XAI_OAUTH;
-  // 统一权威谓词（详见 providerNeedsRouting）：以 providerType 为准，不受
-  // apiFormat 被改动/缺省影响。
-  const codexNeedsRouting = providerNeedsRouting(appId, provider);
+  const unsupportedDirect = !providerSupportsDirectConnection(appId, provider);
+  const hasNativeBalance = supportsApiBalance(
+    resolveApiBalanceCredentials(provider).baseUrl,
+  );
+  const showApiBalance =
+    isApiBalanceConnection(provider) &&
+    !isCopilot &&
+    !isCodexOauth &&
+    !isXaiOauth &&
+    (codexOfficialIdentity === "api_key" || provider.category !== "official") &&
+    (!usageEnabled ||
+      hasNativeBalance ||
+      provider.meta?.usage_script?.templateType === TEMPLATE_TYPES.BALANCE);
   // 获取用量数据以判断是否有多套餐
   const autoQueryInterval = isCurrent
     ? provider.meta?.usage_script?.autoQueryInterval || 0
@@ -250,7 +224,10 @@ export function ProviderCard({
   // 脚本用量只在「已启用 + 非官方 + 非官方订阅模板」时才查询；展开判定必须复用同一谓词，
   // 因为禁用的 React Query observer 仍会返回同 key 的旧缓存。
   const scriptUsageActive =
-    usageEnabled && !isOfficial && !isOfficialSubscriptionUsage;
+    usageEnabled &&
+    !isOfficial &&
+    !isOfficialSubscriptionUsage &&
+    !showApiBalance;
   const { data: usage } = useUsageQuery(provider.id, appId, {
     enabled: scriptUsageActive,
     autoQueryInterval,
@@ -281,25 +258,15 @@ export function ProviderCard({
     onOpenWebsite(displayUrl);
   };
 
-  // 路由故障转移时高亮实际使用的上游；直连时高亮当前配置。
-  const isActiveProvider = isAutoFailoverEnabled
-    ? activeProviderId === provider.id
-    : isCurrent;
-  const shouldUseGreen = isProxyTakeover && isActiveProvider;
-  const shouldUseBlue = !isProxyTakeover && isActiveProvider;
-  const hasStateHighlight = shouldUseGreen || shouldUseBlue;
+  const hasStateHighlight = isCurrent;
 
   return (
     <div
       className={cn(
         "relative overflow-hidden rounded-xl border border-border p-4 transition-all duration-300",
         "bg-card text-card-foreground group",
-        isAutoFailoverEnabled || isProxyTakeover
-          ? "hover:border-emerald-500/50"
-          : "hover:border-border-active",
-        shouldUseGreen &&
-          "border-emerald-500/60 shadow-sm shadow-emerald-500/10",
-        shouldUseBlue && "border-blue-500/60 shadow-sm shadow-blue-500/10",
+        "hover:border-border-active",
+        isCurrent && "border-blue-500/60 shadow-sm shadow-blue-500/10",
         !hasStateHighlight && "hover:shadow-sm",
         dragHandleProps?.isDragging &&
           "cursor-grabbing border-primary shadow-lg scale-105 z-10",
@@ -308,8 +275,7 @@ export function ProviderCard({
       <div
         className={cn(
           "absolute inset-0 bg-gradient-to-r to-transparent transition-opacity duration-500 pointer-events-none",
-          shouldUseGreen && "from-emerald-500/10",
-          shouldUseBlue && "from-blue-500/10",
+          isCurrent && "from-blue-500/10",
           !hasStateHighlight && "from-primary/10",
           hasStateHighlight ? "opacity-100" : "opacity-0",
         )}
@@ -357,43 +323,18 @@ export function ProviderCard({
                 {provider.name}
               </h3>
 
-              {codexNeedsRouting && (
+              {unsupportedDirect && (
                 <ProviderStatusBadge
-                  tone="info"
-                  label={t("provider.needsRouting", {
-                    defaultValue: "需要路由",
+                  tone="warning"
+                  label={t("provider.unsupportedDirect", {
+                    defaultValue: "不支持直连",
+                  })}
+                  title={t("notifications.directConnectionRequired", {
+                    defaultValue:
+                      "仅支持 Codex 原生 Responses 直连和 OpenAI 官方账号。请编辑旧配置后再启用。",
                   })}
                 />
               )}
-
-              {isDirectProvider && (
-                <ProviderStatusBadge
-                  tone="muted"
-                  label={t("provider.directProvider", {
-                    defaultValue: "直连",
-                  })}
-                  title={t("provider.directProviderHint", {
-                    defaultValue: "退出路由后恢复为这个供应商",
-                  })}
-                />
-              )}
-
-              {isProxyRunning &&
-                !supportsOfficialRouting &&
-                isInFailoverQueue &&
-                health && (
-                  <ProviderHealthBadge
-                    consecutiveFailures={health.consecutive_failures}
-                    isHealthy={health.is_healthy}
-                  />
-                )}
-
-              {isAutoFailoverEnabled &&
-                !supportsOfficialRouting &&
-                isInFailoverQueue &&
-                failoverPriority && (
-                  <FailoverPriorityBadge priority={failoverPriority} />
-                )}
             </div>
 
             {codexOfficialIdentity && codexOfficialIdentity !== "api_key" ? (
@@ -509,6 +450,8 @@ export function ProviderCard({
                   inline={true}
                   isCurrent={isCurrent}
                 />
+              ) : showApiBalance ? (
+                <ApiBalance provider={provider} />
               ) : isOfficial ? (
                 officialSubscriptionEnabled ? (
                   <SubscriptionQuotaFooter
@@ -563,16 +506,21 @@ export function ProviderCard({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-shrink-0 opacity-0 pointer-events-none group-hover:opacity-100 group-focus-within:opacity-100 group-hover:pointer-events-auto group-focus-within:pointer-events-auto transition-opacity duration-200">
+          <div className="flex shrink-0 items-center gap-1.5">
             <ProviderActions
               appId={appId}
               isCurrent={isCurrent}
               isTesting={isTesting}
-              isProxyTakeover={isProxyTakeover}
-              isOfficialBlockedByProxy={isOfficialBlockedByProxy}
+              switchDisabledReason={
+                unsupportedDirect
+                  ? t("notifications.directConnectionRequired", {
+                      defaultValue:
+                        "仅支持 Codex 原生 Responses 直连和 OpenAI 官方账号。请编辑旧配置后再启用。",
+                    })
+                  : undefined
+              }
               onSwitch={() => onSwitch(provider)}
               onEdit={() => onEdit(provider)}
-              onDuplicate={() => onDuplicate(provider)}
               onTest={
                 // 连通检测对第三方/自定义/Copilot/Codex-OAuth 供应商开放（这些正是旧的
                 // 真实请求探测会误报、而可达性探测能正确处理的对象）。官方供应商
@@ -581,20 +529,6 @@ export function ProviderCard({
                 onTest && provider.category !== "official"
                   ? () => onTest(provider)
                   : undefined
-              }
-              onConfigureUsage={
-                isCopilot || isXaiOauth
-                  ? undefined
-                  : () => onConfigureUsage(provider)
-              }
-              onDelete={() => onDelete(provider)}
-              onOpenTerminal={
-                onOpenTerminal ? () => onOpenTerminal(provider) : undefined
-              }
-              isAutoFailoverEnabled={isAutoFailoverEnabled}
-              isInFailoverQueue={isInFailoverQueue}
-              onToggleFailover={
-                supportsOfficialRouting ? undefined : onToggleFailover
               }
             />
           </div>

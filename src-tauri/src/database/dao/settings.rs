@@ -135,41 +135,6 @@ impl Database {
         }
     }
 
-    // --- 全局出站代理 ---
-
-    /// 全局代理 URL 的存储键名
-    const GLOBAL_PROXY_URL_KEY: &'static str = "global_proxy_url";
-
-    /// 获取全局出站代理 URL
-    ///
-    /// 返回 None 表示未配置或已清除代理（直连）
-    /// 返回 Some(url) 表示已配置代理
-    pub fn get_global_proxy_url(&self) -> Result<Option<String>, AppError> {
-        self.get_setting(Self::GLOBAL_PROXY_URL_KEY)
-    }
-
-    /// 设置全局出站代理 URL
-    ///
-    /// - 传入非空字符串：启用代理
-    /// - 传入空字符串或 None：清除代理设置（直连）
-    pub fn set_global_proxy_url(&self, url: Option<&str>) -> Result<(), AppError> {
-        match url {
-            Some(u) if !u.trim().is_empty() => {
-                self.set_setting(Self::GLOBAL_PROXY_URL_KEY, u.trim())
-            }
-            _ => {
-                // 清除代理设置
-                let conn = lock_conn!(self.conn);
-                conn.execute(
-                    "DELETE FROM settings WHERE key = ?1",
-                    params![Self::GLOBAL_PROXY_URL_KEY],
-                )
-                .map_err(|e| AppError::Database(e.to_string()))?;
-                Ok(())
-            }
-        }
-    }
-
     // --- 代理接管状态管理（已废弃，使用 proxy_config.enabled 替代）---
 
     /// 获取指定应用的代理接管状态
@@ -241,18 +206,18 @@ impl Database {
     /// 获取整流器配置
     ///
     /// 返回整流器配置，如果不存在则返回默认值（全部开启）
-    pub fn get_rectifier_config(&self) -> Result<crate::proxy::types::RectifierConfig, AppError> {
+    pub fn get_rectifier_config(&self) -> Result<crate::legacy_routing::RectifierConfig, AppError> {
         match self.get_setting("rectifier_config")? {
             Some(json) => serde_json::from_str(&json)
                 .map_err(|e| AppError::Database(format!("解析整流器配置失败: {e}"))),
-            None => Ok(crate::proxy::types::RectifierConfig::default()),
+            None => Ok(crate::legacy_routing::RectifierConfig::default()),
         }
     }
 
     /// 更新整流器配置
     pub fn set_rectifier_config(
         &self,
-        config: &crate::proxy::types::RectifierConfig,
+        config: &crate::legacy_routing::RectifierConfig,
     ) -> Result<(), AppError> {
         let json = serde_json::to_string(config)
             .map_err(|e| AppError::Database(format!("序列化整流器配置失败: {e}")))?;
@@ -264,18 +229,18 @@ impl Database {
     /// 获取优化器配置
     ///
     /// 返回优化器配置，如果不存在则返回默认值（默认关闭）
-    pub fn get_optimizer_config(&self) -> Result<crate::proxy::types::OptimizerConfig, AppError> {
+    pub fn get_optimizer_config(&self) -> Result<crate::legacy_routing::OptimizerConfig, AppError> {
         match self.get_setting("optimizer_config")? {
             Some(json) => serde_json::from_str(&json)
                 .map_err(|e| AppError::Database(format!("解析优化器配置失败: {e}"))),
-            None => Ok(crate::proxy::types::OptimizerConfig::default()),
+            None => Ok(crate::legacy_routing::OptimizerConfig::default()),
         }
     }
 
     /// 更新优化器配置
     pub fn set_optimizer_config(
         &self,
-        config: &crate::proxy::types::OptimizerConfig,
+        config: &crate::legacy_routing::OptimizerConfig,
     ) -> Result<(), AppError> {
         let json = serde_json::to_string(config)
             .map_err(|e| AppError::Database(format!("序列化优化器配置失败: {e}")))?;
@@ -289,18 +254,18 @@ impl Database {
     /// 返回配置，如果不存在则返回默认值（默认开启）
     pub fn get_copilot_optimizer_config(
         &self,
-    ) -> Result<crate::proxy::types::CopilotOptimizerConfig, AppError> {
+    ) -> Result<crate::legacy_routing::CopilotOptimizerConfig, AppError> {
         match self.get_setting("copilot_optimizer_config")? {
             Some(json) => serde_json::from_str(&json)
                 .map_err(|e| AppError::Database(format!("解析 Copilot 优化器配置失败: {e}"))),
-            None => Ok(crate::proxy::types::CopilotOptimizerConfig::default()),
+            None => Ok(crate::legacy_routing::CopilotOptimizerConfig::default()),
         }
     }
 
     /// 更新 Copilot 优化器配置
     pub fn set_copilot_optimizer_config(
         &self,
-        config: &crate::proxy::types::CopilotOptimizerConfig,
+        config: &crate::legacy_routing::CopilotOptimizerConfig,
     ) -> Result<(), AppError> {
         let json = serde_json::to_string(config)
             .map_err(|e| AppError::Database(format!("序列化 Copilot 优化器配置失败: {e}")))?;
@@ -310,16 +275,19 @@ impl Database {
     // --- 日志配置 ---
 
     /// 获取日志配置
-    pub fn get_log_config(&self) -> Result<crate::proxy::types::LogConfig, AppError> {
+    pub fn get_log_config(&self) -> Result<crate::legacy_routing::LogConfig, AppError> {
         match self.get_setting("log_config")? {
             Some(json) => serde_json::from_str(&json)
                 .map_err(|e| AppError::Database(format!("解析日志配置失败: {e}"))),
-            None => Ok(crate::proxy::types::LogConfig::default()),
+            None => Ok(crate::legacy_routing::LogConfig::default()),
         }
     }
 
     /// 更新日志配置
-    pub fn set_log_config(&self, config: &crate::proxy::types::LogConfig) -> Result<(), AppError> {
+    pub fn set_log_config(
+        &self,
+        config: &crate::legacy_routing::LogConfig,
+    ) -> Result<(), AppError> {
         let json = serde_json::to_string(config)
             .map_err(|e| AppError::Database(format!("序列化日志配置失败: {e}")))?;
         self.set_setting("log_config", &json)

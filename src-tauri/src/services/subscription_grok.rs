@@ -554,7 +554,7 @@ pub(crate) async fn query_grok_quota(
     tool_label: &str,
     relogin_hint: &str,
 ) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     // 空 gRPC-web 帧：1 字节 flags + 4 字节大端长度 0
     let resp = client

@@ -261,15 +261,13 @@ pub fn import_default_config(state: State<'_, AppState>, app: String) -> Result<
 pub async fn get_claude_desktop_status(
     state: State<'_, AppState>,
 ) -> Result<crate::claude_desktop_config::ClaudeDesktopStatus, String> {
-    let proxy_running = state.proxy_service.is_running().await;
-    crate::claude_desktop_config::get_status(state.db.as_ref(), proxy_running)
-        .map_err(|e| e.to_string())
+    crate::claude_desktop_config::get_status(state.db.as_ref()).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_claude_desktop_default_routes(
 ) -> Vec<crate::claude_desktop_config::ClaudeDesktopDefaultRoute> {
-    crate::claude_desktop_config::default_proxy_routes()
+    crate::claude_desktop_config::default_model_roles()
 }
 
 #[tauri::command]
@@ -470,7 +468,7 @@ pub(crate) fn suggested_claude_desktop_routes(
             });
     }
 
-    for spec in crate::claude_desktop_config::DEFAULT_PROXY_ROUTES {
+    for spec in crate::claude_desktop_config::DEFAULT_MODEL_ROLES {
         add_route(
             &mut routes,
             env,
@@ -482,7 +480,7 @@ pub(crate) fn suggested_claude_desktop_routes(
 
     // 三个 default env_key 全空时用 ANTHROPIC_MODEL 派生兜底路由。
     if routes.is_empty() {
-        let primary_route = crate::claude_desktop_config::DEFAULT_PROXY_ROUTES[0].route_id;
+        let primary_route = crate::claude_desktop_config::DEFAULT_MODEL_ROLES[0].route_id;
         add_route(
             &mut routes,
             env,

@@ -19,7 +19,21 @@ import type { UsageResult } from "@/types";
 import type { AppId } from "./types";
 import type { TemplateType } from "@/config/constants";
 
+export interface CodexUsageSource {
+  directory: string;
+  defaultDirectory: string;
+}
+
+export const codexUsageSourceQueryKey = ["codexUsageSource"] as const;
+
 export const usageApi = {
+  getPricingModelSource: async (appType: string): Promise<string> =>
+    invoke("get_pricing_model_source", { appType }),
+  setPricingModelSource: async (
+    appType: string,
+    value: string,
+  ): Promise<void> => invoke("set_pricing_model_source", { appType, value }),
+
   // Provider usage script methods
   query: async (providerId: string, appId: AppId): Promise<UsageResult> => {
     return invoke("queryProviderUsage", { providerId, app: appId });
@@ -199,6 +213,10 @@ export const usageApi = {
   },
 
   // Session usage sync
+  getCodexUsageSource: async (): Promise<CodexUsageSource> => {
+    return invoke("get_codex_usage_source");
+  },
+
   syncSessionUsage: async (): Promise<SessionSyncResult> => {
     return invoke("sync_session_usage");
   },

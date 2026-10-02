@@ -13,17 +13,17 @@
 //! - `turn_context` → 提取当前 model
 //! - `event_msg` (type=token_count) → 提取累计 token 用量，计算 delta
 
-use crate::codex_config::get_codex_config_dir;
+use crate::codex_usage_source::get_codex_usage_source_dir;
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::calculator::{CostCalculator, ModelPricing};
-use crate::proxy::usage::parser::TokenUsage;
 use crate::services::session_usage::{
     metadata_modified_nanos, update_sync_state, update_sync_state_on_conn, SessionSyncResult,
 };
 use crate::services::usage_stats::{
     find_model_pricing, has_suspected_codex_session_duplicate, should_skip_session_insert, DedupKey,
 };
+use crate::usage::calculator::{CostCalculator, ModelPricing};
+use crate::usage::TokenUsage;
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
@@ -366,7 +366,7 @@ pub(crate) fn reset_codex_usage_on_conn(
 
 impl Database {
     pub(crate) fn reset_codex_usage(&self) -> Result<(), AppError> {
-        let codex_dir = get_codex_config_dir();
+        let codex_dir = get_codex_usage_source_dir();
         let conn = lock_conn!(self.conn);
         conn.execute("SAVEPOINT reset_codex_usage", [])
             .map_err(|error| AppError::Database(format!("开启 Codex 重建事务失败: {error}")))?;
@@ -686,8 +686,44 @@ struct CodexFileSyncResult {
 
 /// 同步 Codex 使用数据（从 JSONL 会话日志）
 pub fn sync_codex_usage(db: &Database) -> Result<SessionSyncResult, AppError> {
-    let codex_dir = get_codex_config_dir();
-    let files = collect_codex_session_files(&codex_dir);
+    let settings = crate::settings::get_settings();
+    // Automatic unit tests must explicitly choose fixtures or an isolated home.
+    #[cfg(test)]
+    if settings.codex_usage_source_dir.is_none()
+        && !std::env::var("CC_SWITCH_TEST_HOME")
+            .ok()
+            .is_some_and(|home| !home.trim().is_empty())
+    {
+        return Err(AppError::InvalidInput(
+            "Codex usage unit tests require an explicit fixture source".into(),
+        ));
+    }
+    sync_codex_usage_from_dir(
+        db,
+        &crate::codex_usage_source::codex_usage_source_dir(&settings),
+        settings.codex_usage_source_dir.is_some(),
+    )
+}
+
+fn sync_codex_usage_from_dir(
+    db: &Database,
+    codex_dir: &Path,
+    explicit_source: bool,
+) -> Result<SessionSyncResult, AppError> {
+    if explicit_source {
+        // A selected source going offline must not look like a successful empty
+        // scan. Newly installed default roots keep the legacy zero-import behavior.
+        fs::read_dir(codex_dir).map_err(|error| AppError::io(codex_dir, error))?;
+        for child in ["sessions", "archived_sessions"] {
+            let path = codex_dir.join(child);
+            match fs::read_dir(&path) {
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(AppError::io(&path, error)),
+            }
+        }
+    }
+    let files = collect_codex_session_files(codex_dir);
     let rollout_index = build_rollout_index(&files);
     let mut pass = CodexSyncPass::load(db)?;
 
@@ -1695,6 +1731,79 @@ mod tests {
 
     fn token_count(input: u64, cached: u64, output: u64) -> serde_json::Value {
         token_count_at(input, cached, output, "2026-07-10T03:00:02Z")
+    }
+
+    #[test]
+    fn test_custom_usage_source_imports_active_and_archived_logs_read_only() -> Result<(), AppError>
+    {
+        let fixture = tempdir().unwrap();
+        let source = fixture.path().join("usage-source");
+        let sessions = source.join("sessions/2026/07/10");
+        let archived = source.join("archived_sessions");
+        fs::create_dir_all(&sessions).unwrap();
+        fs::create_dir_all(&archived).unwrap();
+        let active_file = rollout_path(&sessions, PARENT_ID);
+        let archived_file = rollout_path(&archived, CHILD_A_ID);
+        write_jsonl(
+            &active_file,
+            &[
+                session_meta(PARENT_ID),
+                turn_context(),
+                token_count(100, 20, 10),
+            ],
+        );
+        write_jsonl(
+            &archived_file,
+            &[
+                session_meta(CHILD_A_ID),
+                turn_context(),
+                token_count(200, 30, 20),
+            ],
+        );
+        // A complete writable profile next to the source must remain untouched.
+        let isolated = fixture.path().join("isolated-home/.codex");
+        fs::create_dir_all(&isolated).unwrap();
+        let auth_file = isolated.join("auth.json");
+        fs::write(&auth_file, "isolated auth fixture").unwrap();
+        let files = [&active_file, &archived_file, &auth_file];
+        let before = files.map(|path| fs::read(path).unwrap());
+        let db = Database::memory()?;
+        let imported = sync_codex_usage_from_dir(&db, &source, true)?;
+        assert_eq!(imported.files_scanned, 2);
+        assert_eq!(imported.imported, 2);
+        assert!(imported.errors.is_empty());
+        let repeated = sync_codex_usage_from_dir(&db, &source, true)?;
+        assert_eq!(repeated.imported, 0);
+        assert!(repeated.errors.is_empty());
+        let count: i64 = lock_conn!(db.conn)
+            .query_row(
+                "SELECT COUNT(*) FROM proxy_request_logs WHERE data_source = 'codex_session'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(files.map(|path| fs::read(path).unwrap()), before);
+        Ok(())
+    }
+
+    #[test]
+    fn test_custom_usage_source_unavailable_reports_error() -> Result<(), AppError> {
+        let fixture = tempdir().unwrap();
+        let source = fixture.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let db = Database::memory()?;
+        assert_eq!(sync_codex_usage_from_dir(&db, &source, true)?.imported, 0);
+        for child in ["sessions", "archived_sessions"] {
+            let path = source.join(child);
+            fs::write(&path, "cannot enumerate a file as a log directory").unwrap();
+            assert!(sync_codex_usage_from_dir(&db, &source, true).is_err());
+            fs::remove_file(&path).unwrap();
+        }
+        fs::remove_dir(&source).unwrap();
+        assert!(sync_codex_usage_from_dir(&db, &source, true).is_err());
+        assert_eq!(sync_codex_usage_from_dir(&db, &source, false)?.imported, 0);
+        Ok(())
     }
 
     fn token_count_without_timestamp(input: u64, cached: u64, output: u64) -> serde_json::Value {

@@ -1,5 +1,6 @@
 mod app_config;
 mod app_store;
+pub mod auth;
 mod auto_launch;
 mod claude_desktop_config;
 mod claude_mcp;
@@ -7,6 +8,7 @@ mod claude_plugin;
 mod codex_config;
 mod codex_history_migration;
 mod codex_state_db;
+mod codex_usage_source;
 mod commands;
 mod config;
 mod database;
@@ -16,8 +18,10 @@ mod gemini_config;
 mod gemini_mcp;
 mod grok_config;
 pub mod hermes_config;
+pub mod http_client;
 mod init_status;
 mod jsonc_document;
+pub mod legacy_routing;
 mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
@@ -33,11 +37,12 @@ mod pi_config;
 mod prompt;
 mod prompt_files;
 mod provider;
-mod proxy;
 mod services;
 mod session_manager;
 mod settings;
 mod store;
+pub mod switch_lock;
+pub mod usage;
 
 mod tray;
 mod usage_events;
@@ -68,8 +73,8 @@ pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::{reapply_current_codex_official_live, EditorSave, EditorView},
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
-    SkillService, SpeedtestService,
+    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, SkillService,
+    SpeedtestService,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -217,6 +222,7 @@ pub(crate) fn redact_url_for_log_with_secrets(url_str: &str, known_secrets: &[St
 /// 只保留 `scheme://host:port`，丢掉 path/query/userinfo。用于我们手里没有任何
 /// 已知密钥可脱敏 path 的场景——凭据可能整个内嵌在 base_url 的 path 里，此时
 /// 记录 path 无法保证不泄漏，只能退回到 origin。
+#[cfg(test)]
 pub(crate) fn redact_url_origin_for_log(url_str: &str) -> String {
     let scheme_relative = url_str.starts_with("//");
     let parsed = if scheme_relative {
@@ -672,9 +678,6 @@ pub fn run() {
             }
 
             let app_state = AppState::new(db);
-
-            // 设置 AppHandle 用于代理故障转移时的 UI 更新
-            app_state.proxy_service.set_app_handle(app.handle().clone());
 
             // 补完上次崩溃时写到一半的客户端文件（写前意图在 ~/.cc-switch/live-state.json），
             // 要在任何写客户端文件的启动步骤之前。
@@ -1165,7 +1168,7 @@ pub fn run() {
 
             // 初始化 CopilotAuthManager
             {
-                use crate::proxy::providers::copilot_auth::CopilotAuthManager;
+                use crate::auth::copilot_auth::CopilotAuthManager;
                 use commands::CopilotAuthState;
                 use tokio::sync::RwLock;
 
@@ -1187,7 +1190,7 @@ pub fn run() {
 
             // 初始化 xAI OAuthManager (Grok API 反代)
             {
-                use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
+                use crate::auth::xai_oauth::XaiOAuthManager;
                 use commands::XaiOAuthState;
                 use tokio::sync::RwLock;
 
@@ -1197,38 +1200,13 @@ pub fn run() {
                 log::info!("✓ XaiOAuthManager initialized");
             }
 
-            // 初始化全局出站代理 HTTP 客户端
-            {
-                let db = &app.state::<AppState>().db;
-                let proxy_url = db.get_global_proxy_url().ok().flatten();
-
-                if let Err(e) = crate::proxy::http_client::init(proxy_url.as_deref()) {
-                    log::error!(
-                        "[GlobalProxy] [GP-005] Failed to initialize with saved config: {e}"
-                    );
-
-                    // 清除无效的代理配置
-                    if proxy_url.is_some() {
-                        log::warn!(
-                            "[GlobalProxy] [GP-006] Clearing invalid proxy config from database"
-                        );
-                        if let Err(clear_err) = db.set_global_proxy_url(None) {
-                            log::error!(
-                                "[GlobalProxy] [GP-007] Failed to clear invalid config: {clear_err}"
-                            );
-                        }
-                    }
-
-                    // 使用直连模式重新初始化
-                    if let Err(fallback_err) = crate::proxy::http_client::init(None) {
-                        log::error!(
-                            "[GlobalProxy] [GP-008] Failed to initialize direct connection: {fallback_err}"
-                        );
-                    }
-                }
+            // Initialize outgoing HTTP with the system network environment.
+            // Previously saved application proxy URLs are intentionally ignored.
+            if let Err(error) = crate::http_client::init() {
+                log::error!("[HttpClient] Failed to initialize shared client: {error}");
             }
 
-            // 异常退出恢复 + 代理状态自动恢复
+            // Recover interrupted writes and migrate historical takeover state.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<AppState>();
@@ -1246,8 +1224,8 @@ pub fn run() {
 
                 initialize_common_config_snippets(&state);
 
-                // 定下各应用的直连 / 代理模式（处理旧版遗留的接管状态），再把代理模式的
-                // 应用接上。要排在通用配置片段的自动提取之后：它读的是直连的 live。
+                // Migrate historical takeovers to native direct connections after
+                // common snippet extraction, which skips polluted live files.
                 crate::mode::controller::startup(&state).await;
 
                 // Periodic backup check (on startup)
@@ -1414,12 +1392,6 @@ pub fn run() {
             commands::save_settings,
             commands::has_codex_unify_history_backup,
             commands::restore_codex_unified_history,
-            commands::get_rectifier_config,
-            commands::set_rectifier_config,
-            commands::get_optimizer_config,
-            commands::set_optimizer_config,
-            commands::get_copilot_optimizer_config,
-            commands::set_copilot_optimizer_config,
             commands::get_log_config,
             commands::set_log_config,
             commands::restart_app,
@@ -1563,40 +1535,12 @@ pub fn run() {
             commands::set_auto_launch,
             commands::get_auto_launch_status,
             // Proxy server management
-            commands::start_proxy_server,
-            commands::stop_proxy_server,
-            commands::stop_proxy_with_restore,
-            commands::get_proxy_takeover_status,
-            commands::set_proxy_takeover_for_app,
-            commands::get_direct_provider,
-            commands::get_proxy_status,
-            commands::get_proxy_config,
-            commands::update_proxy_config,
             // Global & Per-App Config
-            commands::get_global_proxy_config,
-            commands::update_global_proxy_config,
-            commands::get_proxy_config_for_app,
-            commands::update_proxy_config_for_app,
             commands::get_pricing_model_source,
             commands::set_pricing_model_source,
-            commands::is_proxy_running,
-            commands::is_live_takeover_active,
-            commands::switch_proxy_provider,
-            // Proxy failover commands
-            commands::get_provider_health,
-            commands::reset_circuit_breaker,
-            commands::get_circuit_breaker_config,
-            commands::update_circuit_breaker_config,
-            commands::get_circuit_breaker_stats,
-            // Failover queue management
-            commands::get_failover_queue,
-            commands::get_available_providers_for_failover,
-            commands::add_to_failover_queue,
-            commands::remove_from_failover_queue,
-            commands::get_auto_failover_enabled,
-            commands::set_auto_failover_enabled,
             // Usage statistics
             commands::get_usage_summary,
+            commands::get_codex_usage_source,
             commands::get_usage_summary_by_app,
             commands::get_usage_trends,
             commands::get_provider_stats,
@@ -1663,12 +1607,6 @@ pub fn run() {
             commands::set_hermes_memory,
             commands::get_hermes_memory_limits,
             commands::set_hermes_memory_enabled,
-            // Global upstream proxy
-            commands::get_global_proxy_url,
-            commands::set_global_proxy_url,
-            commands::test_proxy_url,
-            commands::get_upstream_proxy_status,
-            commands::scan_local_proxies,
             // Window theme control
             commands::set_window_theme,
             // Generic managed auth commands
@@ -1749,7 +1687,6 @@ pub fn run() {
                 // 重启路径交还 Tauri 默认流程即可：
                 //   - 窗口状态：插件 Exit 钩子在主线程保存（同线程读取窗口几何，无死锁）
                 //   - 托盘图标：Tauri 内部 cleanup_before_exit 清理，正常走 Drop
-                //   - 代理/Live 配置：无需恢复，重启后新实例立即接管并恢复代理状态
                 //   - 100ms 落盘等待：重启前的 DB 写入均为命令驱动、此刻已完成，
                 //     与所有 Tauri 应用默认重启路径的行为一致，无需额外等待
                 ExitRequestAction::DeferToTauriRestart => {
@@ -1767,7 +1704,6 @@ pub fn run() {
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 save_window_state_before_exit(&app_handle);
-                cleanup_before_exit(&app_handle).await;
                 // 先于 std::process::exit 显式移除托盘图标。
                 // 进程直接退出时 Tauri 运行时不走正常 Drop 流程，
                 // 不会向 Windows Shell 发送 NIM_DELETE，导致已退出的进程
@@ -1881,21 +1817,6 @@ pub fn run() {
     });
 }
 
-// ============================================================
-// 应用退出清理
-// ============================================================
-
-/// 应用退出前的清理工作
-///
-/// 把接上代理的客户端都指回直连（模式和代理路由保留，下次启动再接上），再停止代理。
-/// 客户端不能一直指着代理：开机自启默认关闭，CC Switch 一关客户端就连不上了。
-pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
-    if let Some(state) = app_handle.try_state::<store::AppState>() {
-        crate::mode::controller::detach_all(state.inner()).await;
-        log::info!("退出清理完成：客户端已指回直连，代理已停止");
-    }
-}
-
 /// 主动从系统托盘移除托盘图标。
 ///
 /// `std::process::exit` 会绕过 Tauri 运行时，触发不了 `TrayIcon::drop()`，
@@ -1918,9 +1839,7 @@ pub(crate) fn remove_tray_icon_before_exit(app_handle: &tauri::AppHandle) {
 
 fn initialize_common_config_snippets(state: &store::AppState) {
     // Auto-extract common config snippets from clean live files when snippet is missing.
-    // This must run before proxy mode is re-attached on startup, otherwise we'd read
-    // proxy-placeholder configs instead of the user's actual live settings. A client
-    // still attached from an update restart (no detach on the way out) is skipped too.
+    // Historical takeover placeholders must not be imported into shared snippets.
     for app_type in crate::app_config::AppType::all() {
         if !state
             .db
@@ -1929,7 +1848,7 @@ fn initialize_common_config_snippets(state: &store::AppState) {
         {
             continue;
         }
-        if state.proxy_service.live_has_proxy_placeholder(&app_type) {
+        if crate::mode::controller::live_has_proxy_placeholder(&app_type) {
             continue;
         }
 
@@ -2191,7 +2110,7 @@ pub fn destroy_single_instance_lock(app_handle: &tauri::AppHandle) {
 /// 直接走 `tauri::process::restart`（spawn 新进程 + `exit(0)`），不经过事件
 /// 循环退出，因此 Tauri 内部的 `cleanup_before_exit` 和各插件的
 /// `RunEvent::Exit` 钩子都不会执行。需要的清理由调用方与本函数显式补偿：
-/// 窗口状态、代理/Live 恢复（调用方）；托盘图标、single-instance 锁（本函数）。
+/// 窗口状态（调用方）；托盘图标、single-instance 锁（本函数）。
 ///
 /// 有意不调 `AppHandle::cleanup_before_exit()`：它会在调用线程上 Drop 托盘
 /// 图标，而 macOS 的 NSStatusItem 操作要求主线程；`set_visible(false)` 走

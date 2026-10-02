@@ -20,16 +20,6 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }));
 
-vi.mock("@/hooks/useProxyStatus", () => ({
-  useProxyStatus: () => ({
-    isRunning: false,
-    takeoverStatus: null,
-    startProxyServer: vi.fn(),
-    stopWithRestore: vi.fn(),
-    isPending: false,
-  }),
-}));
-
 interface SettingsMock {
   settings: any;
   isLoading: boolean;
@@ -290,23 +280,80 @@ describe("SettingsPage Component", () => {
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
 
-  it("offers connection configurations as an accessible icon tab and removes usage from settings", () => {
-    renderSettingsPage({ configurations: <div>saved-configurations</div> });
-    const configurations = screen.getByRole("button", {
-      name: "codexAccounts.configurationsTab",
-    });
-    expect(configurations).toHaveAttribute(
-      "title",
+  it("exposes only general, authentication, advanced and about settings tabs", () => {
+    renderSettingsPage();
+    for (const label of [
+      "settings.tabGeneral",
+      "settings.tabAuth",
+      "settings.tabAdvanced",
+      "common.about",
+    ]) {
+      const tab = screen.getByRole("button", { name: label });
+      expect(tab).toHaveAttribute("title", label);
+      expect(tab.textContent).toBe("");
+    }
+    for (const label of [
       "codexAccounts.configurationsTab",
-    );
-    expect(configurations.textContent).toBe("");
-    expect(
-      screen.queryByRole("button", { name: "usage.title" }),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("saved-configurations")).not.toBeInTheDocument();
-    fireEvent.click(configurations);
-    expect(screen.getByText("saved-configurations")).toBeInTheDocument();
+      "settings.tabNetwork",
+      "usage.title",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: label }),
+      ).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText("settings.globalProxy")).not.toBeInTheDocument();
+  });
+
+  it.each(["network", "configurations", "unsupported-old-tab"])(
+    "falls back to general settings for stale defaultTab=%s",
+    (defaultTab) => {
+      renderSettingsPage({ defaultTab });
+      expect(screen.getByTestId("tab-general")).toBeInTheDocument();
+      expect(screen.getByText("language:zh")).toBeInTheDocument();
+      expect(screen.queryByTestId(`tab-${defaultTab}`)).not.toBeInTheDocument();
+    },
+  );
+
+  it("shows global Codex authentication policies only in the authentication tab", () => {
+    renderSettingsPage();
+    expect(screen.queryByText("settings.codexAuth")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "settings.tabAuth" }));
+    expect(screen.getByTestId("tab-auth")).toBeInTheDocument();
+    expect(screen.getByText("settings.codexAuth")).toBeInTheDocument();
     expect(screen.queryByText("language:zh")).not.toBeInTheDocument();
+    expect(screen.queryByText("codexOauth.authStatus")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("codexAccounts.configurationsTab"),
+    ).not.toBeInTheDocument();
+    const policies = screen.getAllByRole("switch");
+    fireEvent.click(policies[0]);
+    expect(settingsMock.updateSettings).toHaveBeenCalledWith({
+      preserveCodexOfficialAuthOnSwitch: true,
+    });
+    expect(settingsMock.autoSaveSettings).toHaveBeenCalledWith({
+      preserveCodexOfficialAuthOnSwitch: true,
+    });
+  });
+
+  it("normalizes a stale default tab when settings reopen after authentication", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = (open: boolean, defaultTab: string) => (
+      <QueryClientProvider client={client}>
+        <SettingsPage
+          open={open}
+          onOpenChange={vi.fn()}
+          defaultTab={defaultTab}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(true, "auth"));
+    expect(screen.getByTestId("tab-auth")).toBeInTheDocument();
+    rerender(view(false, "auth"));
+    rerender(view(true, "configurations"));
+    expect(screen.getByTestId("tab-general")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-auth")).not.toBeInTheDocument();
   });
 
   it("should reset import/export status when dialog transitions to open", () => {

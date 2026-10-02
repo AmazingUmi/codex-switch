@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Search, X } from "lucide-react";
@@ -24,17 +25,10 @@ import { useDragSort } from "@/hooks/useDragSort";
 import { useStreamCheck } from "@/hooks/useStreamCheck";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import { ProviderEmptyState } from "@/components/providers/ProviderEmptyState";
-import {
-  useAutoFailoverEnabled,
-  useFailoverQueue,
-  useAddToFailoverQueue,
-  useRemoveFromFailoverQueue,
-} from "@/lib/query/failover";
 import { useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { isTextEditableTarget } from "@/utils/domUtils";
-import { useDirectProviderId } from "@/lib/query/proxy";
 
 interface ProviderListProps {
   providers: Record<string, Provider>;
@@ -49,9 +43,7 @@ interface ProviderListProps {
   onOpenTerminal?: (provider: Provider) => void;
   onCreate?: () => void;
   isLoading?: boolean;
-  isProxyRunning?: boolean; // 代理服务运行状态
-  isProxyTakeover?: boolean; // 代理接管模式（Live配置已被接管）
-  activeProviderId?: string; // 代理当前实际使用的供应商 ID（用于故障转移模式下标注绿色边框）
+  emptyState?: ReactNode;
 }
 
 export function ProviderList({
@@ -67,59 +59,13 @@ export function ProviderList({
   onOpenTerminal,
   onCreate,
   isLoading = false,
-  isProxyRunning = false,
-  isProxyTakeover = false,
-  activeProviderId,
+  emptyState,
 }: ProviderListProps) {
   const { t } = useTranslation();
   const { checkProvider, isChecking } = useStreamCheck(appId);
   const { sortedProviders, sensors, handleDragEnd } = useDragSort(
     providers,
     appId,
-  );
-
-  const { data: isAutoFailoverEnabled } = useAutoFailoverEnabled(appId, true);
-  const { data: failoverQueue } = useFailoverQueue(appId, true);
-  const addToQueue = useAddToFailoverQueue();
-  const removeFromQueue = useRemoveFromFailoverQueue();
-
-  const isFailoverModeActive =
-    isProxyTakeover === true && isAutoFailoverEnabled === true;
-
-  // 路由模式下「当前」是路由到的那家；直连供应商另外标出来，退出路由时写回它。
-  const { data: directProviderId } = useDirectProviderId(
-    appId,
-    isProxyTakeover === true,
-  );
-
-  const getFailoverPriority = useCallback(
-    (providerId: string): number | undefined => {
-      if (!isFailoverModeActive || !failoverQueue) return undefined;
-      const index = failoverQueue.findIndex(
-        (item) => item.providerId === providerId,
-      );
-      return index >= 0 ? index + 1 : undefined;
-    },
-    [isFailoverModeActive, failoverQueue],
-  );
-
-  const isInFailoverQueue = useCallback(
-    (providerId: string): boolean => {
-      if (!isFailoverModeActive || !failoverQueue) return false;
-      return failoverQueue.some((item) => item.providerId === providerId);
-    },
-    [isFailoverModeActive, failoverQueue],
-  );
-
-  const handleToggleFailover = useCallback(
-    (providerId: string, enabled: boolean) => {
-      if (enabled) {
-        addToQueue.mutate({ appType: appId, providerId });
-      } else {
-        removeFromQueue.mutate({ appType: appId, providerId });
-      }
-    },
-    [appId, addToQueue, removeFromQueue],
   );
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -211,6 +157,7 @@ export function ProviderList({
   }
 
   if (sortedProviders.length === 0) {
+    if (emptyState !== undefined) return <>{emptyState}</>;
     return (
       <div className="mt-4 space-y-4">
         <ProviderEmptyState
@@ -249,20 +196,6 @@ export function ProviderList({
                 onOpenTerminal={onOpenTerminal}
                 onTest={handleTest}
                 isTesting={isChecking(provider.id)}
-                isProxyRunning={isProxyRunning}
-                isProxyTakeover={isProxyTakeover}
-                isDirectProvider={
-                  isProxyTakeover &&
-                  !isCurrent &&
-                  provider.id === directProviderId
-                }
-                isAutoFailoverEnabled={isFailoverModeActive}
-                failoverPriority={getFailoverPriority(provider.id)}
-                isInFailoverQueue={isInFailoverQueue(provider.id)}
-                onToggleFailover={(enabled) =>
-                  handleToggleFailover(provider.id, enabled)
-                }
-                activeProviderId={activeProviderId}
               />
             );
           })}
@@ -363,14 +296,6 @@ interface SortableProviderCardProps {
   onOpenTerminal?: (provider: Provider) => void;
   onTest?: (provider: Provider) => void;
   isTesting: boolean;
-  isProxyRunning: boolean;
-  isProxyTakeover: boolean;
-  isDirectProvider: boolean;
-  isAutoFailoverEnabled: boolean;
-  failoverPriority?: number;
-  isInFailoverQueue: boolean;
-  onToggleFailover?: (enabled: boolean) => void;
-  activeProviderId?: string;
 }
 
 function SortableProviderCard({
@@ -386,14 +311,6 @@ function SortableProviderCard({
   onOpenTerminal,
   onTest,
   isTesting,
-  isProxyRunning,
-  isProxyTakeover,
-  isDirectProvider,
-  isAutoFailoverEnabled,
-  failoverPriority,
-  isInFailoverQueue,
-  onToggleFailover,
-  activeProviderId,
 }: SortableProviderCardProps) {
   const {
     setNodeRef,
@@ -426,19 +343,11 @@ function SortableProviderCard({
         onOpenTerminal={onOpenTerminal}
         onTest={onTest}
         isTesting={isTesting}
-        isProxyRunning={isProxyRunning}
-        isProxyTakeover={isProxyTakeover}
-        isDirectProvider={isDirectProvider}
         dragHandleProps={{
           attributes,
           listeners,
           isDragging,
         }}
-        isAutoFailoverEnabled={isAutoFailoverEnabled}
-        failoverPriority={failoverPriority}
-        isInFailoverQueue={isInFailoverQueue}
-        onToggleFailover={onToggleFailover}
-        activeProviderId={activeProviderId}
       />
     </div>
   );

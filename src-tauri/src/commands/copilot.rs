@@ -2,7 +2,7 @@
 //!
 //! 提供 Copilot OAuth 认证相关的 Tauri 命令，支持多账号管理。
 
-use crate::proxy::providers::copilot_auth::{
+use crate::auth::copilot_auth::{
     CopilotAuthManager, CopilotAuthStatus, CopilotModel, CopilotUsageResponse, GitHubAccount,
     GitHubDeviceCodeResponse,
 };
@@ -50,9 +50,7 @@ pub async fn copilot_poll_for_auth(
             Ok(true)
         }
         Ok(None) => Ok(false),
-        Err(crate::proxy::providers::copilot_auth::CopilotAuthError::AuthorizationPending) => {
-            Ok(false)
-        }
+        Err(crate::auth::copilot_auth::CopilotAuthError::AuthorizationPending) => Ok(false),
         Err(e) => {
             log::error!("[CopilotAuth] 轮询失败: {e}");
             Err(e.to_string())
@@ -75,9 +73,7 @@ pub async fn copilot_poll_for_account(
         .await
     {
         Ok(account) => Ok(account),
-        Err(crate::proxy::providers::copilot_auth::CopilotAuthError::AuthorizationPending) => {
-            Ok(None)
-        }
+        Err(crate::auth::copilot_auth::CopilotAuthError::AuthorizationPending) => Ok(None),
         Err(e) => {
             log::error!("[CopilotAuth] 轮询失败: {e}");
             Err(e.to_string())

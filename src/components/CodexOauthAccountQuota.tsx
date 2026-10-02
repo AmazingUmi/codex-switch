@@ -1,6 +1,5 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
 import { useCodexOauthQuotaByAccountId } from "@/lib/query/subscription";
 import { SubscriptionQuotaView } from "@/components/SubscriptionQuotaFooter";
 
@@ -32,25 +31,6 @@ const CodexOauthAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
     enabled: true,
     autoQuery: false,
   });
-
-  // 首次加载占位：账号头部由父组件独立渲染，这里只负责用量区。
-  // 用量请求是异步的（Tauri invoke + React Query），加载期间给一个
-  // 与最终额度卡片同形状（rounded-xl / border / bg-card）的转圈占位，
-  // 这样账号会立刻显示、用量数据到达后原地平滑替换，不产生跳版。
-  if (loading && !quota) {
-    return (
-      <div
-        className="codex-quota-panel mt-3 flex min-h-[184px] items-center justify-center rounded-2xl border border-border-default/70 bg-card/50 py-5 shadow-sm backdrop-blur-xl"
-        role="status"
-        aria-label={t("common.loading")}
-      >
-        <Loader2
-          className="h-4 w-4 animate-spin text-muted-foreground"
-          aria-hidden="true"
-        />
-      </div>
-    );
-  }
 
   return (
     <SubscriptionQuotaView

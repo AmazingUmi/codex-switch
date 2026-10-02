@@ -46,8 +46,10 @@ vi.mock("@/components/providers/forms/ProviderForm", () => ({
     onSubmitReadyChange,
     onManageAuthAccounts,
     onEditorBaseChange,
+    apiKeyOnly,
   }: {
     onSubmit: (values: ProviderFormValues) => void;
+    apiKeyOnly?: boolean;
     onSubmitReadyChange?: (isReady: boolean) => void;
     onManageAuthAccounts?: (target: "codex_oauth") => void;
     onEditorBaseChange?: (
@@ -67,6 +69,7 @@ vi.mock("@/components/providers/forms/ProviderForm", () => ({
     return (
       <form
         id="provider-form"
+        data-api-key-only={apiKeyOnly ? "true" : "false"}
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit(mockFormValues);
@@ -89,6 +92,24 @@ vi.mock("@/components/providers/AuthSettingsPanel", () => ({
 }));
 
 describe("AddProviderDialog", () => {
+  it("opens the homepage API Key connection branch with its dedicated title", () => {
+    render(
+      <AddProviderDialog
+        open
+        productShell
+        apiKeyOnly
+        appId="codex"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("添加 API Key 连接")).toBeInTheDocument();
+    expect(document.getElementById("provider-form")).toHaveAttribute(
+      "data-api-key-only",
+      "true",
+    );
+  });
+
   it("does not expose Universal providers in the product creation dialog", () => {
     render(
       <AddProviderDialog

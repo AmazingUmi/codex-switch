@@ -2,11 +2,28 @@ import { describe, expect, it } from "vitest";
 import {
   formatOutputTokensPerSecond,
   formatTokensShort,
+  formatUsageDateTime,
   getOutputTokensPerSecond,
   getLocaleFromLanguage,
 } from "@/components/usage/format";
 
 describe("usage format helpers", () => {
+  it.each(["en-US", "zh-CN", "zh-TW", "ja-JP"])(
+    "distinguishes midnight from noon in 24-hour time for %s",
+    (locale) => {
+      const midnight = new Date(2026, 9, 1, 0, 0);
+      const noon = new Date(2026, 9, 1, 12, 0);
+      expect(formatUsageDateTime(midnight, locale)).toContain("00:00");
+      expect(formatUsageDateTime(noon, locale)).toContain("12:00");
+      const fullLabel = formatUsageDateTime(midnight, locale, {
+        includeYear: true,
+        includeTimeZone: true,
+      });
+      expect(fullLabel).toContain("2026");
+      expect(fullLabel).toMatch(/GMT(?:[+-]\d{2}:\d{2})?/);
+    },
+  );
+
   it("formats Traditional Chinese token units with Traditional characters", () => {
     expect(formatTokensShort(12_345, "zh-TW")).toBe("1.2 萬");
     expect(formatTokensShort(123_456_789, "zh-Hant", 2)).toBe("1.23 億");

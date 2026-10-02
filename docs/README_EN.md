@@ -4,11 +4,13 @@ Codex Switch manages Codex connection configurations, ChatGPT accounts and usage
 It is a Codex-focused fork of CC Switch, built with Tauri 2, React, TypeScript and
 Rust. [中文说明](../README.md).
 
-- Home contains directly switchable ChatGPT accounts, independent subscription quota and local Codex usage.
-- Settings contains connection configurations, authentication, routing, backups,
+- Home contains directly switchable ChatGPT accounts, independent subscription quota, API-key and advanced connections, with one add chooser and a separate local usage view.
+- Settings contains global authentication policies, backups,
   synchronization and application preferences.
-- Signed-in accounts need no manually created connection; adding one does not switch the active account. The pencil edits the local display name, notes, icon and color, which persist across restarts.
-- “Current” follows a successful switch. Default-account controls live under advanced options; API keys and existing advanced connections remain in Settings.
+- OpenAI subscription accounts use official login directly. DeepSeek API uses its official native Responses endpoint with an API key; models and reasoning levels remain customizable. Local routing, automatic failover and protocol conversion are unavailable.
+- Signed-in accounts need no manually created connection; adding one does not switch the active account. Card icons provide switching and editing. The editor contains display details, reauthentication, default-account controls, account connections and removal.
+- “Current” follows a successful switch and is independent of the default account. API keys and existing advanced connections are managed on Home; signing out all accounts is available below its account list. Network requests follow the system environment; application proxy configuration has been removed.
+- Help icons beside headings explain quota, statistics scope and settings on hover, keyboard focus or click. Local usage labels costs as estimates.
 
 ## Run from source
 
@@ -34,6 +36,13 @@ and no registered external URL scheme. The script pairs the renderer flag,
 native feature and bundle overlay, then verifies metadata and an ad-hoc signature.
 Do not use the overlay alone or import a live profile's credentials into it.
 Directory overrides can point outside the preview profile.
+
+Token scanning has its own source setting in the Usage auto-scan section. Choose
+the Codex root containing `sessions` and `archived_sessions`. Preview builds
+default to read-only scans of the real user's `~/.codex`, while statistics remain
+in the preview database. Regular builds default to the configured Codex directory.
+Leave the source blank to restore the default; save and use Sync Now to verify
+without restarting.
 
 ## Development
 

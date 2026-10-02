@@ -1,5 +1,6 @@
 import type { AppId } from "@/lib/api";
 import type { Provider } from "@/types";
+import { parse as parseToml } from "smol-toml";
 import { isOAuthProviderType } from "@/config/constants";
 import { resolveManagedAccountId } from "@/lib/authBinding";
 import {
@@ -84,81 +85,113 @@ export function resolveCodexOfficialIdentity(
     : null;
 }
 
-/** Keep the UI capability rule aligned with the Rust takeover policy. */
-export function supportsOfficialProxyTakeover(
+/** Direct connections cannot depend on the removed local protocol converter. */
+export function providerSupportsDirectConnection(
   appId: AppId,
-  provider: Pick<Provider, "id" | "category" | "meta" | "settingsConfig">,
+  provider: Provider,
 ): boolean {
-  const identity = resolveCodexOfficialIdentity(appId, provider);
-  if (!identity || identity === "api_key") return false;
-  if (
-    provider.id === CODEX_OFFICIAL_PROVIDER_ID ||
-    identity === "managed_account"
-  ) {
-    return true;
+  const settings = provider.settingsConfig as Record<string, unknown>;
+  const config = settings?.config;
+  const wireApi =
+    typeof config === "string" ? extractCodexWireApi(config) : undefined;
+  if (appId === "codex") {
+    if (
+      provider.meta?.isFullUrl === true ||
+      ["isFullUrl", "is_full_url", "fullURL", "fullUrl"].some(
+        (key) => settings?.[key] === true,
+      ) ||
+      provider.meta?.providerType === "github_copilot" ||
+      provider.meta?.providerType === "xai_oauth"
+    )
+      return false;
+    const formats = [
+      provider.meta?.apiFormat,
+      settings?.api_format,
+      settings?.apiFormat,
+    ];
+    if (
+      formats.some(
+        (format) =>
+          typeof format === "string" &&
+          !["", "responses", "openai_responses", "openai-responses"].includes(
+            format.trim().toLowerCase(),
+          ),
+      )
+    )
+      return false;
+    let document: Record<string, any>;
+    try {
+      document = parseToml(typeof config === "string" ? config : "");
+    } catch {
+      return false;
+    }
+    const selected =
+      typeof document.model_provider === "string"
+        ? document.model_providers?.[document.model_provider]
+        : undefined;
+    const auth = settings?.auth as Record<string, unknown> | undefined;
+    if (
+      [
+        auth?.OPENAI_API_KEY,
+        document.experimental_bearer_token,
+        selected?.experimental_bearer_token,
+      ].some(
+        (token) =>
+          typeof token === "string" && token.trim() === "PROXY_MANAGED",
+      )
+    )
+      return false;
+    if (
+      [document.wire_api, selected?.wire_api].some(
+        (wire) =>
+          wire !== undefined &&
+          (typeof wire !== "string" ||
+            wire.trim().toLowerCase() !== "responses"),
+      )
+    )
+      return false;
+    return ![
+      document.openai_base_url,
+      selected?.base_url,
+      settings?.base_url,
+      settings?.baseURL,
+    ].some(
+      (url) =>
+        typeof url === "string" &&
+        url.replace(/\/+$/, "").toLowerCase().endsWith("/chat/completions"),
+    );
+  }
+  if (appId === "grokbuild") {
+    if (
+      provider.meta?.isFullUrl === true ||
+      provider.meta?.apiFormat === "openai_chat" ||
+      provider.meta?.apiFormat === "anthropic" ||
+      isCodexChatWireApi(wireApi) ||
+      isCodexAnthropicWireApi(wireApi)
+    )
+      return false;
+    return !isOAuthProviderType(provider.meta?.providerType);
+  }
+  if (appId === "claude-desktop") {
+    return (
+      !isOAuthProviderType(provider.meta?.providerType) &&
+      provider.meta?.claudeDesktopMode !== "proxy"
+    );
+  }
+  if (appId === "claude") {
+    return (
+      !isOAuthProviderType(provider.meta?.providerType) &&
+      provider.meta?.isFullUrl !== true &&
+      (!provider.meta?.apiFormat || provider.meta.apiFormat === "anthropic")
+    );
   }
   return true;
 }
 
-/**
- * 供应商在指定应用下是否必须开启路由接管才能正常工作（badge 与切换警告共用的权威谓词）。
- *
- * 权威信号是 `providerType`：托管 OAuth 供应商的凭据由本地代理按请求注入
- * （见 `forwarder.rs`，注入发生在转发路径上，请求必须经过代理 = 接管当前应用），
- * 且后端按 providerType 强制托管认证/格式而**无视 apiFormat**。因此 apiFormat
- * 只是可能被用户改动或旧数据缺省的次要信号，OAuth 供应商一律以 providerType 判定。
- *
- * - Claude Desktop 的普通供应商按 direct/proxy 模式判定；托管 OAuth 没有
- *   direct 逃生口（后端同样拒绝），始终需要本地路由。
- * - claude / codex / grokbuild 的托管 OAuth 同样恒需路由；非 OAuth 则按
- *   各自原生格式及完整 URL 模式判断是否需要本地处理。
- */
+/** Compatibility predicate for legacy configuration editors. */
 export function providerNeedsRouting(
   appId: AppId,
   provider: Provider,
 ): boolean {
-  if (
-    provider.category === "official" ||
-    resolveCodexOfficialIdentity(appId, provider)
-  )
-    return false;
-
-  const isManagedOAuth = isOAuthProviderType(provider.meta?.providerType);
-
-  // Desktop 普通供应商由表单模式决定；托管 OAuth 的 token 只能由代理注入。
-  if (appId === "claude-desktop") {
-    return isManagedOAuth || provider.meta?.claudeDesktopMode === "proxy";
-  }
-
-  if (appId !== "claude" && appId !== "codex" && appId !== "grokbuild") {
-    return false;
-  }
-
-  // 托管 OAuth：凭据由代理注入，与 apiFormat 无关，必须接管。
-  if (isManagedOAuth) return true;
-
-  if (appId === "claude") {
-    const fmt = provider.meta?.apiFormat;
-    // Claude 原生是 Anthropic 格式，任何非 anthropic 格式都需要代理转换。
-    return provider.meta?.isFullUrl === true || (!!fmt && fmt !== "anthropic");
-  }
-
-  if (appId === "codex" || appId === "grokbuild") {
-    const fmt = provider.meta?.apiFormat;
-    // Codex 原生是 Responses，仅 Chat / Anthropic 需要转换（Responses 直连）。
-    if (
-      provider.meta?.isFullUrl === true ||
-      fmt === "openai_chat" ||
-      fmt === "anthropic"
-    )
-      return true;
-    const config = (provider.settingsConfig as Record<string, unknown>)?.config;
-    return (
-      typeof config === "string" &&
-      (isCodexChatWireApi(extractCodexWireApi(config)) ||
-        isCodexAnthropicWireApi(extractCodexWireApi(config)))
-    );
-  }
-
-  return false;
+  return !providerSupportsDirectConnection(appId, provider);
 }

@@ -1,10 +1,10 @@
 //! Import MCode's committed token-usage projection without modifying its database.
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::{calculator::CostCalculator, parser::TokenUsage};
 use crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_FRESH;
 use crate::services::{session_usage::SessionSyncResult, usage_stats::find_model_pricing};
 use crate::session_manager::providers::mcode;
+use crate::usage::{calculator::CostCalculator, TokenUsage};
 use rusqlite::params;
 use rust_decimal::Decimal;
 
