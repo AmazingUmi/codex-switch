@@ -282,18 +282,6 @@
     "removeProvider": "プロバイダーを解除",
     "removeProviderMessage": "プロバイダー「{{name}}」を設定から解除してもよろしいですか？\n\n解除後、このプロバイダーは無効になりますが、設定データは Codex Switch に保持されます。いつでも再追加できます。",
     "piDefaultProviderWarning": "Pi のグローバルデフォルトは現在このプロバイダーを参照しています。続行すると、Pi は別の利用可能なモデルを試します。/model で再選択するか、/login で別のプロバイダーにログインできます。",
-    "unifyCodexHistory": {
-      "title": "Codex セッション履歴を統一",
-      "message": "オンにすると、公式サブスクリプションとサードパーティが同じセッション履歴リストを共有します。注意：プロバイダーをまたいで古いセッションを再開すると、encrypted_content を相手のバックエンドが復号できず失敗する場合があります。\n\n既存の公式セッション履歴を共有リストへ移行することもできます（移行前に ~/.codex-switch/backups へ自動バックアップされ、オフにする際に復元を選択できます）。",
-      "migrateExisting": "既存の公式セッション履歴も移行する",
-      "confirm": "理解しました、オンにする"
-    },
-    "unifyCodexHistoryOff": {
-      "title": "セッション履歴の統一をオフにする",
-      "message": "オフにすると、公式サブスクリプションとサードパーティはそれぞれ独立した履歴リストに戻ります。オン期間中に作成されたセッションは提供元を判別できないため、サードパーティの履歴に残り、公式サブスクリプションからは見えなくなります。",
-      "restoreBackup": "オンにした際に移行した公式セッションを公式履歴へ復元する（バックアップから正確に復元）",
-      "confirm": "オフにする"
-    },
     "usage": {
       "title": "使用量クエリの設定",
       "message": "使用量クエリにはカスタムスクリプトまたは API パラメータが必要です。プロバイダーから必要な情報を取得していることをご確認ください。\n\n設定方法が不明な場合は、プロバイダーのドキュメントを先にご確認ください。",
@@ -311,7 +299,6 @@
     "title": "設定",
     "general": "一般",
     "tabGeneral": "一般",
-    "tabAuth": "認証",
     "tabAdvanced": "詳細",
     "authCenter": {
       "title": "OAuth 認証センター",
@@ -330,13 +317,9 @@
         "title": "コスト計算",
         "description": "各モデルのトークン料金ルールを管理"
       },
-      "data": {
-        "title": "データ管理",
-        "description": "ローカル設定データのインポートとエクスポート"
-      },
       "backup": {
         "title": "バックアップと復元",
-        "description": "自動バックアップの管理、データベーススナップショットの表示と復元"
+        "description": "データベースの自動バックアップ、スナップショット復元、SQL のインポートとエクスポートを管理"
       },
       "cloudSync": {
         "title": "クラウド同期",
@@ -656,15 +639,6 @@
     "enableClaudePluginIntegrationDescription": "オンにすると VS Code の Claude Code 拡張のプロバイダーも同期します",
     "skipClaudeOnboarding": "Claude Code の初回確認をスキップ",
     "skipClaudeOnboardingDescription": "オンにすると Claude Code の初回インストール確認をスキップします",
-    "codexAuth": "Codex アプリ拡張",
-    "preserveCodexOfficialAuthOnSwitch": "直接切替時に公式ログインを保持",
-    "preserveCodexOfficialAuthOnSwitchDescription": "ローカルルーティングを使わずに API 接続へ切り替える際も、Codex の公式ログインを保持します。ローカルルーティングでは常に公式ログインを保持します。",
-    "unifyCodexSessionHistory": "Codex セッション履歴を統一",
-    "unifyCodexSessionHistoryDescription": "公式アカウントと API 接続のセッションを同じ履歴一覧に表示します。既存のセッションはバックアップ後に移行でき、無効にすると移行したセッションを復元できます。別の接続で古いセッションを続けると失敗する場合があります。",
-    "unifyCodexHistoryRestoreCompleted": "バックアップから公式セッション履歴を復元しました（セッションファイル {{files}} 件、インデックス {{rows}} 行）",
-    "unifyCodexHistoryRestoreFailed": "公式セッション履歴の復元に失敗しました。もう一度お試しください",
-    "unifyCodexHistoryRestoreNothing": "現在の Codex ディレクトリに復元可能な移行バックアップはありません",
-    "unifyCodexHistoryRestoreSkippedToggleOn": "統一セッション履歴が再度有効化されたため、復元をスキップしました",
     "appVisibility": {
       "title": "ホームページ表示",
       "description": "ホームページに表示するアプリを選択",

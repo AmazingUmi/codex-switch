@@ -124,6 +124,13 @@ vi.mock("@/lib/api", () => ({
   settingsApi: {
     restart: vi.fn().mockResolvedValue(true),
   },
+  backupsApi: {
+    listDbBackups: vi.fn().mockResolvedValue([]),
+    createDbBackup: vi.fn().mockResolvedValue("db_backup_test.db"),
+    restoreDbBackup: vi.fn().mockResolvedValue("db_backup_safety.db"),
+    renameDbBackup: vi.fn().mockResolvedValue("renamed.db"),
+    deleteDbBackup: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 const TabsContext = createContext<{
@@ -280,11 +287,10 @@ describe("SettingsPage Component", () => {
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
 
-  it("exposes only general, authentication, advanced and about settings tabs", () => {
+  it("exposes only general, advanced and about settings tabs", () => {
     renderSettingsPage();
     for (const label of [
       "settings.tabGeneral",
-      "settings.tabAuth",
       "settings.tabAdvanced",
       "common.about",
     ]) {
@@ -295,6 +301,7 @@ describe("SettingsPage Component", () => {
     for (const label of [
       "codexAccounts.configurationsTab",
       "settings.tabNetwork",
+      "settings.tabAuth",
       "usage.title",
     ]) {
       expect(
@@ -304,7 +311,7 @@ describe("SettingsPage Component", () => {
     expect(screen.queryByText("settings.globalProxy")).not.toBeInTheDocument();
   });
 
-  it.each(["network", "configurations", "unsupported-old-tab"])(
+  it.each(["auth", "network", "configurations", "unsupported-old-tab"])(
     "falls back to general settings for stale defaultTab=%s",
     (defaultTab) => {
       renderSettingsPage({ defaultTab });
@@ -314,28 +321,31 @@ describe("SettingsPage Component", () => {
     },
   );
 
-  it("shows global Codex authentication policies only in the authentication tab", () => {
-    renderSettingsPage();
+  it("does not expose or change persisted policies through the retired Auth entry", () => {
+    settingsMock.settings = {
+      ...settingsMock.settings,
+      preserveCodexOfficialAuthOnSwitch: true,
+      unifyCodexSessionHistory: true,
+      unifyCodexMigrateExisting: true,
+    };
+    renderSettingsPage({ defaultTab: "auth" });
+
+    expect(screen.getByTestId("tab-general")).toBeInTheDocument();
     expect(screen.queryByText("settings.codexAuth")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "settings.tabAuth" }));
-    expect(screen.getByTestId("tab-auth")).toBeInTheDocument();
-    expect(screen.getByText("settings.codexAuth")).toBeInTheDocument();
-    expect(screen.queryByText("language:zh")).not.toBeInTheDocument();
-    expect(screen.queryByText("codexOauth.authStatus")).not.toBeInTheDocument();
-    expect(
-      screen.queryByText("codexAccounts.configurationsTab"),
-    ).not.toBeInTheDocument();
-    const policies = screen.getAllByRole("switch");
-    fireEvent.click(policies[0]);
-    expect(settingsMock.updateSettings).toHaveBeenCalledWith({
-      preserveCodexOfficialAuthOnSwitch: true,
-    });
-    expect(settingsMock.autoSaveSettings).toHaveBeenCalledWith({
-      preserveCodexOfficialAuthOnSwitch: true,
-    });
+    for (const name of [
+      "settings.preserveCodexOfficialAuthOnSwitch",
+      "settings.unifyCodexSessionHistory",
+    ]) {
+      expect(screen.queryByRole("switch", { name })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByTestId("dialog-root")).not.toBeInTheDocument();
+    expect(settingsMock.updateSettings).not.toHaveBeenCalled();
+    expect(settingsMock.autoSaveSettings).not.toHaveBeenCalled();
+    expect(settingsMock.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("normalizes a stale default tab when settings reopen after authentication", () => {
+  it("normalizes the retired Auth default tab when settings reopen", () => {
     const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
@@ -348,10 +358,10 @@ describe("SettingsPage Component", () => {
         />
       </QueryClientProvider>
     );
-    const { rerender } = render(view(true, "auth"));
-    expect(screen.getByTestId("tab-auth")).toBeInTheDocument();
-    rerender(view(false, "auth"));
-    rerender(view(true, "configurations"));
+    const { rerender } = render(view(true, "advanced"));
+    expect(screen.getByTestId("tab-advanced")).toBeInTheDocument();
+    rerender(view(false, "advanced"));
+    rerender(view(true, "auth"));
     expect(screen.getByTestId("tab-general")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-auth")).not.toBeInTheDocument();
   });
@@ -406,7 +416,18 @@ describe("SettingsPage Component", () => {
     );
     fireEvent.click(screen.getByText("settings.advanced.cloudSync.title"));
     expect(screen.getByText("webdav-sync-section:none")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("settings.advanced.data.title"));
+    expect(
+      screen.queryByText("settings.advanced.data.title"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("settings.advanced.backup.title"));
+    expect(
+      screen.getByText("settings.backupManager.intervalLabel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "settings.backupManager.createBackup",
+      }),
+    ).toBeInTheDocument();
 
     // 有文件时，点击导入按钮执行 importConfig
     fireEvent.click(screen.getByRole("button", { name: /settings\.import/ }));
@@ -438,15 +459,14 @@ describe("SettingsPage Component", () => {
     expect(scrollContainer!.scrollTop).toBe(0);
   });
 
-  it("should pass onImportSuccess callback to useImportExport hook", async () => {
+  it("should invoke the external callback after a successful import", async () => {
     const onImportSuccess = vi.fn();
 
     renderSettingsPage({ onImportSuccess });
 
     expect(useImportExportSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ onImportSuccess }),
+      expect.objectContaining({ onImportSuccess: expect.any(Function) }),
     );
-    expect(lastUseImportExportOptions?.onImportSuccess).toBe(onImportSuccess);
 
     if (typeof lastUseImportExportOptions?.onImportSuccess === "function") {
       await lastUseImportExportOptions.onImportSuccess();

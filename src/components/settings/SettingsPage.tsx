@@ -7,16 +7,15 @@ import {
   useState,
 } from "react";
 import { motion } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   Save,
   FolderSearch,
-  Database,
   Cloud,
   ScrollText,
   HardDriveDownload,
   Settings2,
-  KeyRound,
   SlidersHorizontal,
   Info,
 } from "lucide-react";
@@ -48,7 +47,6 @@ import { BackupListSection } from "@/components/settings/BackupListSection";
 import { WebdavSyncSection } from "@/components/settings/WebdavSyncSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
-import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -68,6 +66,7 @@ export function SettingsPage({
   defaultTab = "general",
 }: SettingsDialogProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const {
     settings,
     isLoading,
@@ -88,6 +87,11 @@ export function SettingsPage({
     acknowledgeRestart,
   } = useSettings();
 
+  const handleImportSuccess = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["db-backups"] });
+    return onImportSuccess?.();
+  }, [onImportSuccess, queryClient]);
+
   const {
     selectedFile,
     status: importStatus,
@@ -99,10 +103,10 @@ export function SettingsPage({
     exportConfig,
     clearSelection,
     resetStatus,
-  } = useImportExport({ onImportSuccess });
+  } = useImportExport({ onImportSuccess: handleImportSuccess });
 
   const normalizeTab = (tab: string) =>
-    ["general", "auth", "advanced", "about"].includes(tab) ? tab : "general";
+    ["general", "advanced", "about"].includes(tab) ? tab : "general";
   const [activeTab, setActiveTab] = useState<string>(() =>
     normalizeTab(defaultTab),
   );
@@ -175,15 +179,11 @@ export function SettingsPage({
 
   // 通用设置即时保存（无需手动点击）
   // 使用 autoSaveSettings 避免误触发系统 API（开机自启、Claude 插件等）
-  // 返回保存是否成功：需要在保存成功后追加动作的调用方（如统一会话历史
-  // 关闭后的备份还原）据此短路，其余调用方可忽略返回值。
+  // 返回保存是否成功，供调用方在成功后追加动作。
   const handleAutoSave = useCallback(
     async (updates: Partial<SettingsFormState>): Promise<boolean> => {
       if (!settings) return false;
-      // 乐观更新前捕获旧值：autoSaveSettings 发送的是全量表单状态，后端按
-      // diff 触发副作用（如统一会话开关的 live 重写与历史迁移）。保存失败
-      // 不回滚的话，失败的变更会滞留在表单里，被之后任意一次无关保存原样
-      // 重放，绕过确认弹窗。
+      // 保存失败时回滚乐观更新，避免后续无关保存重新提交失败的变更。
       const previousValues = Object.fromEntries(
         Object.keys(updates).map((key) => [
           key,
@@ -213,11 +213,6 @@ export function SettingsPage({
       value: "general",
       label: t("settings.tabGeneral"),
       Icon: Settings2,
-    },
-    {
-      value: "auth",
-      label: t("settings.tabAuth", "Authentication"),
-      Icon: KeyRound,
     },
     {
       value: "advanced",
@@ -299,22 +294,6 @@ export function SettingsPage({
                 ) : null}
               </TabsContent>
 
-              <TabsContent value="auth" className="space-y-6 mt-0 pb-4">
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6"
-                >
-                  {settings && (
-                    <CodexAuthSettings
-                      settings={settings}
-                      onChange={handleAutoSave}
-                    />
-                  )}
-                </motion.div>
-              </TabsContent>
-
               <TabsContent value="advanced" className="space-y-6 mt-0 pb-4">
                 {settings ? (
                   <motion.div
@@ -358,35 +337,6 @@ export function SettingsPage({
                       </AccordionItem>
 
                       <AccordionItem
-                        value="data"
-                        className="rounded-xl glass-card overflow-hidden"
-                      >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
-                          <div className="flex items-center gap-3">
-                            <Database className="h-5 w-5 text-blue-500" />
-                            <div className="text-left">
-                              <h3 className="text-base font-semibold">
-                                {t("settings.advanced.data.title")}
-                              </h3>
-                            </div>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
-                          <ImportExportSection
-                            status={importStatus}
-                            selectedFile={selectedFile}
-                            errorMessage={errorMessage}
-                            backupId={backupId}
-                            isImporting={isImporting}
-                            onSelectFile={selectImportFile}
-                            onImport={importConfig}
-                            onExport={exportConfig}
-                            onClear={clearSelection}
-                          />
-                        </AccordionContent>
-                      </AccordionItem>
-
-                      <AccordionItem
                         value="backup"
                         className="rounded-xl glass-card overflow-hidden"
                       >
@@ -402,7 +352,7 @@ export function SettingsPage({
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50 space-y-6">
                           <BackupListSection
                             backupIntervalHours={settings.backupIntervalHours}
                             backupRetainCount={settings.backupRetainCount}
@@ -410,6 +360,19 @@ export function SettingsPage({
                               handleAutoSave(updates)
                             }
                           />
+                          <div className="border-t border-border/50 pt-6">
+                            <ImportExportSection
+                              status={importStatus}
+                              selectedFile={selectedFile}
+                              errorMessage={errorMessage}
+                              backupId={backupId}
+                              isImporting={isImporting}
+                              onSelectFile={selectImportFile}
+                              onImport={importConfig}
+                              onExport={exportConfig}
+                              onClear={clearSelection}
+                            />
+                          </div>
                         </AccordionContent>
                       </AccordionItem>
 

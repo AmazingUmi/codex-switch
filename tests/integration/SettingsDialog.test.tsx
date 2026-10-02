@@ -139,6 +139,11 @@ const renderDialog = (
 
 beforeEach(() => {
   resetProviderState();
+  server.use(
+    http.post("http://tauri.local/list_db_backups", () =>
+      HttpResponse.json([]),
+    ),
+  );
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
 });
@@ -168,6 +173,21 @@ describe("SettingsPage integration", () => {
 
   it("imports configuration and triggers success callback", async () => {
     const onImportSuccess = vi.fn();
+    server.use(
+      http.post("http://tauri.local/list_db_backups", () =>
+        HttpResponse.json(
+          getSettings().language === "en"
+            ? [
+                {
+                  filename: "import-safety.db",
+                  sizeBytes: 1024,
+                  createdAt: "2026-10-02T16:00:00Z",
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
     renderDialog({ onImportSuccess });
 
     await waitFor(() =>
@@ -177,7 +197,8 @@ describe("SettingsPage integration", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "settings.tabAdvanced" }),
     );
-    fireEvent.click(screen.getByText("settings.advanced.data.title"));
+    fireEvent.click(screen.getByRole("button", { name: "Backup & Restore" }));
+    await screen.findByText("No backups yet");
     fireEvent.click(screen.getByText("settings.selectConfigFile"));
     await waitFor(() =>
       expect(screen.getByTestId("selected-file").textContent).toContain(
@@ -191,6 +212,7 @@ describe("SettingsPage integration", () => {
       timeout: 4000,
     });
     expect(getSettings().language).toBe("en");
+    expect(await screen.findByText("import-safety")).toBeInTheDocument();
   });
 
   it("saves settings and handles restart prompt", async () => {
@@ -274,7 +296,7 @@ describe("SettingsPage integration", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "settings.tabAdvanced" }),
     );
-    fireEvent.click(screen.getByText("settings.advanced.data.title"));
+    fireEvent.click(screen.getByRole("button", { name: "Backup & Restore" }));
 
     server.use(
       http.post("http://tauri.local/save_file_dialog", () =>

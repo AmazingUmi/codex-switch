@@ -282,18 +282,6 @@
     "removeProvider": "移除供應商",
     "removeProviderMessage": "確定要從設定中移除供應商「{{name}}」嗎？\n\n移除後該供應商將不再生效，但設定資料會保留在 Codex Switch 中，您可以隨時重新新增。",
     "piDefaultProviderWarning": "Pi 的全域預設目前指向此供應商。繼續後，Pi 會嘗試其他可用模型；你可以在 Pi 中使用 /model 重新選擇，或使用 /login 登入其他供應商。",
-    "unifyCodexHistory": {
-      "title": "統一 Codex 會話歷史",
-      "message": "開啟後，官方訂閱與第三方將共用同一個會話歷史清單。注意：跨供應商繼續舊會話時，可能因對方後端無法解密 encrypted_content 推理內容而失敗。\n\n可選擇同時把現有官方會話歷史遷入共享清單（遷移前自動備份到 ~/.codex-switch/backups，關閉開關時可選擇恢復）。",
-      "migrateExisting": "同時遷入現有官方會話歷史",
-      "confirm": "我已了解，繼續開啟"
-    },
-    "unifyCodexHistoryOff": {
-      "title": "關閉統一會話歷史",
-      "message": "關閉後，官方訂閱與第三方將恢復各自獨立的會話歷史清單。開啟期間產生的會話因無法區分來源，將留在第三方歷史中，官方訂閱將看不到它們。",
-      "restoreBackup": "把開啟時遷入的官方會話還原回官方歷史（按備份精確還原）",
-      "confirm": "關閉"
-    },
     "usage": {
       "title": "設定用量查詢",
       "message": "用量查詢需要設定專用的查詢腳本或 API 參數，請確保您已從供應商處取得相關資訊。\n\n如不確定如何設定，請先查閱供應商文件。",
@@ -311,7 +299,6 @@
     "title": "設定",
     "general": "通用",
     "tabGeneral": "通用",
-    "tabAuth": "驗證",
     "tabAdvanced": "進階",
     "authCenter": {
       "title": "OAuth 驗證中心",
@@ -330,13 +317,9 @@
         "title": "成本定價",
         "description": "管理各模型 Token 計費規則"
       },
-      "data": {
-        "title": "資料管理",
-        "description": "匯入和匯出本地設定資料"
-      },
       "backup": {
         "title": "備份與還原",
-        "description": "管理自動備份，查看和還原資料庫快照"
+        "description": "管理資料庫自動備份、快照還原和 SQL 匯入匯出"
       },
       "cloudSync": {
         "title": "雲端同步",
@@ -656,15 +639,6 @@
     "enableClaudePluginIntegrationDescription": "開啟後 VS Code Claude Code 外掛程式的供應商將隨本軟體切換",
     "skipClaudeOnboarding": "跳過 Claude Code 初次安裝確認",
     "skipClaudeOnboardingDescription": "開啟後跳過 Claude Code 初次安裝確認",
-    "codexAuth": "Codex 應用增強",
-    "preserveCodexOfficialAuthOnSwitch": "非接管切換時保留官方登入",
-    "preserveCodexOfficialAuthOnSwitchDescription": "未啟用本機路由時，切換至 API 連線仍保留 Codex 官方登入。本機路由始終保留官方登入。",
-    "unifyCodexSessionHistory": "統一 Codex 會話歷史",
-    "unifyCodexSessionHistoryDescription": "將官方帳號和 API 連線的工作階段顯示在同一歷史清單中。既有工作階段可在備份後遷入，關閉時可還原已遷入的工作階段。透過不同連線繼續舊工作階段可能失敗。",
-    "unifyCodexHistoryRestoreCompleted": "已按備份還原官方會話歷史（{{files}} 個會話檔案、{{rows}} 條索引記錄）",
-    "unifyCodexHistoryRestoreFailed": "還原官方會話歷史失敗，請重試",
-    "unifyCodexHistoryRestoreNothing": "目前 Codex 目錄沒有可恢復的遷移備份",
-    "unifyCodexHistoryRestoreSkippedToggleOn": "統一會話歷史開關已重新開啟，已跳過還原",
     "appVisibility": {
       "title": "主頁面顯示",
       "description": "選擇在主頁面顯示的應用程式",
