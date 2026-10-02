@@ -78,7 +78,7 @@ describe("API Key connections section", () => {
   it("shows the compact empty message and opens API Key creation directly from the header", () => {
     const { props } = renderSection();
     expect(
-      screen.getByRole("heading", { name: "API Key" }),
+      screen.getByRole("heading", { name: "Provider" }),
     ).toBeInTheDocument();
     expect(screen.getByText("暂无 API Key")).toBeInTheDocument();
     expect(

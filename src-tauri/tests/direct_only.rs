@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use cc_switch_lib::{
+use codex_switch_lib::{
     get_codex_auth_path, get_codex_config_path,
     live::engine::DeviceStore,
     mode::{controller, current, state as mode_state},
@@ -28,7 +28,7 @@ impl TempHome {
     fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
         let mut overrides = vec![
-            ("CC_SWITCH_TEST_HOME", directory.path().to_path_buf()),
+            ("CODEX_SWITCH_TEST_HOME", directory.path().to_path_buf()),
             ("HOME", directory.path().to_path_buf()),
         ];
         if cfg!(windows) {
@@ -72,7 +72,7 @@ fn create_test_state() -> Result<AppState, Box<dyn std::error::Error>> {
 }
 
 fn home() -> PathBuf {
-    PathBuf::from(std::env::var_os("CC_SWITCH_TEST_HOME").unwrap())
+    PathBuf::from(std::env::var_os("CODEX_SWITCH_TEST_HOME").unwrap())
 }
 
 const LOGIN: &str = r#"{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"synthetic-id","access_token":"synthetic-access","refresh_token":"synthetic-refresh","account_id":"synthetic-account"},"last_refresh":"2026-09-01T00:00:00Z"}"#;

@@ -38,11 +38,31 @@ const render = (ui: ReactElement) =>
 vi.mock("@/components/providers/forms/hooks/useCodexOauth", () => ({
   useCodexOauth: mocks.useCodexOauth,
 }));
-vi.mock("@/components/CodexOauthAccountQuota", () => ({
-  default: ({ accountId }: { accountId: string }) => (
-    <div data-testid="account-quota">{accountId}</div>
-  ),
-}));
+vi.mock("@/components/CodexOauthAccountQuota", async () => {
+  const { useCodexOauthQuotaByAccountId } = await import(
+    "@/lib/query/subscription"
+  );
+  return {
+    default: ({
+      accountId,
+      children,
+    }: {
+      accountId: string;
+      children: (
+        query: ReturnType<typeof useCodexOauthQuotaByAccountId>,
+        view: React.ReactNode,
+      ) => React.ReactNode;
+    }) => {
+      const query = useCodexOauthQuotaByAccountId(accountId, {
+        enabled: false,
+      });
+      return children(
+        query,
+        <div data-testid="account-quota">{accountId}</div>,
+      );
+    },
+  };
+});
 
 function provider(id: string, accountId: string): Provider {
   return {
@@ -240,8 +260,15 @@ describe("CodexAccountsPanel", () => {
       within(card("account-1")).queryByText("当前使用"),
     ).not.toBeInTheDocument();
     expect(
-      within(card("account-2")).getByRole("button", { name: "当前使用" }),
-    ).toBeDisabled();
+      within(card("account-2")).getByRole("status", { name: "当前使用" }),
+    ).toHaveAttribute("title", "当前使用");
+    expect(
+      within(card("account-2")).queryByRole("button", { name: "当前使用" }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      within(card("account-2")).getByRole("status", { name: "当前使用" }),
+    );
+    expect(props.onSwitchAccount).not.toHaveBeenCalled();
     await user.click(
       within(card("account-1")).getByRole("button", { name: "切换到此账号" }),
     );
@@ -254,8 +281,8 @@ describe("CodexAccountsPanel", () => {
       screen.queryByRole("button", { name: "配置账号" }),
     ).not.toBeInTheDocument();
     expect(
-      within(card("account-2")).getByRole("button", { name: "当前使用" }),
-    ).toBeDisabled();
+      within(card("account-2")).getByRole("status", { name: "当前使用" }),
+    ).toHaveAttribute("title", "当前使用");
   });
 
   it("keeps the old account current during a switch and after a rejected switch", async () => {
@@ -495,7 +522,9 @@ describe("CodexAccountsPanel", () => {
     const auth = mocks.useCodexOauth();
     const props = commonProps();
     const { rerender } = render(<CodexAccountsPanel {...props} />);
-    expect(within(card("account-2")).getByText("当前使用")).toBeInTheDocument();
+    expect(
+      within(card("account-2")).getByRole("status", { name: "当前使用" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "设为默认" }),
     ).not.toBeInTheDocument();
@@ -642,7 +671,10 @@ describe("CodexAccountsPanel", () => {
     };
     render(<CodexAccountsPanel {...props} />);
     const account = within(card("account-1"));
-    expect(account.getByRole("button", { name: "当前使用" })).toBeDisabled();
+    expect(account.getByRole("status", { name: "当前使用" })).toHaveAttribute(
+      "title",
+      "当前使用",
+    );
     await user.click(
       account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
     );
@@ -662,7 +694,10 @@ describe("CodexAccountsPanel", () => {
     await user.click(screen.getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "自动选择" }));
     await user.click(screen.getByRole("button", { name: "保存" }));
-    expect(account.getByRole("button", { name: "当前使用" })).toBeDisabled();
+    expect(account.getByRole("status", { name: "当前使用" })).toHaveAttribute(
+      "title",
+      "当前使用",
+    );
     expect(props.onSwitchAccount).toHaveBeenCalledTimes(1);
   });
 

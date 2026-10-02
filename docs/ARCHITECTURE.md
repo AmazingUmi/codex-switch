@@ -56,9 +56,21 @@ been removed; previously saved proxy URLs are ignored. Historical routing types
 in `src-tauri/src/legacy_routing.rs` remain only to read persisted schemas and
 settings.
 
-The internal crate/package names, `com.ccswitch.desktop`, `ccswitch` deep-link
-scheme and existing data paths are compatibility identities. Renaming them
-requires a migration rather than a text replacement.
+The package and binary are `codex-switch`; the Rust library is `codex_switch_lib`.
+Regular builds use `com.codexswitch.desktop` and the `codexswitch` deep-link
+scheme. Preview builds keep `com.codexswitch.preview` and register no external
+URL scheme. The product stores visible browser preferences under
+`codex-switch-*`. A one-time copy migrates legacy preferences available in the
+same WebView, preserves existing new values and removes each source key only
+after a successful copy. A new application identity can have a separate WebView
+storage context; the application does not read another app's browser storage.
+
+`src-tauri/src/app_data_migration.rs` imports legacy application files before
+settings, logging, authentication and database initialization. It creates a
+SQLite backup including WAL data, checks its integrity, preserves a recovery
+snapshot and publishes without replacing existing destination files. The source
+is retained; custom directory locations are preserved. See
+[configuration behavior](CONFIGURATION.md) for paths and conflict handling.
 
 ## Packaging
 

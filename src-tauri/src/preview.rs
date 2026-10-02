@@ -16,12 +16,12 @@ fn preview_home(explicit: Option<&str>, home: Option<PathBuf>) -> Result<PathBuf
 }
 
 pub fn initialize() -> Result<(), String> {
-    let explicit = std::env::var("CC_SWITCH_TEST_HOME").ok();
+    let explicit = std::env::var("CODEX_SWITCH_TEST_HOME").ok();
     let path = preview_home(explicit.as_deref(), dirs::home_dir())?;
     std::fs::create_dir_all(&path).map_err(|error| error.to_string())?;
     // Set before the Tauri runtime creates threads. Reuse the existing tested
     // path resolver rather than changing OAuth or atomic live-config writes.
-    std::env::set_var("CC_SWITCH_TEST_HOME", path);
+    std::env::set_var("CODEX_SWITCH_TEST_HOME", path);
     Ok(())
 }
 

@@ -2,6 +2,9 @@
 
 ## Unreleased — Codex Switch fork
 
+- Use Codex Switch product identifiers, independent application directories and
+  a one-time migration for visible browser preferences. Remove inherited
+  affiliate links and promotional partnership claims.
 - Switch signed-in OAuth accounts directly, reusing existing bindings without
   changing the active account on login. Recover interrupted writes before
   reporting success; suppress current-account labels when state cannot be confirmed.

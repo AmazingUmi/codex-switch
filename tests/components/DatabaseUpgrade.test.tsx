@@ -13,13 +13,13 @@ describe("Codex Switch database recovery", () => {
         payload={{
           db_version: 99,
           supported_version: 18,
-          path: "/example/cc-switch.db",
+          path: "/example/codex-switch.db",
         }}
       />,
     );
     expect(invoke).not.toHaveBeenCalled();
     expect(screen.queryByRole("link")).not.toBeInTheDocument();
-    expect(screen.getByText(/\/example\/cc-switch.db/)).toBeInTheDocument();
+    expect(screen.getByText(/\/example\/codex-switch.db/)).toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("button", {
         name: "dbUpgrade.openConfigDir",

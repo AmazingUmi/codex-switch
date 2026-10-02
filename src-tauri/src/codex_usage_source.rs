@@ -74,7 +74,7 @@ fn get_default_codex_usage_source_dir() -> PathBuf {
         crate::codex_config::get_codex_config_dir(),
         dirs::home_dir().as_deref(),
         // Unit tests keep their isolated config root. Preview releases deliberately
-        // bypass CC_SWITCH_TEST_HOME only for this read-only usage source.
+        // bypass CODEX_SWITCH_TEST_HOME only for this read-only usage source.
         cfg!(all(feature = "codex-preview", not(test))),
     )
 }

@@ -18,12 +18,14 @@ use crate::live::floor;
 use crate::live::patch::toml::{same_value, shape_error, TomlDocPatch};
 use crate::live::patch::LiveWriteError;
 
-/// CC Switch 写入的路由表 id。
+/// Codex Switch 写入的路由表 id。
 pub const ROUTE_ID: &str = "custom";
 /// 代理模式下官方路由的表 id（旧版也认这个 id，兼容期保留）。
-pub const OFFICIAL_PROXY_ROUTE_ID: &str = "cc-switch-official";
-/// CC Switch 生成的模型目录文件名。
-pub const CATALOG_FILENAME: &str = "cc-switch-model-catalog.json";
+pub const OFFICIAL_PROXY_ROUTE_ID: &str = "codex-switch-official";
+/// Codex Switch 生成的模型目录文件名。
+pub const CATALOG_FILENAME: &str = "codex-switch-model-catalog.json";
+const LEGACY_CATALOG_FILENAME: &str = "cc-switch-model-catalog.json";
+const LEGACY_OFFICIAL_PROXY_ROUTE_ID: &str = "cc-switch-official";
 pub use super::claude::PROXY_TOKEN_PLACEHOLDER;
 /// `web_search` 的禁用值。
 pub const WEB_SEARCH_DISABLED: &str = "disabled";
@@ -42,8 +44,8 @@ const RESERVED_TABLE_IDS: &[&str] = &["openai", "ollama", "lmstudio"];
 /// 不写 `model_provider` 时 Codex 用的内置 provider。
 const DEFAULT_PROVIDER_ID: &str = "openai";
 const BEDROCK_IDS: &[&str] = &["amazon-bedrock", "amazon-bedrock-runtime"];
-/// 旧版把顶层 `openai_base_url` 归一成的表 id（`cc-switch`、`cc-switch-2`…）。
-const LEGACY_REROUTE_ID: &str = "cc-switch";
+/// Unknown reserved provider tables are preserved under a current product prefix.
+const REROUTE_ID: &str = "codex-switch";
 
 /// 顶层的关键字段里，直接取行里值的那几个（选路、凭据、模型目录指针另算）。
 const ROW_TOP_FIELDS: &[&str] = &[
@@ -63,7 +65,7 @@ fn is_built_in_id(id: &str) -> bool {
 pub enum RouteAuth {
     /// 表里声明了 `env_key`。
     EnvKey,
-    /// CC Switch 把 Key 写成表的 `experimental_bearer_token`。
+    /// Codex Switch 把 Key 写成表的 `experimental_bearer_token`。
     Bearer,
     /// 表自己带鉴权（`auth` 命令、`aws`、`Authorization` 头、查询参数），不注入 Key。
     Headers,
@@ -177,7 +179,7 @@ impl CodexProjection {
                 Some(((*key).to_string(), undecorated(value)))
             })
             .collect();
-        // 行里自己指定的模型目录（用户管理的文件）照写；指向 CC Switch 自己目录的不算，
+        // 行里自己指定的模型目录（用户管理的文件）照写；指向 Codex Switch 自己目录的不算，
         // 那个指针由写入方按有没有生成目录决定。
         if let Some(pointer) =
             doc.get(MODEL_CATALOG_JSON)
@@ -185,7 +187,7 @@ impl CodexProjection {
                 .filter(|value| {
                     value
                         .as_str()
-                        .is_some_and(|path| !is_cc_switch_catalog(path))
+                        .is_some_and(|path| !is_codex_switch_catalog(path))
                 })
         {
             top.push((MODEL_CATALOG_JSON.to_string(), undecorated(pointer.clone())));
@@ -493,7 +495,7 @@ pub fn official_mirror_table() -> Table {
     table
 }
 
-/// 一张能证明是 CC Switch 写进去的 provider 表：id 和地址都对得上某个供应商行的投影。
+/// 一张能证明是 Codex Switch 写进去的 provider 表：id 和地址都对得上某个供应商行的投影。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnownTable {
     pub id: String,
@@ -511,9 +513,9 @@ pub struct CodexConfigPatch {
     /// 上一家带进来的独有字段和它行里指定的模型目录指针：live 里的值还相同才删。
     pub outgoing: Vec<(String, TomlValue)>,
     pub route: RouteWrite,
-    /// 指向 CC Switch 生成的模型目录（用户自己的指针不认领、不删除）。
+    /// 指向 Codex Switch 生成的模型目录（用户自己的指针不认领、不删除）。
     pub catalog: bool,
-    /// 旧版按别的 id 写进去的表，能证明是 CC Switch 写的就删掉（里面可能有真实 Key）。
+    /// 旧版按别的 id 写进去的表，能证明是 Codex Switch 写的就删掉（里面可能有真实 Key）。
     pub retired: Vec<KnownTable>,
 }
 
@@ -538,11 +540,21 @@ fn put_value(table: &mut dyn TableLike, key: &str, value: &TomlValue) {
     }
 }
 
-fn is_cc_switch_catalog(value: &str) -> bool {
-    Path::new(value).file_name().and_then(|name| name.to_str()) == Some(CATALOG_FILENAME)
+fn is_codex_switch_catalog(value: &str) -> bool {
+    let filename = Path::new(value).file_name().and_then(|name| name.to_str());
+    match filename {
+        Some(CATALOG_FILENAME) => true,
+        // Old catalog names are read/cleaned only within Codex's configured directory.
+        Some(LEGACY_CATALOG_FILENAME) => crate::codex_config::resolve_codex_switch_catalog_path(
+            &format!("model_catalog_json = {}", TomlValue::from(value)),
+            &crate::codex_config::get_codex_config_dir(),
+        )
+        .is_some(),
+        _ => false,
+    }
 }
 
-/// 行里自己指定的模型目录指针（投影的 `top` 只收不是 CC Switch 的指针）。它和独有字段
+/// 行里自己指定的模型目录指针（投影的 `top` 只收不是 Codex Switch 的指针）。它和独有字段
 /// 一样跟着这一家走：切走时 live 里的值还相同就删（见 [`CodexConfigPatch::outgoing`]），
 /// 否则第 1 步会把它当成用户的指针留下，之后每一家都用它的模型目录。
 pub fn row_catalog_pointer(top: &[(String, TomlValue)]) -> Option<&(String, TomlValue)> {
@@ -576,7 +588,7 @@ impl CodexConfigPatch {
                 let ours = root
                     .get(MODEL_CATALOG_JSON)
                     .and_then(Item::as_str)
-                    .is_some_and(is_cc_switch_catalog);
+                    .is_some_and(is_codex_switch_catalog);
                 if !ours || self.catalog {
                     continue;
                 }
@@ -646,7 +658,7 @@ impl CodexConfigPatch {
             let user_pointer = root
                 .get(MODEL_CATALOG_JSON)
                 .and_then(Item::as_str)
-                .is_some_and(|value| !is_cc_switch_catalog(value));
+                .is_some_and(|value| !is_codex_switch_catalog(value));
             if !user_pointer {
                 put_value(root, MODEL_CATALOG_JSON, &TomlValue::from(CATALOG_FILENAME));
             }
@@ -681,8 +693,8 @@ impl CodexConfigPatch {
             .as_table_like_mut()
             .ok_or_else(|| shape_error(path, &["model_providers".to_string()]))?;
 
-        // 旧版留下的保留 id 表会让 Codex 整份拒绝加载：能证明是 CC Switch 写的删掉，
-        // 其余按原样改名成 cc-switch-N（不知道用户在乎其中哪些键）。
+        // 旧版留下的保留 id 表会让 Codex 整份拒绝加载：能证明是 Codex Switch 写的删掉，
+        // 其余按原样改名成 codex-switch-N（不知道用户在乎其中哪些键）。
         for id in RESERVED_TABLE_IDS {
             let Some(item) = providers.get(id) else {
                 continue;
@@ -694,7 +706,7 @@ impl CodexConfigPatch {
             if self.is_retired(id, &item) || holds_placeholder(&item) {
                 continue;
             }
-            let renamed = first_free_id(providers, LEGACY_REROUTE_ID);
+            let renamed = first_free_id(providers, REROUTE_ID);
             providers.insert(&renamed, item);
         }
 
@@ -705,6 +717,10 @@ impl CodexConfigPatch {
                 *id != ROUTE_ID
                     && !referenced.iter().any(|name| name == id)
                     && (*id == OFFICIAL_PROXY_ROUTE_ID
+                        || (*id == LEGACY_OFFICIAL_PROXY_ROUTE_ID
+                            && item.as_table_like().is_some_and(
+                                crate::codex_config::is_legacy_codex_official_proxy_table,
+                            ))
                         || holds_placeholder(item)
                         || self.is_retired(id, item))
             })
@@ -718,7 +734,7 @@ impl CodexConfigPatch {
             RouteWrite::Official
             | RouteWrite::Default
             | RouteWrite::BuiltIn { table: None, .. } => {
-                // Remove only a proven CC Switch table. Preserve unknown user tables
+                // Remove only a proven Codex Switch table. Preserve unknown user tables
                 // and tables referenced by user profiles.
                 if !referenced.iter().any(|id| id == ROUTE_ID)
                     && providers.get(ROUTE_ID).is_some_and(|item| {
@@ -1021,12 +1037,41 @@ mod tests {
         }
     }
     #[test]
+    fn legacy_official_table_cleanup_preserves_unknown_user_routes() {
+        for (base_url, should_remove) in [
+            ("http://127.0.0.1:15721/v1", true),
+            ("https://user.example/v1", false),
+        ] {
+            let mut doc: DocumentMut = format!(
+                "model_provider = \"cc-switch-official\"\n[model_providers.cc-switch-official]\nname = \"OpenAI\"\nwire_api = \"responses\"\nrequires_openai_auth = true\nbase_url = \"{base_url}\"\n"
+            ).parse().unwrap();
+            let patch = CodexConfigPatch {
+                top: vec![],
+                nested: vec![],
+                exclusive: vec![],
+                outgoing: vec![],
+                route: RouteWrite::Official,
+                catalog: false,
+                retired: vec![],
+            };
+            patch.apply_to(Path::new("config.toml"), &mut doc).unwrap();
+            assert_eq!(
+                doc.get("model_providers")
+                    .and_then(Item::as_table_like)
+                    .and_then(|providers| providers.get(LEGACY_OFFICIAL_PROXY_ROUTE_ID))
+                    .is_none(),
+                should_remove
+            );
+        }
+    }
+
+    #[test]
     fn official_native_patch_clears_legacy_placeholders_and_preserves_user_profiles() {
         let mut doc: DocumentMut = r#"model_provider = "custom"
 [model_providers.custom]
 base_url = "http://127.0.0.1:15721/v1"
 experimental_bearer_token = "PROXY_MANAGED"
-[model_providers.cc-switch-official]
+[model_providers.codex-switch-official]
 base_url = "http://127.0.0.1:15721/v1"
 [model_providers.mine]
 base_url = "https://mine.example/v1"

@@ -54,6 +54,7 @@ import { DeepLinkImportDialog } from "@/components/DeepLinkImportDialog";
 import { FirstRunNoticeDialog } from "@/components/FirstRunNoticeDialog";
 import { Button } from "@/components/ui/button";
 import { APP_IDS } from "@/config/appConfig";
+import { migrateBrowserPreferences } from "@/lib/browserStorage";
 
 import {
   isProductApp,
@@ -71,14 +72,25 @@ interface SyncStatusUpdatedPayload {
 const DEFAULT_DRAG_BAR_HEIGHT = isWindows() || isLinux() ? 0 : 28; // px
 const HEADER_HEIGHT = 56; // px
 
-const STORAGE_KEY = "cc-switch-last-app";
+const STORAGE_KEY = "codex-switch-last-app";
 const getInitialApp = (): AppId => {
-  return normalizeProductApp(localStorage.getItem(STORAGE_KEY));
+  migrateBrowserPreferences();
+  try {
+    return normalizeProductApp(localStorage.getItem(STORAGE_KEY));
+  } catch {
+    return normalizeProductApp(null);
+  }
 };
 
-const VIEW_STORAGE_KEY = "cc-switch-last-view";
-const getInitialView = (): ProductView =>
-  normalizeProductView(localStorage.getItem(VIEW_STORAGE_KEY));
+const VIEW_STORAGE_KEY = "codex-switch-last-view";
+const getInitialView = (): ProductView => {
+  migrateBrowserPreferences();
+  try {
+    return normalizeProductView(localStorage.getItem(VIEW_STORAGE_KEY));
+  } catch {
+    return normalizeProductView(null);
+  }
+};
 
 function App() {
   const { t } = useTranslation();
@@ -89,7 +101,11 @@ function App() {
     if (isProductApp(app)) setRequestedApp(app);
   }, []);
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, activeApp);
+    try {
+      localStorage.setItem(STORAGE_KEY, activeApp);
+    } catch {
+      // Navigation remains available when preferences cannot be persisted.
+    }
   }, [activeApp]);
   const [currentView, setRequestedView] = useState<ProductView>(getInitialView);
   const setCurrentView = useCallback((view: ProductView) => {
@@ -107,7 +123,11 @@ function App() {
   } = useCodexAccountSwitch();
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   useEffect(() => {
-    localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, currentView);
+    } catch {
+      // Navigation remains available when preferences cannot be persisted.
+    }
   }, [currentView]);
 
   const { data: settingsData } = useSettingsQuery();

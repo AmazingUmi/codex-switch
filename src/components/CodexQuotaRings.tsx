@@ -1,7 +1,8 @@
 import React from "react";
-import { Clock, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { RefreshButton } from "@/components/ui/refresh-button";
 import { HelpButton } from "@/components/ui/help-button";
+import { QueryTimestamp } from "@/components/ui/query-timestamp";
 import type { QuotaTier, SubscriptionQuota } from "@/types/subscription";
 
 interface CodexQuotaRingsProps {
@@ -11,6 +12,7 @@ interface CodexQuotaRingsProps {
   loading: boolean;
   refetch: () => void;
   inline?: boolean;
+  showRefresh?: boolean;
   updatedLabel: string;
   refreshFailed?: boolean;
   refreshError?: string | null;
@@ -51,6 +53,7 @@ export function CodexQuotaRings({
   loading,
   refetch,
   inline = false,
+  showRefresh = true,
   updatedLabel,
   refreshFailed = false,
   refreshError,
@@ -93,34 +96,14 @@ export function CodexQuotaRings({
           </HelpButton>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span
-            className="flex items-center gap-1 text-[10px] text-muted-foreground"
-            title={
-              quota.queriedAt
-                ? new Date(quota.queriedAt).toLocaleString()
-                : undefined
-            }
-          >
-            <Clock size={10} aria-hidden="true" />
-            {updatedLabel}
-          </span>
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              refetch();
-            }}
-            disabled={loading}
-            aria-label={t("subscription.refresh")}
-            title={t("subscription.refresh")}
-            className="codex-quota-refresh flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border-default/60 bg-card/60 text-muted-foreground shadow-sm backdrop-blur-lg transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            <RefreshCw
-              size={12}
-              aria-hidden="true"
-              className={loading ? "animate-spin" : ""}
+          <QueryTimestamp timestamp={quota.queriedAt} label={updatedLabel} />
+          {showRefresh && (
+            <RefreshButton
+              label={t("subscription.refresh")}
+              loading={loading}
+              onRefresh={refetch}
             />
-          </button>
+          )}
         </div>
       </div>
 

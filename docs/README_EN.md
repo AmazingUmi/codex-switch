@@ -37,6 +37,12 @@ native feature and bundle overlay, then verifies metadata and an ad-hoc signatur
 Do not use the overlay alone or import a live profile's credentials into it.
 Directory overrides can point outside the preview profile.
 
+Regular application data defaults to `~/.codex-switch`; preview pricing lives
+directly in `~/.codex-switch-preview/model-pricing.json`. First startup backs up
+and copies each build's legacy default directory, preserves the source and
+rejects destination conflicts. See [configuration behavior](CONFIGURATION.md)
+for migration and custom-directory rules.
+
 Token scanning has its own source setting in the Usage auto-scan section. Choose
 the Codex root containing `sessions` and `archived_sessions`. Preview builds
 default to read-only scans of the real user's `~/.codex`, while statistics remain
@@ -60,10 +66,10 @@ and [architecture and compatibility](ARCHITECTURE.md).
 ## Distribution and attribution
 
 This fork has no published automatic update channel. The macOS preview is a local
-ad-hoc signed debug bundle; it is not a notarized release. The version number and
-internal `cc-switch` identifiers are retained for compatibility and do not mean
-this fork is an upstream release. Old upstream release, download-mirror and
-sponsorship machinery has been removed.
+ad-hoc signed debug bundle; it is not a notarized release. Regular builds use
+`com.codexswitch.desktop` and the `codexswitch://` deep-link scheme; preview builds
+register no external URL scheme. Upstream release, download-mirror, affiliate
+tracking and partner discount claims have been removed.
 
 Derived from CC Switch by Jason Young and contributors. Original copyright and
 MIT terms remain in [LICENSE](../LICENSE).

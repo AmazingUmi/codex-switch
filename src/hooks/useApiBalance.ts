@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { subscriptionApi } from "@/lib/api/subscription";
-import type { Provider } from "@/types";
+import type { Provider, UsageResult } from "@/types";
 import {
   resolveApiBalanceCredentials,
   supportsApiBalance,
@@ -23,18 +23,38 @@ function credentialRevision(id: string, baseUrl: string, apiKey: string) {
 }
 
 export function useApiBalance(provider: Provider) {
+  const queryClient = useQueryClient();
   const { baseUrl, apiKey } = resolveApiBalanceCredentials(provider);
   const supported = supportsApiBalance(baseUrl);
   const enabled = supported && Boolean(apiKey);
   const revision = credentialRevision(provider.id, baseUrl, apiKey);
+  const queryKey = ["api-balance", provider.id, revision] as const;
   const query = useQuery({
-    queryKey: ["api-balance", provider.id, revision],
-    queryFn: () => subscriptionApi.getBalance(baseUrl, apiKey),
+    queryKey,
+    queryFn: async () => {
+      const result = await subscriptionApi.getBalance(baseUrl, apiKey);
+      // Declared API failures resolve normally, so dataUpdatedAt would advance.
+      // Keep the last successful time with this credential revision's cache.
+      const previous = queryClient.getQueryData<
+        UsageResult & { lastSuccessfulUpdatedAt: number }
+      >(queryKey);
+      return {
+        ...result,
+        lastSuccessfulUpdatedAt: result.success
+          ? Date.now()
+          : (previous?.lastSuccessfulUpdatedAt ?? 0),
+      };
+    },
     enabled,
     staleTime: 60_000,
     gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
     retry: false,
   });
-  return { ...query, supported, enabled };
+  return {
+    ...query,
+    supported,
+    enabled,
+    lastSuccessfulUpdatedAt: query.data?.lastSuccessfulUpdatedAt ?? 0,
+  };
 }

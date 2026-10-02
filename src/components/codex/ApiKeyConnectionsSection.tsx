@@ -53,9 +53,12 @@ export function ApiKeyConnectionsSection({
   });
 
   return (
-    <section className="space-y-4" aria-label="API Key">
+    <section
+      className="space-y-4"
+      aria-label={t("codexAccounts.configurationsTitle", "Provider")}
+    >
       <SectionHeader
-        title={t("codexAccounts.configurationsTitle", "API Key")}
+        title={t("codexAccounts.configurationsTitle", "Provider")}
         actions={
           <>
             <HelpButton

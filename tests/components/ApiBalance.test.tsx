@@ -1,7 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiBalance } from "@/components/providers/ApiBalance";
 import { subscriptionApi } from "@/lib/api/subscription";
 import type { Provider, UsageResult } from "@/types";
@@ -45,7 +45,17 @@ function setup(initial = provider()) {
   };
 }
 
-beforeEach(() => getBalance.mockReset());
+const firstQueryAt = new Date("2026-10-02T12:00:00Z").getTime();
+let now: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  getBalance.mockReset();
+  now = vi.spyOn(Date, "now").mockReturnValue(firstQueryAt);
+});
+afterEach(() => now.mockRestore());
+
+function amountDetails(text: string) {
+  return screen.getByText(text).closest<HTMLElement>("[title]")!;
+}
 
 describe("API balance display", () => {
   it("automatically queries the saved connection and refreshes the displayed balance", async () => {
@@ -54,6 +64,18 @@ describe("API balance display", () => {
       .mockResolvedValueOnce(result(42));
     const { client } = setup();
     expect(await screen.findByText("48.9234")).toBeInTheDocument();
+    expect(screen.queryByText("余额")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "余额详情" }),
+    ).not.toBeInTheDocument();
+    const timestamp = screen.getByTitle(
+      new Date(firstQueryAt).toLocaleString(),
+    );
+    expect(timestamp).toHaveClass("text-[10px]", "text-muted-foreground");
+    expect(timestamp.querySelector("svg")).toHaveClass("lucide-clock");
+    expect(amountDetails("48.9234").title).toContain(
+      new Date(firstQueryAt).toLocaleString("zh"),
+    );
     expect(getBalance).toHaveBeenCalledWith(
       "https://api.deepseek.com/v1",
       "fake-key",
@@ -66,10 +88,15 @@ describe("API balance display", () => {
           .map((q) => q.queryKey),
       ),
     ).not.toContain("fake-key");
+    const refreshAt = firstQueryAt + 120_000;
+    now.mockReturnValue(refreshAt);
     await userEvent
       .setup()
       .click(screen.getByRole("button", { name: "刷新余额" }));
     expect(await screen.findByText("42.00")).toBeInTheDocument();
+    expect(
+      screen.getByTitle(new Date(refreshAt).toLocaleString()),
+    ).toBeInTheDocument();
     expect(getBalance).toHaveBeenCalledTimes(2);
   });
 
@@ -86,12 +113,9 @@ describe("API balance display", () => {
     expect(screen.getByText("0.0001")).toBeInTheDocument();
     expect(screen.getByText("CNY")).toBeInTheDocument();
     expect(screen.getByText("USD")).toBeInTheDocument();
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: "余额详情" }));
-    expect(
-      screen.getByText("供应商提示当前余额不可用于 API 调用。"),
-    ).toBeInTheDocument();
+    expect(amountDetails("0.00").title).toContain(
+      "供应商提示当前余额不可用于 API 调用。",
+    );
   });
 
   it.each([
@@ -103,19 +127,15 @@ describe("API balance display", () => {
     expect(
       screen.queryByRole("button", { name: "刷新余额" }),
     ).not.toBeInTheDocument();
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: "余额详情" }));
-    expect(screen.getByText("此供应商暂不支持余额查询")).toBeInTheDocument();
+    expect(amountDetails("—").title).toContain("此供应商暂不支持余额查询");
+    expect(screen.getByText("从未更新")).toBeInTheDocument();
     expect(getBalance).not.toHaveBeenCalled();
   });
 
   it("does not query a connection without an API key", async () => {
     setup(provider(""));
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: "余额详情" }));
-    expect(screen.getByText("请先填写 API Key")).toBeInTheDocument();
+    expect(amountDetails("—").title).toContain("请先填写 API Key");
+    expect(screen.getByText("从未更新")).toBeInTheDocument();
     expect(getBalance).not.toHaveBeenCalled();
   });
 
@@ -132,6 +152,9 @@ describe("API balance display", () => {
       getBalance.mockResolvedValueOnce(result(19)).mockImplementationOnce(fail);
       setup();
       expect(await screen.findByText("19.00")).toBeInTheDocument();
+      const previousTitle = new Date(firstQueryAt).toLocaleString();
+      expect(screen.getByTitle(previousTitle)).toBeInTheDocument();
+      now.mockReturnValue(firstQueryAt + 120_000);
       await userEvent
         .setup()
         .click(screen.getByRole("button", { name: "刷新余额" }));
@@ -139,14 +162,16 @@ describe("API balance display", () => {
         expect(screen.queryByText("19.00")).not.toBeInTheDocument(),
       );
       expect(screen.getByText("—")).toBeInTheDocument();
-      await userEvent
-        .setup()
-        .click(screen.getByRole("button", { name: "余额详情" }));
+      expect(screen.getByTitle(previousTitle)).toBeInTheDocument();
+      expect(amountDetails("—").title).toMatch(
+        /Network error: offline|Authentication failed \(HTTP 401\)/,
+      );
+      expect(amountDetails("—").title).toContain(
+        new Date(firstQueryAt).toLocaleString("zh"),
+      );
       expect(
-        screen.getByText(
-          /Network error: offline|Authentication failed \(HTTP 401\)/,
-        ),
-      ).toBeInTheDocument();
+        screen.queryByTitle(new Date(firstQueryAt + 120_000).toLocaleString()),
+      ).not.toBeInTheDocument();
     },
   );
 
@@ -163,10 +188,7 @@ describe("API balance display", () => {
         expect(screen.getByRole("button", { name: "刷新余额" })).toBeEnabled(),
       );
       expect(screen.getByText("—")).toBeInTheDocument();
-      await userEvent
-        .setup()
-        .click(screen.getByRole("button", { name: "余额详情" }));
-      expect(screen.getByText("供应商未返回有效余额")).toBeInTheDocument();
+      expect(amountDetails("—").title).toContain("供应商未返回有效余额");
     },
   );
 
@@ -188,20 +210,52 @@ describe("API balance display", () => {
       )
       .mockResolvedValueOnce(result(33));
     const view = setup();
+    expect(screen.getByText("从未更新")).toBeInTheDocument();
     await waitFor(() => expect(getBalance).toHaveBeenCalledTimes(1));
     view.update(provider("new-key"));
     await waitFor(() => expect(getBalance).toHaveBeenCalledTimes(2));
     newResolve(result(25));
     expect(await screen.findByText("25.00")).toBeInTheDocument();
+    expect(
+      screen.getByTitle(new Date(firstQueryAt).toLocaleString()),
+    ).toBeInTheDocument();
     oldResolve(result(999));
     await waitFor(() =>
       expect(screen.queryByText("999.00")).not.toBeInTheDocument(),
     );
+    now.mockReturnValue(firstQueryAt + 120_000);
     view.update(provider("new-key", "https://api.siliconflow.cn/v1"));
     expect(screen.queryByText("25.00")).not.toBeInTheDocument();
+    expect(screen.getByText("从未更新")).toBeInTheDocument();
     expect(await screen.findByText("33.00")).toBeInTheDocument();
+    expect(
+      screen.getByTitle(new Date(firstQueryAt + 120_000).toLocaleString()),
+    ).toBeInTheDocument();
     view.update(provider(""));
     expect(screen.queryByText("33.00")).not.toBeInTheDocument();
+    expect(screen.getByText("从未更新")).toBeInTheDocument();
+    expect(
+      screen.queryByTitle(new Date(firstQueryAt + 120_000).toLocaleString()),
+    ).not.toBeInTheDocument();
     expect(getBalance).toHaveBeenCalledTimes(3);
+  });
+
+  it("resets the last successful time when changing a key after a successful query", async () => {
+    getBalance.mockResolvedValueOnce(result(18)).mockResolvedValueOnce({
+      success: false,
+      error: "Invalid replacement key",
+    });
+    const view = setup();
+    expect(await screen.findByText("18.00")).toBeInTheDocument();
+    now.mockReturnValue(firstQueryAt + 120_000);
+    view.update(provider("replacement-key"));
+    await waitFor(() =>
+      expect(amountDetails("—").title).toContain("Invalid replacement key"),
+    );
+    expect(screen.getByText("从未更新")).toBeInTheDocument();
+    expect(
+      screen.queryByTitle(new Date(firstQueryAt).toLocaleString()),
+    ).not.toBeInTheDocument();
+    expect(getBalance).toHaveBeenCalledTimes(2);
   });
 });

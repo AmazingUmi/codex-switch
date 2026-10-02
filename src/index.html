@@ -1,11 +1,35 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="./assets/icons/codex-switch.svg" />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="./assets/icons/codex-switch.svg"
+    />
     <title>Codex Switch</title>
-    <script>(function(){try{var t=localStorage.getItem("cc-switch-theme")||"system";var d=t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);}catch(e){}})()</script>
+    <script>
+      (function () {
+        try {
+          var key = "codex-switch-theme";
+          var legacyKey = "cc-switch-theme";
+          var theme = localStorage.getItem(key);
+          var legacyTheme = localStorage.getItem(legacyKey);
+          if (theme === null && legacyTheme !== null) {
+            localStorage.setItem(key, legacyTheme);
+            theme = legacyTheme;
+          }
+          if (legacyTheme !== null) localStorage.removeItem(legacyKey);
+          var selectedTheme = theme || "system";
+          var dark =
+            selectedTheme === "dark" ||
+            (selectedTheme === "system" &&
+              matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+        } catch (error) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

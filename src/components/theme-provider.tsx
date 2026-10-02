@@ -6,6 +6,7 @@ import React, {
   useState,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { migrateBrowserPreferences } from "@/lib/browserStorage";
 
 type Theme = "light" | "dark" | "system";
 
@@ -27,14 +28,20 @@ const ThemeProviderContext = createContext<ThemeContextValue | undefined>(
 export function ThemeProvider({
   children,
   defaultTheme = "system",
-  storageKey = "cc-switch-theme",
+  storageKey = "codex-switch-theme",
 }: ThemeProviderProps) {
   const getInitialTheme = () => {
     if (typeof window === "undefined") {
       return defaultTheme;
     }
 
-    const stored = window.localStorage.getItem(storageKey) as Theme | null;
+    migrateBrowserPreferences();
+    let stored: Theme | null = null;
+    try {
+      stored = window.localStorage.getItem(storageKey) as Theme | null;
+    } catch {
+      return defaultTheme;
+    }
     if (stored === "light" || stored === "dark" || stored === "system") {
       return stored;
     }
@@ -49,7 +56,11 @@ export function ThemeProvider({
       return;
     }
 
-    window.localStorage.setItem(storageKey, theme);
+    try {
+      window.localStorage.setItem(storageKey, theme);
+    } catch {
+      // A restricted WebView still supports an in-memory theme.
+    }
   }, [theme, storageKey]);
 
   useEffect(() => {

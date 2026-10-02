@@ -13,14 +13,14 @@ use crate::error::AppError;
 /// - `dirs::home_dir()` 在 Windows 上使用 `SHGetKnownFolderPath(FOLDERID_Profile)`，
 ///   返回的是真实用户目录（类似 `C:\\Users\\Alice`），与 v3.10.2 行为一致。
 /// - 不要直接使用 `HOME` 环境变量：它可能由 Git/Cygwin/MSYS 等第三方工具注入，
-///   且不一定等于用户目录，可能导致 `.cc-switch/cc-switch.db` 路径变化，从而“看起来像数据丢失”。
+///   且不一定等于用户目录，可能导致 `.codex-switch/codex-switch.db` 路径变化，从而“看起来像数据丢失”。
 ///
 /// ## 测试隔离
 ///
-/// 为了让 Windows CI/本地测试能稳定隔离真实用户数据，可通过 `CC_SWITCH_TEST_HOME`
+/// 为了让 Windows CI/本地测试能稳定隔离真实用户数据，可通过 `CODEX_SWITCH_TEST_HOME`
 /// 显式覆盖 home dir（仅用于测试/调试场景）。
 pub fn get_home_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("CC_SWITCH_TEST_HOME") {
+    if let Ok(home) = std::env::var("CODEX_SWITCH_TEST_HOME") {
         let trimmed = home.trim();
         if !trimmed.is_empty() {
             return PathBuf::from(trimmed);
@@ -47,7 +47,7 @@ pub fn get_default_claude_mcp_path() -> PathBuf {
     get_home_dir().join(".claude.json")
 }
 
-fn normalize_path_lexically(path: &Path) -> PathBuf {
+pub(crate) fn normalize_path_lexically(path: &Path) -> PathBuf {
     let mut normalized = PathBuf::new();
 
     for component in path.components() {
@@ -96,7 +96,7 @@ fn path_eq_lexical(left: &Path, right: &Path) -> bool {
 /// this works for non-existent paths. It is **not** a symlink defense: a
 /// symlink inside `base` can still lead a resolved path outside it. Callers
 /// that go on to open the file must canonicalize the existing path and
-/// re-verify containment (see `resolve_cc_switch_catalog_path`).
+/// re-verify containment (see `resolve_codex_switch_catalog_path`).
 /// On Windows the comparison is case-insensitive.
 pub(crate) fn path_is_within(base: &Path, path: &Path) -> bool {
     let base_key = comparable_path_key(base);
@@ -255,40 +255,14 @@ pub fn get_claude_settings_path() -> PathBuf {
     settings
 }
 
-/// 获取应用配置目录路径 (~/.cc-switch)
+/// Default device-local data directory; preview home is already isolated.
+pub(crate) fn get_default_app_config_dir() -> PathBuf {
+    crate::app_data_migration::default_data_dir(&get_home_dir(), cfg!(feature = "codex-preview"))
+}
+
+/// Application data directory, honoring an explicit user override.
 pub fn get_app_config_dir() -> PathBuf {
-    if let Some(custom) = crate::app_store::get_app_config_dir_override() {
-        return custom;
-    }
-
-    let default_dir = get_home_dir().join(".cc-switch");
-
-    // 兼容 v3.10.3：当用户环境存在 `HOME` 且与真实用户目录不同，
-    // v3.10.3 可能在 `HOME/.cc-switch/` 下创建/使用了数据库。
-    // 这里仅在“默认位置没有数据库”时回退到旧位置，避免再次出现“供应商消失”问题，
-    // 同时也避免新安装因为 `HOME` 被设置而写入非预期路径。
-    #[cfg(windows)]
-    {
-        let default_db = default_dir.join("cc-switch.db");
-        if !default_db.exists() {
-            if let Ok(home_env) = std::env::var("HOME") {
-                let trimmed = home_env.trim();
-                if !trimmed.is_empty() {
-                    let legacy_dir = PathBuf::from(trimmed).join(".cc-switch");
-                    if legacy_dir.join("cc-switch.db").exists() {
-                        log::info!(
-                            "Detected v3.10.3 legacy database at {}, using it instead of {}",
-                            legacy_dir.display(),
-                            default_dir.display()
-                        );
-                        return legacy_dir;
-                    }
-                }
-            }
-        }
-    }
-
-    default_dir
+    crate::app_store::get_app_config_dir_override().unwrap_or_else(get_default_app_config_dir)
 }
 
 /// 获取应用配置文件路径
@@ -689,10 +663,11 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
-    #[ignore = "requires CC_SWITCH_WSL_TEST_DIR to point to a WSL2 UNC directory"]
+    #[ignore = "requires CODEX_SWITCH_WSL_TEST_DIR to point to a WSL2 UNC directory"]
     fn atomic_write_replaces_existing_wsl_unc_file() {
         let root = PathBuf::from(
-            std::env::var_os("CC_SWITCH_WSL_TEST_DIR").expect("CC_SWITCH_WSL_TEST_DIR must be set"),
+            std::env::var_os("CODEX_SWITCH_WSL_TEST_DIR")
+                .expect("CODEX_SWITCH_WSL_TEST_DIR must be set"),
         );
         let home = get_home_dir();
         let temp = std::env::temp_dir();

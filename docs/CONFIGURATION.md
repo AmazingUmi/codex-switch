@@ -113,10 +113,38 @@ Successful reauthentication clears only that account's obsolete credential error
 and refreshes its quota; a quota outage does not turn a completed login into failure.
 
 Settings → Advanced provides directory overrides, import/export, backups, cloud
-synchronization and logging. Regular builds retain the `.cc-switch` storage
-identity and configured Codex directory. Preview defaults live below
-`~/.codex-switch-preview`; do not import a running profile's credentials or directory
-overrides into the preview.
+synchronization and logging. Regular builds store application data in
+`~/.codex-switch`; preview builds use `~/.codex-switch-preview` directly. Pricing
+overrides are saved in `model-pricing.json` in that application directory.
+Configured Codex directories remain independent. Do not import a running
+profile's credentials or directory overrides into the preview.
+
+On first startup, the regular build copies legacy `~/.cc-switch` data into
+`~/.codex-switch`; preview copies only its own nested
+`~/.codex-switch-preview/.cc-switch` into `~/.codex-switch-preview`. It creates a
+SQLite snapshot including committed WAL data, checks database integrity and
+keeps a private snapshot under `backups/brand-migration-*/data` before publishing.
+The original directory remains available offline. An existing `codex-switch.db`
+or `brand-migration.json` skips repeat import; other destination conflicts are
+rejected without overwriting them. A failed publication removes only files
+published by that attempt and keeps the source and backup.
+
+Internal links in the backup refer to the backup itself. A historical Windows
+`HOME/.cc-switch` database can be imported when the real-home database is absent;
+device settings, live ownership state and first-write backups still come from
+the real home. Preview never uses this fallback source.
+
+An inherited override pointing exactly to the old default is reset to the new
+default. A genuinely custom directory keeps its location; the owned database is
+copied from `cc-switch.db` to `codex-switch.db`, with a snapshot retained as
+`backups/brand-migration-*.db`. Regular builds copy only application directory
+preferences from the old bundle identity. Browser preferences migrate only when
+visible in the same WebView; no other app's browser or login storage is copied.
+Legacy directories, filenames and backup content can remain as offline recovery
+sources. Subsequent owned database, log, export and browser preference writes
+use Codex Switch names. Historical catalog, SQL and sync readers retain support
+for existing formats; new output uses the current names.
+
 The independent Token source is the read-only exception: it can observe real
 local sessions while preview account state, configuration writes and statistics
 storage remain isolated.

@@ -1,4 +1,4 @@
-//! Grok Build 的投影：供应商行 → `config.toml` 的 `models.default` 和 CC Switch 写的那张
+//! Grok Build 的投影：供应商行 → `config.toml` 的 `models.default` 和 Codex Switch 写的那张
 //! `[model."<名称>"]` 整表。
 //!
 //! 整表指表里的所有键（`model`、`base_url`、`api_key` / `env_key`，以及
@@ -185,7 +185,7 @@ pub struct GrokConfigPatch {
     pub target: Option<(String, Table)>,
     /// 上次写入记录里的表。目标自己的表不删，由整表替换覆盖。
     pub retired: Vec<String>,
-    /// 这个值作为 `api_key` 的表都是 CC Switch 的代理契约留下的，一律删（目标自己的
+    /// 这个值作为 `api_key` 的表都是 Codex Switch 的代理契约留下的，一律删（目标自己的
     /// 表除外）。
     pub placeholder: Option<String>,
 }

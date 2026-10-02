@@ -29,7 +29,8 @@ cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Use isolated test homes for native smoke runs. Never exercise account switching,
+Use `CODEX_SWITCH_TEST_HOME` with an isolated temporary home for native smoke
+runs. Never exercise account switching,
 reauthentication or migration against a running user's profile as a cleanup check.
 Report live account/CLI/Desktop checks separately from fixture tests.
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowRightLeft, Check, Loader2 } from "lucide-react";
+import { ArrowRightLeft, Loader2 } from "lucide-react";
 import type { Provider } from "@/types";
 import type { ManagedAuthAccount } from "@/lib/api/auth";
 import { CodexOAuthSection } from "@/components/providers/forms/CodexOAuthSection";
@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { HelpButton } from "@/components/ui/help-button";
 import { Label } from "@/components/ui/label";
 import { resolveCodexOfficialIdentity } from "@/utils/providerCapabilities";
-import { useCodexOauthQuotaByAccountId } from "@/lib/query/subscription";
+import { CurrentStatus } from "@/components/ui/current-status";
+import type { SubscriptionQuota } from "@/types/subscription";
 import {
   Select,
   SelectContent,
@@ -43,12 +44,14 @@ export interface CodexAccountsPanelProps {
 
 function AccountSwitchAction({
   account,
+  quota,
   selectedProviderId,
   onError,
   onPendingChange,
   ...props
 }: CodexAccountsPanelProps & {
   account: ManagedAuthAccount;
+  quota?: SubscriptionQuota;
   selectedProviderId?: string;
   onError: (error: string | null) => void;
   onPendingChange: (pending: boolean) => void;
@@ -65,11 +68,6 @@ function AccountSwitchAction({
   const isCurrentSelection =
     isCurrent && (!selected || selected.id === props.currentProviderId);
   const isPending = pending || props.isSwitching;
-  // Observe the card's account-scoped result without starting another request.
-  const { data: quota } = useCodexOauthQuotaByAccountId(account.id, {
-    enabled: false,
-    autoQuery: false,
-  });
   const cannotSwitch =
     !!account.reauth_required ||
     !!account.requires_reauth ||
@@ -105,26 +103,13 @@ function AccountSwitchAction({
             ? label
             : null;
 
+  if (isCurrentSelection) return <CurrentStatus label={label} />;
+
   return (
     <>
-      <Button
-        type="button"
-        size="icon"
-        className="h-7 w-7 shrink-0 rounded-full"
-        variant={isCurrentSelection ? "outline" : "default"}
-        title={disabledReason ?? label}
-        aria-label={label}
-        disabled={!!disabledReason}
-        onClick={() => void switchAccount()}
-      >
-        {isPending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-        ) : isCurrentSelection ? (
-          <Check className="h-3.5 w-3.5" aria-hidden="true" />
-        ) : (
-          <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
-        )}
-      </Button>
+      {isCurrent && (
+        <CurrentStatus label={t("codexAccounts.current", "当前使用")} />
+      )}
       {disabledReason && !isCurrentSelection && (
         <HelpButton
           label={t("codexAccounts.switchUnavailable", "为何无法切换")}
@@ -132,6 +117,22 @@ function AccountSwitchAction({
           <p>{disabledReason}</p>
         </HelpButton>
       )}
+      <Button
+        type="button"
+        size="icon"
+        className="h-7 w-7 shrink-0 rounded-full"
+        variant="default"
+        title={disabledReason ?? label}
+        aria-label={label}
+        disabled={!!disabledReason}
+        onClick={() => void switchAccount()}
+      >
+        {isPending ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+        ) : (
+          <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+      </Button>
     </>
   );
 }
@@ -199,11 +200,12 @@ export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
           props.providers,
           props.currentProviderId,
         )}
-        renderAccountHeaderActions={(account) => (
+        renderAccountHeaderActions={(account, quota) => (
           <AccountSwitchAction
             key={account.id}
             {...props}
             account={account}
+            quota={quota}
             selectedProviderId={selectedProviders[account.id]}
             onPendingChange={(pending) =>
               setPendingAccounts((previous) => ({

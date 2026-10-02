@@ -3,48 +3,64 @@ import { useTranslation } from "react-i18next";
 import { useCodexOauthQuotaByAccountId } from "@/lib/query/subscription";
 import { SubscriptionQuotaView } from "@/components/SubscriptionQuotaFooter";
 
+export type CodexAccountQuotaQuery = Pick<
+  ReturnType<typeof useCodexOauthQuotaByAccountId>,
+  "data" | "isFetching"
+> & { refetch: () => void };
+
 interface CodexOauthAccountQuotaProps {
-  /** cc-switch 自管的 ChatGPT 账号 ID */
   accountId: string;
+  enabled?: boolean;
+  children?: (
+    query: CodexAccountQuotaQuery,
+    view: React.ReactNode,
+  ) => React.ReactNode;
 }
 
-/**
- * 设置 → 认证中心里，单个 ChatGPT (Codex OAuth) 账号的用量展示。
- *
- * 直接按 accountId 查询 cc-switch 自管 OAuth token 的订阅额度，复用
- * `SubscriptionQuotaView` 的环形布局（窗口图例 + 重置倒计时 + 刷新按钮），
- * 因此与供应商卡片里的额度展示保持完全一致的观感与状态处理。
- *
- * 面板打开时拉取一次，不轮询；用户可点卡片内的刷新按钮手动更新。
- */
-const CodexOauthAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
+/** One account query supplies its header refresh, switch eligibility and quota view. */
+const QueriedAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
   accountId,
+  children,
 }) => {
   const { t } = useTranslation();
-  const {
-    data: quota,
-    isFetching: loading,
-    refetch,
-    refreshFailed,
-    refreshError,
-  } = useCodexOauthQuotaByAccountId(accountId, {
+  const query = useCodexOauthQuotaByAccountId(accountId, {
     enabled: true,
     autoQuery: false,
   });
-
-  return (
+  const view = (
     <SubscriptionQuotaView
-      quota={quota}
-      loading={loading}
-      refetch={refetch}
+      quota={query.data}
+      loading={query.isFetching}
+      refetch={query.refetch}
       appIdForExpiredHint="codex_oauth"
       expiredHint={t("codexAccounts.quotaExpiredHint")}
       inline={false}
       visualization="rings"
-      refreshFailed={refreshFailed}
-      refreshError={refreshError}
+      showRefresh={!children}
+      refreshFailed={query.refreshFailed}
+      refreshError={query.refreshError}
     />
   );
+
+  return <>{children ? children(query, view) : view}</>;
+};
+
+const CodexOauthAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
+  enabled = true,
+  children,
+  ...props
+}) => {
+  if (!enabled) {
+    return (
+      <>
+        {children?.(
+          { data: undefined, isFetching: false, refetch: () => {} },
+          null,
+        )}
+      </>
+    );
+  }
+  return <QueriedAccountQuota {...props}>{children}</QueriedAccountQuota>;
 };
 
 export default CodexOauthAccountQuota;

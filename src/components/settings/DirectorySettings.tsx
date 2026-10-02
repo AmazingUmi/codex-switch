@@ -37,7 +37,7 @@ export function DirectorySettings({
 
   return (
     <div className="space-y-6">
-      {/* CC Switch 配置目录 - 独立区块 */}
+      {/* Codex Switch 配置目录 - 独立区块 */}
       <section className="space-y-4">
         <header className="flex items-center gap-2">
           <label htmlFor={appDirectoryId} className="text-sm font-medium">

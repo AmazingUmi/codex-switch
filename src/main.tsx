@@ -23,7 +23,9 @@ import {
   syncModelsDevPricingOnStartup,
 } from "./lib/modelsDevAutoSync";
 import { initializeWindowActivity } from "@/lib/windowActivity";
+import { migrateBrowserPreferences } from "@/lib/browserStorage";
 
+migrateBrowserPreferences();
 installGlobalErrorHandlers();
 
 // 根据平台添加 body class，便于平台特定样式
@@ -53,7 +55,7 @@ interface ConfigLoadErrorPayload {
 async function handleConfigLoadError(
   payload: ConfigLoadErrorPayload | null,
 ): Promise<void> {
-  const path = payload?.path ?? "~/.cc-switch/config.json";
+  const path = payload?.path ?? "~/.codex-switch/config.json";
   const detail = payload?.error ?? "Unknown error";
 
   await message(
@@ -95,7 +97,10 @@ async function bootstrap() {
       ReactDOM.createRoot(document.getElementById("root")!).render(
         <React.StrictMode>
           <FrontendErrorBoundary>
-            <ThemeProvider defaultTheme="system" storageKey="cc-switch-theme">
+            <ThemeProvider
+              defaultTheme="system"
+              storageKey="codex-switch-theme"
+            >
               <DatabaseUpgrade payload={initError} />
               <Toaster />
             </ThemeProvider>
@@ -120,7 +125,7 @@ async function bootstrap() {
     <React.StrictMode>
       <FrontendErrorBoundary>
         <QueryClientProvider client={queryClient}>
-          <ThemeProvider defaultTheme="system" storageKey="cc-switch-theme">
+          <ThemeProvider defaultTheme="system" storageKey="codex-switch-theme">
             <App />
             <Toaster />
           </ThemeProvider>

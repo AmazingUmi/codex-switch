@@ -1,6 +1,7 @@
-import { Activity, ArrowRightLeft, Check, Loader2, Pencil } from "lucide-react";
+import { Activity, ArrowRightLeft, Loader2, Pencil } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { CurrentStatus } from "@/components/ui/current-status";
 import { cn } from "@/lib/utils";
 
 interface ProviderActionsProps {
@@ -31,28 +32,6 @@ export function ProviderActions({
 
   return (
     <div className="flex items-center gap-1">
-      {/* A wrapper keeps the explanation available for a disabled button. */}
-      <span
-        title={switchDisabledReason || switchLabel}
-        className={cn("inline-flex", switchDisabled && "cursor-not-allowed")}
-      >
-        <Button
-          type="button"
-          size="icon"
-          variant={isCurrent ? "outline" : "default"}
-          onClick={onSwitch}
-          disabled={switchDisabled}
-          aria-label={switchLabel}
-          title={switchDisabledReason || switchLabel}
-          className={iconButtonClass}
-        >
-          {isCurrent ? (
-            <Check className="h-3.5 w-3.5" aria-hidden="true" />
-          ) : (
-            <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </Button>
-      </span>
       <Button
         type="button"
         size="icon"
@@ -80,6 +59,28 @@ export function ProviderActions({
       >
         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
       </Button>
+      {isCurrent ? (
+        <CurrentStatus label={switchLabel} />
+      ) : (
+        /* A wrapper keeps the explanation available for a disabled button. */
+        <span
+          title={switchDisabledReason || switchLabel}
+          className={cn("inline-flex", switchDisabled && "cursor-not-allowed")}
+        >
+          <Button
+            type="button"
+            size="icon"
+            variant="default"
+            onClick={onSwitch}
+            disabled={switchDisabled}
+            aria-label={switchLabel}
+            title={switchDisabledReason || switchLabel}
+            className={iconButtonClass}
+          >
+            <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+        </span>
+      )}
     </div>
   );
 }

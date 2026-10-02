@@ -252,8 +252,7 @@ async fn drain_legacy_backup(state: &AppState, app: &AppType) -> bool {
             return false;
         }
     };
-    let dir = crate::config::get_home_dir()
-        .join(".cc-switch")
+    let dir = crate::config::get_default_app_config_dir()
         .join("backups")
         .join("proxy-live-backup");
     let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
@@ -468,7 +467,7 @@ mod mode_tests {
     impl Home {
         fn new() -> Self {
             let dir = TempDir::new().expect("temp home");
-            let saved = ["HOME", "USERPROFILE", "CC_SWITCH_TEST_HOME"]
+            let saved = ["HOME", "USERPROFILE", "CODEX_SWITCH_TEST_HOME"]
                 .into_iter()
                 .map(|key| {
                     let old = std::env::var_os(key);
@@ -913,7 +912,7 @@ command = "fs-server"
 
     #[tokio::test]
     #[serial]
-    async fn codex_migration_retires_only_tables_cc_switch_wrote() {
+    async fn codex_migration_retires_only_tables_codex_switch_wrote() {
         let _home = Home::new();
         set_preservation(true);
         // 旧版按行的 id 整份写进来的表：a（id 和地址都对得上 a 的行）、b 的地址被用户改过、

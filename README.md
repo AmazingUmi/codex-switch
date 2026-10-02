@@ -34,6 +34,11 @@ open "src-tauri/target/debug/bundle/macos/Codex Switch Preview.app"
 并检查包元数据及本地 ad-hoc 签名。不要单独使用预览配置，也不要将正在运行的
 资料及凭据导入预览包。自定义目录可以指向预览资料之外的位置。
 
+正式版应用数据默认存入 `~/.codex-switch`；预览版定价文件直接存入
+`~/.codex-switch-preview/model-pricing.json`。首次启动会备份并复制各自的旧默认
+数据目录，保留旧数据，拒绝覆盖已有目标文件。迁移与自定义目录规则见
+[配置说明](docs/CONFIGURATION.md)。
+
 Token 统计的数据源独立于账号和配置目录。Usage 的自动扫描区域提供数据源配置，
 选择包含 `sessions` 和 `archived_sessions` 的 Codex 根目录；预览版默认只读扫描
 本机 `~/.codex`，统计结果仍存入预览数据库。普通版默认沿用 Codex 配置目录。
@@ -55,8 +60,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## 发布与来源
 
 本分支尚无自动更新渠道。macOS 预览包是本地 ad-hoc 签名的 debug 应用，
-未作公证发布。版本号及内部 `cc-switch` 标识为兼容现有数据而保留，不表示
-本分支属于上游发行版。旧上游发布、下载镜像及赞助内容已移除。
+未作公证发布。正式版使用独立标识 `com.codexswitch.desktop` 和
+`codexswitch://` 深链接，预览版不注册外部 URL 协议。旧上游发布、下载镜像、
+联盟推广链接及合作伙伴优惠声明已移除。
 
 项目源自 Jason Young 和其他贡献者维护的 CC Switch，保留原始版权与
 [MIT 许可](LICENSE)。

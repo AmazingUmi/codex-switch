@@ -387,6 +387,9 @@ fn row_facts(db: &Database) -> Result<RowFacts, AppError> {
             .map(|url| url.trim().to_string())
             .filter(|url| !url.is_empty())
         {
+            // Only the historical generated id is owned here, and only when its
+            // live upstream URL equals this stored row's old top-level route.
+            // The current codex-switch prefix preserves unknown user tables.
             facts.retired.push(KnownTable {
                 id: "cc-switch".to_string(),
                 base_url,

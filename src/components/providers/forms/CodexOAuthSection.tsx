@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { RefreshButton } from "@/components/ui/refresh-button";
+import { CurrentStatus } from "@/components/ui/current-status";
+import type { SubscriptionQuota } from "@/types/subscription";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
   DropdownMenu,
@@ -49,7 +52,10 @@ interface CodexOAuthSectionProps {
   /** Explicit effective Codex account; independent of the OAuth default. */
   currentAccountId?: string | null;
   renderAccountActions?: (account: ManagedAuthAccount) => React.ReactNode;
-  renderAccountHeaderActions?: (account: ManagedAuthAccount) => React.ReactNode;
+  renderAccountHeaderActions?: (
+    account: ManagedAuthAccount,
+    quota?: SubscriptionQuota,
+  ) => React.ReactNode;
   renderAccountEditOptions?: (account: ManagedAuthAccount) => React.ReactNode;
   onAccountEditOpened?: (account: ManagedAuthAccount) => void;
   onAccountEditSaved?: (account: ManagedAuthAccount) => void;
@@ -604,103 +610,128 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
             }
           >
             {accounts.map((account) => (
-              <div
+              <CodexOauthAccountQuota
                 key={account.id}
-                data-account-id={account.id}
-                data-current={currentAccountId === account.id}
-                data-reauth={
-                  !!account.reauth_required || !!account.requires_reauth
-                }
-                className={`min-w-0 border ${presentation === "cards" ? "glass-card flex h-full flex-col gap-2 p-3 [&>.codex-quota-panel]:mt-0" : "space-y-2 rounded-md p-2"} ${
-                  account.reauth_required || account.requires_reauth
-                    ? "border-amber-300/70 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-950/30"
-                    : presentation === "cards"
-                      ? "border-border-default"
-                      : "bg-muted/30"
-                }`}
+                accountId={account.id}
+                enabled={showAccountQuota}
               >
-                <div
-                  className={
-                    presentation === "cards" ? "space-y-1" : "space-y-2"
-                  }
-                >
-                  <div className="flex min-w-0 items-start justify-between gap-2">
-                    <div
-                      className={`flex min-w-0 flex-1 items-center gap-2 ${presentation === "cards" ? "" : "flex-wrap"}`}
-                    >
-                      <CodexAccountIcon account={account} />
-                      <span
-                        className={`min-w-0 truncate text-sm font-medium ${presentation === "cards" ? "flex-1" : ""}`}
-                        title={account.display_name || account.login}
-                      >
-                        {account.display_name || account.login}
-                      </span>
-                      {currentAccountId === account.id && (
-                        <Badge className="shrink-0 bg-green-600 text-xs hover:bg-green-600">
-                          {t("codexAccounts.current", "当前使用")}
-                        </Badge>
-                      )}
-                      {selectedAccountId === account.id && (
-                        <Badge variant="outline" className="shrink-0 text-xs">
-                          {t("codexOauth.selected", "已选中")}
-                        </Badge>
-                      )}
-                      {(account.reauth_required || account.requires_reauth) && (
-                        <Badge
-                          variant="outline"
-                          className="shrink-0 gap-1 border-amber-400/70 text-xs text-amber-700 dark:border-amber-500/50 dark:text-amber-300"
-                        >
-                          <AlertTriangle className="h-3 w-3" />
-                          {t("codexOauth.reauthBadge", "需要重新登录")}
-                        </Badge>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
-                        className="h-7 w-7 rounded-full"
-                        title={t("codexAccounts.editTitle", "编辑账号")}
-                        aria-label={`${t("codexAccounts.editTitle", "编辑账号")}: ${account.login}`}
-                        onClick={() => {
-                          onAccountEditOpened?.(account);
-                          setEditingAccount(account);
-                        }}
-                      >
-                        <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                      </Button>
-                      {renderAccountHeaderActions?.(account)}
-                    </div>
-                  </div>
-                  {account.display_name && (
-                    <p
-                      className="truncate text-xs text-muted-foreground"
-                      title={account.login}
-                    >
-                      {account.login}
-                    </p>
-                  )}
-                  {account.notes && (
-                    <p
-                      className="line-clamp-2 break-words text-xs text-muted-foreground"
-                      title={account.notes}
-                    >
-                      {account.notes}
-                    </p>
-                  )}
-                </div>
-                {showAccountQuota && (
-                  <CodexOauthAccountQuota accountId={account.id} />
-                )}
-                {renderAccountActions && (
+                {(quotaQuery, quotaView) => (
                   <div
-                    className={presentation === "cards" ? "mt-auto" : undefined}
+                    data-account-id={account.id}
+                    data-current={currentAccountId === account.id}
+                    data-reauth={
+                      !!account.reauth_required || !!account.requires_reauth
+                    }
+                    className={`min-w-0 border ${presentation === "cards" ? "glass-card flex h-full flex-col gap-2 p-3 [&>.codex-quota-panel]:mt-0" : "space-y-2 rounded-md p-2"} ${
+                      account.reauth_required || account.requires_reauth
+                        ? "border-amber-300/70 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-950/30"
+                        : presentation === "cards"
+                          ? "border-border-default"
+                          : "bg-muted/30"
+                    }`}
                   >
-                    {renderAccountActions(account)}
+                    <div
+                      className={
+                        presentation === "cards" ? "space-y-1" : "space-y-2"
+                      }
+                    >
+                      <div className="flex min-w-0 items-start justify-between gap-2">
+                        <div
+                          className={`flex min-w-0 flex-1 items-center gap-2 ${presentation === "cards" ? "" : "flex-wrap"}`}
+                        >
+                          <CodexAccountIcon account={account} />
+                          <span
+                            className={`min-w-0 truncate text-sm font-medium ${presentation === "cards" ? "flex-1" : ""}`}
+                            title={account.display_name || account.login}
+                          >
+                            {account.display_name || account.login}
+                          </span>
+                          {currentAccountId === account.id &&
+                            !renderAccountHeaderActions && (
+                              <CurrentStatus
+                                label={t("codexAccounts.current", "当前使用")}
+                              />
+                            )}
+                          {selectedAccountId === account.id && (
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 text-xs"
+                            >
+                              {t("codexOauth.selected", "已选中")}
+                            </Badge>
+                          )}
+                          {(account.reauth_required ||
+                            account.requires_reauth) && (
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 gap-1 border-amber-400/70 text-xs text-amber-700 dark:border-amber-500/50 dark:text-amber-300"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              {t("codexOauth.reauthBadge", "需要重新登录")}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex shrink-0 flex-wrap items-center gap-1">
+                          {showAccountQuota && (
+                            <RefreshButton
+                              label={t("subscription.refresh")}
+                              loading={quotaQuery.isFetching}
+                              onRefresh={() => void quotaQuery.refetch()}
+                            />
+                          )}
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            className="h-7 w-7 rounded-full"
+                            title={t("codexAccounts.editTitle", "编辑账号")}
+                            aria-label={`${t("codexAccounts.editTitle", "编辑账号")}: ${account.login}`}
+                            onClick={() => {
+                              onAccountEditOpened?.(account);
+                              setEditingAccount(account);
+                            }}
+                          >
+                            <Pencil
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            />
+                          </Button>
+                          {renderAccountHeaderActions?.(
+                            account,
+                            quotaQuery.data,
+                          )}
+                        </div>
+                      </div>
+                      {account.display_name && (
+                        <p
+                          className="truncate text-xs text-muted-foreground"
+                          title={account.login}
+                        >
+                          {account.login}
+                        </p>
+                      )}
+                      {account.notes && (
+                        <p
+                          className="line-clamp-2 break-words text-xs text-muted-foreground"
+                          title={account.notes}
+                        >
+                          {account.notes}
+                        </p>
+                      )}
+                    </div>
+                    {quotaView}
+                    {renderAccountActions && (
+                      <div
+                        className={
+                          presentation === "cards" ? "mt-auto" : undefined
+                        }
+                      >
+                        {renderAccountActions(account)}
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
+              </CodexOauthAccountQuota>
             ))}
           </div>
         </div>

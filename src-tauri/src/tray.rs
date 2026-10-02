@@ -145,7 +145,7 @@ pub struct TrayAppSection {
     pub log_name: &'static str,
 }
 
-pub const TRAY_ID: &str = "cc-switch";
+pub const TRAY_ID: &str = "codex-switch";
 
 // Product-shell allowlist. Keep the provider switch and quota machinery shared,
 // but never restore other harnesses from a legacy visibility preference.
@@ -998,7 +998,7 @@ mod tests {
 
     #[test]
     fn tray_id_is_unique_to_app() {
-        assert_eq!(TRAY_ID, "cc-switch");
+        assert_eq!(TRAY_ID, "codex-switch");
         assert_ne!(TRAY_ID, "main");
     }
 

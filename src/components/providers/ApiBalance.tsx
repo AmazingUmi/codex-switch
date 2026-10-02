@@ -1,7 +1,6 @@
-import { Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
-import { HelpButton } from "@/components/ui/help-button";
+import { RefreshButton } from "@/components/ui/refresh-button";
+import { QueryTimestamp } from "@/components/ui/query-timestamp";
 import { useApiBalance } from "@/hooks/useApiBalance";
 import type { Provider } from "@/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
@@ -41,6 +40,17 @@ export function ApiBalance({ provider }: { provider: Provider }) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 4,
   });
+  const details = [
+    t("apiBalance.explanation", "余额来自供应商账户接口，不同币种分别显示。"),
+    query.lastSuccessfulUpdatedAt > 0 &&
+      `${t("apiBalance.updated", "更新时间")}：${new Date(query.lastSuccessfulUpdatedAt).toLocaleString(i18n.language)}`,
+    query.isFetching && t("apiBalance.loading", "正在查询余额…"),
+    reason,
+    hasWarning &&
+      t("apiBalance.unavailable", "供应商提示当前余额不可用于 API 调用。"),
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return (
     <div
@@ -49,10 +59,14 @@ export function ApiBalance({ provider }: { provider: Provider }) {
       aria-busy={query.isFetching}
     >
       <div className="min-w-[5rem] text-right">
-        <div className="text-[11px] leading-4 text-muted-foreground">
-          {label}
-        </div>
-        <div className="flex flex-wrap justify-end gap-x-3 text-sm font-semibold tabular-nums leading-5">
+        <QueryTimestamp
+          timestamp={query.lastSuccessfulUpdatedAt}
+          className="justify-end"
+        />
+        <div
+          className="flex flex-wrap justify-end gap-x-3 text-sm font-semibold tabular-nums leading-5"
+          title={details}
+        >
           {balances?.length ? (
             balances.map((item, index) => (
               <span key={`${item.unit}-${index}`}>
@@ -67,55 +81,12 @@ export function ApiBalance({ provider }: { provider: Provider }) {
           )}
         </div>
       </div>
-      <HelpButton label={t("apiBalance.details", "余额详情")} align="end">
-        <p>
-          {t(
-            "apiBalance.explanation",
-            "余额来自供应商账户接口，不同币种分别显示。",
-          )}
-        </p>
-        {query.isFetching && <p>{t("apiBalance.loading", "正在查询余额…")}</p>}
-        {reason && (
-          <p className="break-words text-muted-foreground">{reason}</p>
-        )}
-        {hasWarning && (
-          <p className="text-amber-700 dark:text-amber-300">
-            {t(
-              "apiBalance.unavailable",
-              "供应商提示当前余额不可用于 API 调用。",
-            )}
-          </p>
-        )}
-        {query.dataUpdatedAt > 0 && !query.isError && query.data?.success && (
-          <p className="text-muted-foreground">
-            {t("apiBalance.updated", "更新时间")}：
-            {new Date(query.dataUpdatedAt).toLocaleTimeString(i18n.language)}
-          </p>
-        )}
-        <p className="text-muted-foreground">
-          {t(
-            "apiBalance.supported",
-            "支持 DeepSeek、阶跃星辰、硅基流动、OpenRouter 和 Novita AI 的官方接口。OpenRouter 余额接口需要管理密钥。",
-          )}
-        </p>
-      </HelpButton>
       {query.enabled && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7 shrink-0 rounded-full text-muted-foreground"
-          aria-label={t("apiBalance.refresh", "刷新余额")}
-          title={t("apiBalance.refresh", "刷新余额")}
-          disabled={query.isFetching}
-          onClick={() => void query.refetch()}
-        >
-          {query.isFetching ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </Button>
+        <RefreshButton
+          label={t("apiBalance.refresh", "刷新余额")}
+          loading={query.isFetching}
+          onRefresh={() => void query.refetch()}
+        />
       )}
     </div>
   );

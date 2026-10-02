@@ -298,7 +298,7 @@ mod tests {
 
     fn input(model_id: &str) -> Provider {
         Provider {
-            id: "cc-switch-test".to_string(),
+            id: "codex-switch-test".to_string(),
             name: "Test provider".to_string(),
             settings_config: json!({
                 "name": "Test provider",
@@ -355,11 +355,11 @@ mod tests {
 
         ProviderService::add(&state, AppType::Pi, input("model-a"), false)
             .expect("save disabled provider");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
 
         let saved = state
             .db
-            .get_provider_by_id("cc-switch-test", "pi")
+            .get_provider_by_id("codex-switch-test", "pi")
             .unwrap()
             .unwrap();
         let meta = saved.meta.unwrap_or_default();
@@ -370,15 +370,15 @@ mod tests {
         assert_eq!(meta.custom_user_agent, None);
         assert_eq!(meta.is_partner, Some(true));
 
-        ProviderService::switch(&state, AppType::Pi, "cc-switch-test").expect("enable provider");
-        assert!(crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        ProviderService::switch(&state, AppType::Pi, "codex-switch-test").expect("enable provider");
+        assert!(crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
 
-        ProviderService::remove_from_live_config(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::remove_from_live_config(&state, AppType::Pi, "codex-switch-test")
             .expect("remove provider");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
         assert!(state
             .db
-            .get_provider_by_id("cc-switch-test", "pi")
+            .get_provider_by_id("codex-switch-test", "pi")
             .unwrap()
             .is_some());
     }
@@ -394,29 +394,30 @@ mod tests {
         fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
         fs::write(
             &settings_path,
-            r#"{"defaultProvider":"cc-switch-test","defaultModel":"model-a"}"#,
+            r#"{"defaultProvider":"codex-switch-test","defaultModel":"model-a"}"#,
         )
         .unwrap();
 
-        update(&state, Some("cc-switch-test"), input("model-b"))
+        update(&state, Some("codex-switch-test"), input("model-b"))
             .expect("global default must not block model edits");
-        ProviderService::remove_from_live_config(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::remove_from_live_config(&state, AppType::Pi, "codex-switch-test")
             .expect("global default must not block removal");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
 
-        ProviderService::switch(&state, AppType::Pi, "cc-switch-test").expect("re-enable provider");
-        ProviderService::delete(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::switch(&state, AppType::Pi, "codex-switch-test")
+            .expect("re-enable provider");
+        ProviderService::delete(&state, AppType::Pi, "codex-switch-test")
             .expect("global default must not block deletion");
         assert!(state
             .db
-            .get_provider_by_id("cc-switch-test", "pi")
+            .get_provider_by_id("codex-switch-test", "pi")
             .unwrap()
             .is_none());
         assert_eq!(
             fs::read_to_string(settings_path).unwrap(),
-            r#"{"defaultProvider":"cc-switch-test","defaultModel":"model-a"}"#
+            r#"{"defaultProvider":"codex-switch-test","defaultModel":"model-a"}"#
         );
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
     }
 
     #[test]
@@ -472,7 +473,7 @@ mod tests {
             .expect("save DB-only provider");
 
         assert!(ProviderService::add(&state, AppType::Pi, input("model-a"), true).is_err());
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
     }
 
     #[test]
@@ -483,25 +484,29 @@ mod tests {
         ProviderService::add(&state, AppType::Pi, input("model-a"), true).expect("add provider");
         let saved = state
             .db
-            .get_provider_by_id("cc-switch-test", "pi")
+            .get_provider_by_id("codex-switch-test", "pi")
             .unwrap()
             .unwrap();
         let mut external = saved.settings_config.clone();
         external["name"] = json!("External edit");
         external["models"][0]["contextWindow"] = json!(1_000_000.0);
-        crate::pi_config::replace_pi_provider("cc-switch-test", &saved.settings_config, &external)
-            .expect("edit native provider");
+        crate::pi_config::replace_pi_provider(
+            "codex-switch-test",
+            &saved.settings_config,
+            &external,
+        )
+        .expect("edit native provider");
 
         let listed = ProviderService::list(&state, AppType::Pi).expect("sync native providers");
-        assert_eq!(listed["cc-switch-test"].name, "External edit");
-        assert_eq!(listed["cc-switch-test"].settings_config, external);
+        assert_eq!(listed["codex-switch-test"].name, "External edit");
+        assert_eq!(listed["codex-switch-test"].settings_config, external);
 
-        ProviderService::remove_from_live_config(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::remove_from_live_config(&state, AppType::Pi, "codex-switch-test")
             .expect("remove externally edited provider");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
         let preserved = state
             .db
-            .get_provider_by_id("cc-switch-test", "pi")
+            .get_provider_by_id("codex-switch-test", "pi")
             .unwrap()
             .unwrap();
         assert_eq!(preserved.name, "External edit");
@@ -520,19 +525,20 @@ mod tests {
         external["apiKey"] = json!("rotated-outside");
         external["futureField"] = json!({ "preserve": true });
         crate::pi_config::replace_pi_provider(
-            "cc-switch-test",
+            "codex-switch-test",
             &baseline.settings_config,
             &external,
         )
         .expect("edit native provider");
 
         let listed = ProviderService::list(&state, AppType::Pi).expect("refresh native provider");
-        let mut local = listed["cc-switch-test"].clone();
+        let mut local = listed["codex-switch-test"].clone();
         local.name = "Local edit".to_string();
         local.settings_config["name"] = json!("Local edit");
-        update(&state, Some("cc-switch-test"), local).expect("edit the refreshed native provider");
+        update(&state, Some("codex-switch-test"), local)
+            .expect("edit the refreshed native provider");
         assert_eq!(
-            crate::pi_config::read_pi_native_provider("cc-switch-test")
+            crate::pi_config::read_pi_native_provider("codex-switch-test")
                 .expect("read native provider")
                 .expect("native provider")["futureField"],
             json!({ "preserve": true })
@@ -548,11 +554,16 @@ mod tests {
 
         let mut edited = input("model-b");
         edited.settings_config["unknownField"] = json!({ "keep": true });
-        ProviderService::update(&state, AppType::Pi, Some("cc-switch-test"), edited.clone())
-            .expect("edit enabled provider");
+        ProviderService::update(
+            &state,
+            AppType::Pi,
+            Some("codex-switch-test"),
+            edited.clone(),
+        )
+        .expect("edit enabled provider");
 
         assert_eq!(
-            crate::pi_config::read_pi_native_provider("cc-switch-test")
+            crate::pi_config::read_pi_native_provider("codex-switch-test")
                 .expect("read native provider")
                 .expect("native provider"),
             edited.settings_config
@@ -635,30 +646,30 @@ mod tests {
             &path,
             serde_json::to_vec(&json!({
                 "providers": {
-                    "cc-switch-test": minimal.clone()
+                    "codex-switch-test": minimal.clone()
                 }
             }))
             .expect("serialize models"),
         )
         .expect("replace native provider");
 
-        ProviderService::remove_from_live_config(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::remove_from_live_config(&state, AppType::Pi, "codex-switch-test")
             .expect("remove exact native node");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
         assert_eq!(
             state
                 .db
-                .get_provider_by_id("cc-switch-test", PI_APP)
+                .get_provider_by_id("codex-switch-test", PI_APP)
                 .expect("read saved provider")
                 .expect("saved provider")
                 .settings_config,
             minimal
         );
 
-        ProviderService::switch(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::switch(&state, AppType::Pi, "codex-switch-test")
             .expect("restore the complete native node");
         assert_eq!(
-            crate::pi_config::read_pi_native_provider("cc-switch-test")
+            crate::pi_config::read_pi_native_provider("codex-switch-test")
                 .expect("read restored provider"),
             Some(minimal)
         );
@@ -676,23 +687,23 @@ mod tests {
         external["apiKey"] = json!("rotated-outside");
         external["futureField"] = json!({ "preserve": true });
         crate::pi_config::replace_pi_provider(
-            "cc-switch-test",
+            "codex-switch-test",
             &baseline.settings_config,
             &external,
         )
         .expect("edit native provider");
 
-        update_usage_script(&state, "cc-switch-test", usage_script("return {}"))
+        update_usage_script(&state, "codex-switch-test", usage_script("return {}"))
             .expect("save usage metadata");
         assert_eq!(
-            crate::pi_config::read_pi_native_provider("cc-switch-test")
+            crate::pi_config::read_pi_native_provider("codex-switch-test")
                 .expect("read native provider")
                 .expect("native provider"),
             external
         );
 
         let providers = ProviderService::list(&state, AppType::Pi).expect("sync provider");
-        let saved = &providers["cc-switch-test"];
+        let saved = &providers["codex-switch-test"];
         assert_eq!(saved.settings_config, external);
         assert_eq!(
             saved
@@ -710,17 +721,20 @@ mod tests {
         let _agent = TestAgentDir::new();
         let state = state();
         let mut copy = input("model-a");
-        copy.id = "cc-switch-test-copy".to_string();
+        copy.id = "codex-switch-test-copy".to_string();
         copy.name = "Test provider copy".to_string();
 
         ProviderService::add(&state, AppType::Pi, copy, false).expect("save copied provider");
-        ProviderService::switch(&state, AppType::Pi, "cc-switch-test-copy")
+        ProviderService::switch(&state, AppType::Pi, "codex-switch-test-copy")
             .expect("enable copied provider");
         let providers = ProviderService::list(&state, AppType::Pi).expect("sync providers");
 
-        assert_eq!(providers["cc-switch-test-copy"].name, "Test provider copy");
         assert_eq!(
-            providers["cc-switch-test-copy"].settings_config["name"],
+            providers["codex-switch-test-copy"].name,
+            "Test provider copy"
+        );
+        assert_eq!(
+            providers["codex-switch-test-copy"].settings_config["name"],
             json!("Test provider copy")
         );
     }
@@ -737,7 +751,7 @@ mod tests {
             &path,
             r#"{
                 "providers": {
-                    "cc-switch-test-copy": {
+                    "codex-switch-test-copy": {
                         "name": "Native OAuth",
                         "oauth": "example",
                         "baseUrl": "https://api.example.com/v1",
@@ -750,21 +764,23 @@ mod tests {
         .expect("write native provider");
 
         let mut copy = input("model-a");
-        copy.id = "cc-switch-test-copy".to_string();
+        copy.id = "codex-switch-test-copy".to_string();
         let error = ProviderService::add(&state, AppType::Pi, copy, false)
             .expect_err("an unsynced native provider key must stay reserved");
 
         assert!(error.to_string().contains("already exists in models.json"));
         assert!(state
             .db
-            .get_provider_by_id("cc-switch-test-copy", PI_APP)
+            .get_provider_by_id("codex-switch-test-copy", PI_APP)
             .expect("read saved provider")
             .is_none());
-        assert!(crate::pi_config::pi_provider_exists("cc-switch-test-copy")
-            .expect("read native provider"));
+        assert!(
+            crate::pi_config::pi_provider_exists("codex-switch-test-copy")
+                .expect("read native provider")
+        );
 
         let providers = ProviderService::list(&state, AppType::Pi).expect("sync native provider");
-        assert_eq!(providers["cc-switch-test-copy"].name, "Native OAuth");
+        assert_eq!(providers["codex-switch-test-copy"].name, "Native OAuth");
     }
 
     #[test]
@@ -779,7 +795,7 @@ mod tests {
         fs::write(path, "{not-json").expect("write malformed models");
 
         let providers = ProviderService::list(&state, AppType::Pi).expect("read saved catalog");
-        assert!(providers.contains_key("cc-switch-test"));
+        assert!(providers.contains_key("codex-switch-test"));
     }
 
     #[test]
@@ -797,7 +813,7 @@ mod tests {
             path,
             r#"{
                 "providers": {
-                    "cc-switch-test": {
+                    "codex-switch-test": {
                         "name": "Test provider",
                         "baseUrl": "https://api.example.com/v1",
                         "apiKey": "secret",
@@ -809,13 +825,13 @@ mod tests {
         )
         .unwrap();
 
-        ProviderService::remove_from_live_config(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::remove_from_live_config(&state, AppType::Pi, "codex-switch-test")
             .expect("remove provider with equivalent numeric representation");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
         assert_eq!(
             state
                 .db
-                .get_provider_by_id("cc-switch-test", "pi")
+                .get_provider_by_id("codex-switch-test", "pi")
                 .unwrap()
                 .unwrap()
                 .settings_config["models"][0]["contextWindow"]
@@ -837,20 +853,21 @@ mod tests {
             .expect("selection is unrelated to adding a provider");
         assert!(state
             .db
-            .get_provider_by_id("cc-switch-test", "pi")
+            .get_provider_by_id("codex-switch-test", "pi")
             .unwrap()
             .is_some());
-        assert!(crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
 
         let original = input("model-a");
-        update(&state, Some("cc-switch-test"), original.clone())
+        update(&state, Some("codex-switch-test"), original.clone())
             .expect("an edit that keeps every model does not need the default selection");
 
-        ProviderService::remove_from_live_config(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::remove_from_live_config(&state, AppType::Pi, "codex-switch-test")
             .expect("global selection is advisory for removal");
-        ProviderService::switch(&state, AppType::Pi, "cc-switch-test").expect("re-enable provider");
-        ProviderService::delete(&state, AppType::Pi, "cc-switch-test")
+        ProviderService::switch(&state, AppType::Pi, "codex-switch-test")
+            .expect("re-enable provider");
+        ProviderService::delete(&state, AppType::Pi, "codex-switch-test")
             .expect("global selection is advisory for deletion");
-        assert!(!crate::pi_config::pi_provider_exists("cc-switch-test").unwrap());
+        assert!(!crate::pi_config::pi_provider_exists("codex-switch-test").unwrap());
     }
 }

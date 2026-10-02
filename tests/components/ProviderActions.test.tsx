@@ -23,15 +23,15 @@ function renderActions(
 }
 
 describe("Codex provider actions", () => {
-  it("exposes only switch, connectivity test, and edit in that order and forwards each action", async () => {
+  it("places switching after connectivity test and edit and forwards each action", async () => {
     const user = userEvent.setup();
     const callbacks = renderActions();
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(3);
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
-      "切换到此连接",
       "检测连通",
       "common.edit",
+      "切换到此连接",
     ]);
     for (const button of buttons) await user.click(button);
     for (const callback of Object.values(callbacks))
@@ -49,8 +49,15 @@ describe("Codex provider actions", () => {
     const user = userEvent.setup();
     const callbacks = renderActions({ isCurrent: true });
     expect(
-      screen.getByRole("button", { name: "provider.inUse" }),
-    ).toBeDisabled();
+      screen.getByRole("status", { name: "provider.inUse" }),
+    ).toHaveAttribute("title", "provider.inUse");
+    expect(
+      screen.queryByRole("button", { name: "provider.inUse" }),
+    ).not.toBeInTheDocument();
+    const current = screen.getByRole("status", { name: "provider.inUse" });
+    expect(current).not.toHaveAttribute("tabindex");
+    expect(current.parentElement?.lastElementChild).toBe(current);
+    await user.click(current);
     await user.click(screen.getByRole("button", { name: "检测连通" }));
     await user.click(screen.getByRole("button", { name: "common.edit" }));
     expect(callbacks.onTest).toHaveBeenCalledOnce();

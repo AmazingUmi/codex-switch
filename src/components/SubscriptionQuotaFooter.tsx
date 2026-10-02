@@ -1,5 +1,6 @@
 import React from "react";
 import { RefreshCw, AlertCircle, Clock } from "lucide-react";
+import { formatRelativeTime } from "@/utils/relativeTime";
 import { useTranslation } from "react-i18next";
 import type { AppId } from "@/lib/api";
 import { useSubscriptionQuota } from "@/lib/query/subscription";
@@ -23,6 +24,7 @@ interface SubscriptionQuotaViewProps {
   expiredHint?: string;
   inline?: boolean;
   visualization?: "bars" | "rings";
+  showRefresh?: boolean;
   refreshFailed?: boolean;
   refreshError?: string | null;
 }
@@ -87,28 +89,13 @@ function formatResetTime(
 /** 不需要在 inline 模式显示的 tier */
 const HIDDEN_INLINE_TIERS = new Set(["seven_day_sonnet"]);
 
-/** 格式化相对时间（与 UsageFooter 一致） */
-function formatRelativeTime(
-  timestamp: number,
-  now: number,
-  t: (key: string, options?: { count?: number }) => string,
-): string {
-  const diff = Math.floor((now - timestamp) / 1000);
-  if (diff < 60) return t("usage.justNow");
-  if (diff < 3600)
-    return t("usage.minutesAgo", { count: Math.floor(diff / 60) });
-  if (diff < 86400)
-    return t("usage.hoursAgo", { count: Math.floor(diff / 3600) });
-  return t("usage.daysAgo", { count: Math.floor(diff / 86400) });
-}
-
 /**
  * 纯展示组件：渲染 SubscriptionQuota 的 5 种状态（not_found / parse_error /
  * expired / API 失败 / 成功），支持 inline / expanded 两种布局。
  *
  * 数据源由调用方 hook 注入，方便不同的额度后端复用同一套渲染逻辑：
  * - `SubscriptionQuotaFooter`（CLI 凭据路径，by appId）
- * - `CodexOauthQuotaFooter`（cc-switch 自管 OAuth 路径，by ChatGPT account）
+ * - `CodexOauthQuotaFooter`（Codex Switch 自管 OAuth 路径，by ChatGPT account）
  */
 export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   quota,
@@ -118,6 +105,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   expiredHint,
   inline = false,
   visualization = "bars",
+  showRefresh = true,
   refreshFailed = false,
   refreshError,
 }) => {
@@ -186,6 +174,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
         loading={loading}
         refetch={refetch}
         inline={inline}
+        showRefresh={showRefresh}
         updatedLabel={
           quota?.queriedAt
             ? formatRelativeTime(quota.queriedAt, now, t)

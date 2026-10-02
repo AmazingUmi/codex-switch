@@ -690,7 +690,7 @@ pub fn sync_codex_usage(db: &Database) -> Result<SessionSyncResult, AppError> {
     // Automatic unit tests must explicitly choose fixtures or an isolated home.
     #[cfg(test)]
     if settings.codex_usage_source_dir.is_none()
-        && !std::env::var("CC_SWITCH_TEST_HOME")
+        && !std::env::var("CODEX_SWITCH_TEST_HOME")
             .ok()
             .is_some_and(|home| !home.trim().is_empty())
     {
@@ -3472,14 +3472,14 @@ mod tests {
         }
 
         // 临时 HOME 里只放一个指向真实语料的只读 symlink，避免测试
-        // 触碰真实 ~/.cc-switch / ~/.codex 下的任何其他内容。
+        // 触碰真实 ~/.codex-switch / ~/.codex 下的任何其他内容。
         let temp = tempfile::tempdir().expect("create temp home");
         fs::create_dir_all(temp.path().join(".codex")).expect("mkdir .codex");
         #[cfg(unix)]
         std::os::unix::fs::symlink(&real_sessions, temp.path().join(".codex").join("sessions"))
             .expect("symlink sessions");
-        let previous_home = std::env::var_os("CC_SWITCH_TEST_HOME");
-        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        let previous_home = std::env::var_os("CODEX_SWITCH_TEST_HOME");
+        std::env::set_var("CODEX_SWITCH_TEST_HOME", temp.path());
 
         clear_codex_replay_caches();
         // CODEX_REPLAY_DISK=1 时用临时 HOME 下的磁盘库：逐行 autocommit 的
@@ -3555,8 +3555,8 @@ mod tests {
         }
 
         match previous_home {
-            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
-            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+            Some(value) => std::env::set_var("CODEX_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CODEX_SWITCH_TEST_HOME"),
         }
         Ok(())
     }

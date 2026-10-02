@@ -1,7 +1,7 @@
 //! 关键字段（「地板」）与供应商独有字段的定义。
 //!
 //! 关键字段回答四个问题：请求发到哪、凭什么鉴权、哪个模型名、说哪种协议。它们完全
-//! 归供应商所有，切换时一律清空再写目标供应商的值；其余键归用户和客户端，CC Switch
+//! 归供应商所有，切换时一律清空再写目标供应商的值；其余键归用户和客户端，Codex Switch
 //! 不写也不删。
 //!
 //! 只有「整个前缀都属于连接和鉴权」的地方才按前缀匹配（`ANTHROPIC_*`、`AWS_*`、
@@ -134,13 +134,13 @@ pub const CODEX_FLOOR_NESTED: &[&[&str]] = &[
     &["memories", "consolidation_model"],
 ];
 
-/// CC Switch 写进 Codex live 的供应商表。
+/// Codex Switch 写进 Codex live 的供应商表。
 pub const CODEX_PROVIDER_TABLE: &[&str] = &["model_providers", "custom"];
 
 /// Codex 的供应商独有字段（顶层）。
 ///
 /// `web_search` 的值不来自行文本，而由 `codex_native_gateway_rejects_web_search`
-/// 按供应商判定（需要时为 `"disabled"`）。其余几个会绕过 CC Switch 生成的模型目录，
+/// 按供应商判定（需要时为 `"disabled"`）。其余几个会绕过 Codex Switch 生成的模型目录，
 /// 覆盖按模型设好的能力。
 pub const CODEX_EXCLUSIVE_TOP: &[&str] = &[
     "web_search",

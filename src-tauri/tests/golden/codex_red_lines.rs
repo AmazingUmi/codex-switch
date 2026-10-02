@@ -29,8 +29,8 @@
 //! | 18 | 元数据（last_refresh、account_id）不算登录（#6277） | crate 内：`codex_config.rs` 的 `credential_login_material_only_counts_real_credentials` |
 //! | 19 | 托管账号切走：先采纳 CLI 轮换过的 refresh token，按 marker 精确删；代际无法排序时拒绝 | crate 内：`services/provider/mod.rs` 的托管账号测试 |
 //! | 22 | 启动迁移保持用户此刻的登录状态：登出保持登出，重新登录保留新登录 | 本文件 |
-//! | 23 | `model_catalog_json` 只认领 `cc-switch-model-catalog.json`；用户自己的指针不认领、不删除 | 本文件 |
-//! | 24 | `web_search = "disabled"` 只删 CC Switch 写的哨兵值，用户的其他值保留 | 本文件 |
+//! | 23 | `model_catalog_json` 只认领 `codex-switch-model-catalog.json`；用户自己的指针不认领、不删除 | 本文件 |
+//! | 24 | `web_search = "disabled"` 只删 Codex Switch 写的哨兵值，用户的其他值保留 | 本文件 |
 //! | 25 | auth.json 删不掉时切换照常成功，返回 `codex_auth_cleanup_failed` 警告 | 本文件 |
 //!
 //! crate 内测试继续锁定关键字段之外的字节、profile 安全、旧表所有权、原生登录暂存、
@@ -42,7 +42,7 @@ use std::time::SystemTime;
 use serde_json::{json, Value};
 use toml::Table;
 
-use cc_switch_lib::{
+use codex_switch_lib::{
     get_codex_auth_path, get_codex_config_path, update_settings, AppError, AppSettings, AppState,
     AppType, Provider, ProviderMeta, ProviderService,
 };
@@ -422,7 +422,7 @@ fn normalization_never_overwrites_a_user_table() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
     set_login_preservation(false);
-    let user_table = "[model_providers.cc-switch]\nname = \"Mine\"\nbase_url = \"https://mine.example/v1\"\nwire_api = \"responses\"\nhttp_headers = { X-Tenant = \"t1\" }\n";
+    let user_table = "[model_providers.codex-switch]\nname = \"Mine\"\nbase_url = \"https://mine.example/v1\"\nwire_api = \"responses\"\nhttp_headers = { X-Tenant = \"t1\" }\n";
     let state = setup(
         vec![codex(
             "legacy",
@@ -440,9 +440,9 @@ fn normalization_never_overwrites_a_user_table() {
 
     let doc = live_config();
     assert_key_in_route(&doc, "https://relay.example/v1", "sk-legacy");
-    let mine = table(&doc["model_providers"]["cc-switch"], "cc-switch");
+    let mine = table(&doc["model_providers"]["codex-switch"], "codex-switch");
     let expected: Table = toml::from_str::<Table>(user_table).expect("parse user table")
-        ["model_providers"]["cc-switch"]
+        ["model_providers"]["codex-switch"]
         .as_table()
         .expect("user table")
         .clone();
@@ -649,16 +649,16 @@ fn model_catalog_pointer_ownership() {
     switch(&state, "owned").expect("switch to owned");
     assert_eq!(
         live_config()["model_catalog_json"].as_str(),
-        Some("cc-switch-model-catalog.json")
+        Some("codex-switch-model-catalog.json")
     );
     assert!(get_codex_config_path()
-        .with_file_name("cc-switch-model-catalog.json")
+        .with_file_name("codex-switch-model-catalog.json")
         .exists());
 
     switch(&state, "plain").expect("switch to plain");
     assert!(
         live_config().get("model_catalog_json").is_none(),
-        "CC Switch removes its own pointer when the target has no catalog"
+        "Codex Switch removes its own pointer when the target has no catalog"
     );
 
     switch(&state, "user-pointer").expect("switch to user pointer");
@@ -765,7 +765,7 @@ async fn check_startup_keeps_login(current: &str, after_login: Option<&str>) {
         None => std::fs::remove_file(get_codex_auth_path()).expect("codex logout"),
         Some(login) => std::fs::write(get_codex_auth_path(), login).expect("codex login"),
     }
-    cc_switch_lib::mode::controller::startup(&state).await;
+    codex_switch_lib::mode::controller::startup(&state).await;
     assert_eq!(
         live_auth().as_deref(),
         after_login,

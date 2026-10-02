@@ -15,9 +15,23 @@ vi.mock("@/components/providers/forms/hooks/useCodexOauth", () => ({
 }));
 
 vi.mock("@/components/CodexOauthAccountQuota", () => ({
-  default: ({ accountId }: { accountId: string }) => {
-    mocks.renderAccountQuota(accountId);
-    return <div data-testid="account-quota">{accountId}</div>;
+  default: ({
+    accountId,
+    enabled,
+    children,
+  }: {
+    accountId: string;
+    enabled: boolean;
+    children: (
+      query: { isFetching: boolean; refetch: () => void },
+      view: React.ReactNode,
+    ) => React.ReactNode;
+  }) => {
+    if (enabled) mocks.renderAccountQuota(accountId);
+    return children(
+      { isFetching: false, refetch: vi.fn() },
+      enabled ? <div data-testid="account-quota">{accountId}</div> : null,
+    );
   },
 }));
 

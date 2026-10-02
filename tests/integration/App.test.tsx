@@ -247,9 +247,34 @@ describe("App integration with MSW", () => {
     toastSuccessMock.mockReset();
     toastErrorMock.mockReset();
     startAccountLoginMock.mockReset();
+    localStorage.removeItem("codex-switch-last-view");
+    localStorage.removeItem("codex-switch-last-app");
     localStorage.removeItem("cc-switch-last-view");
     localStorage.removeItem("cc-switch-last-app");
   });
+
+  it.each([
+    [null, "settings"],
+    ["providers", "providers"],
+  ])(
+    "migrates visible legacy navigation without replacing %s",
+    async (newView, expectedView) => {
+      localStorage.setItem("cc-switch-last-view", "settings");
+      localStorage.setItem("cc-switch-last-app", "claude");
+      if (newView) localStorage.setItem("codex-switch-last-view", newView);
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      if (expectedView === "settings") {
+        expect(await screen.findByTestId("settings-tab")).toBeInTheDocument();
+      } else {
+        expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
+      }
+      expect(localStorage.getItem("codex-switch-last-view")).toBe(expectedView);
+      expect(localStorage.getItem("codex-switch-last-app")).toBe("codex");
+      expect(localStorage.getItem("cc-switch-last-view")).toBeNull();
+      expect(localStorage.getItem("cc-switch-last-app")).toBeNull();
+    },
+  );
 
   it("covers basic provider flows via real hooks", async () => {
     const { default: App } = await import("@/App");
@@ -658,7 +683,7 @@ describe("App integration with MSW", () => {
   it.each(["claude", "opencode", "openclaw", "pi", "mcode", "invalid"])(
     "restores only Codex when the saved app is %s",
     async (savedApp) => {
-      localStorage.setItem("cc-switch-last-app", savedApp);
+      localStorage.setItem("codex-switch-last-app", savedApp);
       const { default: App } = await import("@/App");
       renderApp(App);
       await waitFor(() =>
@@ -666,7 +691,7 @@ describe("App integration with MSW", () => {
           "codex-1",
         ),
       );
-      expect(localStorage.getItem("cc-switch-last-app")).toBe("codex");
+      expect(localStorage.getItem("codex-switch-last-app")).toBe("codex");
       expect(screen.queryByTestId("app-switcher")).not.toBeInTheDocument();
       expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1");
       emitTauriEvent("provider-switched", {
@@ -692,13 +717,13 @@ describe("App integration with MSW", () => {
     "hermesMemory",
     "invalid",
   ])("does not reopen the hidden %s view", async (savedView) => {
-    localStorage.setItem("cc-switch-last-view", savedView);
+    localStorage.setItem("codex-switch-last-view", savedView);
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
       expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
     );
-    expect(localStorage.getItem("cc-switch-last-view")).toBe("providers");
+    expect(localStorage.getItem("codex-switch-last-view")).toBe("providers");
     expect(screen.queryByTitle("skills.manage")).not.toBeInTheDocument();
     expect(screen.queryByTitle("mcp.title")).not.toBeInTheDocument();
     expect(screen.queryByTitle("sessionManager.title")).not.toBeInTheDocument();
@@ -725,7 +750,7 @@ describe("App integration with MSW", () => {
       "true",
     );
     expect(
-      screen.getByRole("heading", { name: "API Key" }),
+      screen.getByRole("heading", { name: "Provider" }),
     ).toBeInTheDocument();
     expect(screen.queryByTestId("settings-tab")).not.toBeInTheDocument();
     expect(await screen.findByTestId("provider-list")).toHaveTextContent(
