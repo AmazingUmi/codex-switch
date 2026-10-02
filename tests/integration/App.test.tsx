@@ -8,6 +8,7 @@ import {
   fireEvent,
 } from "@testing-library/react";
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { http, HttpResponse } from "msw";
 import { usageKeys } from "@/lib/query/usage";
 import type { Provider } from "@/types";
 import { providersApi } from "@/lib/api/providers";
@@ -19,10 +20,13 @@ import {
   setSettings,
 } from "../msw/state";
 import { emitTauriEvent } from "../msw/tauriMocks";
+import { server } from "../msw/server";
 
 const toastSuccessMock = vi.fn();
 const toastErrorMock = vi.fn();
 const startAccountLoginMock = vi.fn();
+let nativeSettingsPending = false;
+let nativeSettingsDrainCount = 0;
 vi.mock("@/components/settings/SettingsPage", () => ({
   SettingsPage: ({ onOpenChange, defaultTab }: any) => (
     <div>
@@ -242,6 +246,16 @@ const renderApp = (AppComponent: ComponentType, client = new QueryClient()) => {
 
 describe("App integration with MSW", () => {
   beforeEach(() => {
+    nativeSettingsPending = false;
+    nativeSettingsDrainCount = 0;
+    server.use(
+      http.post("http://tauri.local/take_pending_settings_navigation", () => {
+        const pending = nativeSettingsPending;
+        nativeSettingsPending = false;
+        nativeSettingsDrainCount += 1;
+        return HttpResponse.json(pending);
+      }),
+    );
     resetProviderState();
     setSettings({ firstRunNoticeConfirmed: true });
     toastSuccessMock.mockReset();
@@ -729,17 +743,43 @@ describe("App integration with MSW", () => {
     expect(screen.queryByTitle("sessionManager.title")).not.toBeInTheDocument();
   });
 
-  it("keeps Settings keyboard navigation and resets provider scroll on return", async () => {
+  it.each(["metaKey", "ctrlKey"])(
+    "keeps %s Settings keyboard navigation and resets provider scroll on return",
+    async (modifier) => {
+      const { default: App } = await import("@/App");
+      const { container } = renderApp(App);
+      await screen.findByTestId("accounts-panel");
+      const main = container.querySelector("main")!;
+      main.scrollTop = 320;
+      fireEvent.keyDown(window, { key: ",", [modifier]: true });
+      expect(await screen.findByText("close-settings")).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
+      expect(main.scrollTop).toBe(0);
+    },
+  );
+
+  it("opens general Settings from a native menu event in an active window", async () => {
     const { default: App } = await import("@/App");
-    const { container } = renderApp(App);
+    renderApp(App);
     await screen.findByTestId("accounts-panel");
-    const main = container.querySelector("main")!;
-    main.scrollTop = 320;
-    fireEvent.keyDown(window, { key: ",", metaKey: true });
-    expect(await screen.findByText("close-settings")).toBeInTheDocument();
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(await screen.findByTestId("accounts-panel")).toBeInTheDocument();
-    expect(main.scrollTop).toBe(0);
+    await waitFor(() => expect(nativeSettingsDrainCount).toBe(1));
+    nativeSettingsPending = true;
+    act(() => emitTauriEvent("native-menu-open-settings", null));
+    expect(await screen.findByTestId("settings-tab")).toHaveTextContent(
+      "general",
+    );
+    expect(nativeSettingsPending).toBe(false);
+  });
+
+  it("opens general Settings when the recreated webview consumes a queued request", async () => {
+    nativeSettingsPending = true;
+    const { default: App } = await import("@/App");
+    renderApp(App);
+    expect(await screen.findByTestId("settings-tab")).toHaveTextContent(
+      "general",
+    );
+    expect(nativeSettingsPending).toBe(false);
   });
   it("foregrounds accounts and keeps API and advanced connection configuration actions accessible", async () => {
     const { default: App } = await import("@/App");

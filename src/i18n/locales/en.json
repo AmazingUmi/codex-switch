@@ -384,6 +384,20 @@
       "help": "Based on remaining quota: amber at or below the warning threshold, red at or below the low quota threshold, and green above both. Values are percentages from 0 to 100; the low threshold must be below the warning threshold. Changes save automatically.",
       "invalid": "Enter percentages from 0 to 100, with the low threshold below the warning threshold."
     },
+    "tray": {
+      "title": "Menu bar",
+      "display": "Menu bar display",
+      "icon": "App icon",
+      "quotaRing": "Ring + remaining percentage",
+      "window": "Quota window",
+      "fiveHour": "5 hours",
+      "sevenDay": "Week",
+      "color": "Ring color",
+      "system": "System",
+      "quota": "Quota",
+      "hint": "Shows the current account’s remaining quota.",
+      "help": "Keep the app icon, or show a ring with the current account’s remaining quota. Choose the 5-hour or weekly window. System follows the menu bar appearance; quota colors use the quota battery warning and low thresholds, with the system color above both. Unknown quota shows —. Changes save automatically."
+    },
     "themeHint": "Choose the appearance theme for the app, takes effect immediately.",
     "themeLight": "Light",
     "themeDark": "Dark",

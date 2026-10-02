@@ -28,6 +28,7 @@ import { useCodexAccountSwitch } from "@/hooks/useCodexAccountSwitch";
 import type { ProviderEditorSave } from "@/lib/api/providers";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { useTauriEvent } from "@/hooks/useTauriEvent";
+import { useNativeSettingsNavigation } from "@/hooks/useNativeSettingsNavigation";
 import { useLastValidValue } from "@/hooks/useLastValidValue";
 import { extractErrorMessage } from "@/utils/errorUtils";
 import { isTextEditableTarget } from "@/utils/domUtils";
@@ -112,6 +113,11 @@ function App() {
     setRequestedView(normalizeProductView(view));
   }, []);
   const [settingsDefaultTab, setSettingsDefaultTab] = useState("general");
+  const openSettings = useCallback(() => {
+    setSettingsDefaultTab("general");
+    setCurrentView("settings");
+  }, [setCurrentView]);
+  useNativeSettingsNavigation(openSettings);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isAddChoiceOpen, setIsAddChoiceOpen] = useState(false);
   const startAccountLoginRef = useRef<(() => void) | null>(null);
@@ -434,7 +440,7 @@ function App() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "," && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
-        setCurrentView("settings");
+        openSettings();
         return;
       }
 
@@ -455,7 +461,7 @@ function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [openSettings, setCurrentView]);
 
   const handleOpenWebsite = async (url: string) => {
     try {
@@ -801,8 +807,7 @@ function App() {
           activeView={currentView === "settings" ? "settings" : homeTab}
           onNavigate={(view) => {
             if (view === "settings") {
-              setSettingsDefaultTab("general");
-              setCurrentView("settings");
+              openSettings();
             } else {
               setHomeTab(view);
               setCurrentView("providers");

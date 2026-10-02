@@ -39,6 +39,7 @@ import { settingsApi } from "@/lib/api";
 import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { QuotaBatterySettings } from "@/components/settings/QuotaBatterySettings";
+import { TraySettings } from "@/components/settings/TraySettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { TerminalSettings } from "@/components/settings/TerminalSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
@@ -277,6 +278,10 @@ export function SettingsPage({
                     />
                     <ThemeSettings />
                     <QuotaBatterySettings
+                      settings={settings}
+                      onChange={handleAutoSave}
+                    />
+                    <TraySettings
                       settings={settings}
                       onChange={handleAutoSave}
                     />

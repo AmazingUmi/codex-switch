@@ -342,6 +342,30 @@ pub struct CodexOfficialHistoryUnifyMigration {
     pub codex_config_dir: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayDisplayMode {
+    #[default]
+    Icon,
+    QuotaRing,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayQuotaWindow {
+    #[default]
+    FiveHour,
+    SevenDay,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayQuotaColorMode {
+    System,
+    #[default]
+    Quota,
+}
+
 /// 应用设置结构
 ///
 /// 存储设备级别设置，保存在本地 `~/.codex-switch/settings.json`，不随数据库同步。
@@ -352,6 +376,12 @@ pub struct AppSettings {
     // ===== 设备级 UI 设置 =====
     #[serde(default = "default_show_in_tray")]
     pub show_in_tray: bool,
+    #[serde(default)]
+    pub tray_display_mode: TrayDisplayMode,
+    #[serde(default)]
+    pub tray_quota_window: TrayQuotaWindow,
+    #[serde(default)]
+    pub tray_quota_color_mode: TrayQuotaColorMode,
     #[serde(default = "default_minimize_to_tray_on_close")]
     pub minimize_to_tray_on_close: bool,
     #[serde(default)]
@@ -542,6 +572,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             show_in_tray: true,
+            tray_display_mode: TrayDisplayMode::default(),
+            tray_quota_window: TrayQuotaWindow::default(),
+            tray_quota_color_mode: TrayQuotaColorMode::default(),
             minimize_to_tray_on_close: true,
             use_app_window_controls: false,
             enable_claude_plugin_integration: false,
@@ -1264,6 +1297,32 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::app_config::AppType;
+
+    #[test]
+    fn tray_preferences_default_roundtrip_and_reject_unknown_values() {
+        let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.tray_display_mode, TrayDisplayMode::Icon);
+        assert_eq!(settings.tray_quota_window, TrayQuotaWindow::FiveHour);
+        assert_eq!(settings.tray_quota_color_mode, TrayQuotaColorMode::Quota);
+        settings.tray_display_mode = TrayDisplayMode::QuotaRing;
+        settings.tray_quota_window = TrayQuotaWindow::SevenDay;
+        settings.tray_quota_color_mode = TrayQuotaColorMode::System;
+        let value = serde_json::to_value(settings).unwrap();
+        assert_eq!(value["trayDisplayMode"], "quotaRing");
+        assert_eq!(value["trayQuotaWindow"], "sevenDay");
+        assert_eq!(value["trayQuotaColorMode"], "system");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.tray_display_mode, TrayDisplayMode::QuotaRing);
+        assert_eq!(loaded.tray_quota_window, TrayQuotaWindow::SevenDay);
+        for (field, value) in [
+            ("trayDisplayMode", "percent"),
+            ("trayQuotaWindow", "auto"),
+            ("trayQuotaColorMode", "rainbow"),
+        ] {
+            let invalid = serde_json::json!({ field: value });
+            assert!(serde_json::from_value::<AppSettings>(invalid).is_err());
+        }
+    }
 
     #[test]
     fn quota_battery_threshold_defaults_and_roundtrip_preserve_other_settings() {

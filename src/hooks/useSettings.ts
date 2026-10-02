@@ -197,9 +197,17 @@ export function useSettings(): UseSettingsResult {
             "codexUsageSourceDir",
           ].includes(key),
         );
-      // Usage preferences must not publish unrelated drafts or rewrite a live
+      const trayOnly =
+        updateKeys.length > 0 &&
+        updateKeys.every((key) =>
+          ["trayDisplayMode", "trayQuotaWindow", "trayQuotaColorMode"].includes(
+            key,
+          ),
+        );
+      const preferencesOnly = usageOnly || trayOnly;
+      // Device preferences must not publish unrelated drafts or rewrite a live
       // client configuration. Merge only into the latest persisted settings.
-      const baseline = usageOnly
+      const baseline = preferencesOnly
         ? (queryClient.getQueryData<Settings>(["settings"]) ?? data)
         : settings;
       const mergedSettings = baseline ? { ...baseline, ...updates } : null;
@@ -250,7 +258,7 @@ export function useSettings(): UseSettingsResult {
 
         // 如果开机自启状态改变，调用系统 API
         if (
-          !usageOnly &&
+          !preferencesOnly &&
           payload.launchOnStartup !== undefined &&
           payload.launchOnStartup !== data?.launchOnStartup
         ) {
@@ -296,7 +304,7 @@ export function useSettings(): UseSettingsResult {
           }
         }
 
-        if (!usageOnly) {
+        if (!preferencesOnly) {
           await syncClaudePluginIfChanged(
             payload.enableClaudePluginIntegration,
             prevPluginEnabled,

@@ -60,11 +60,14 @@ pub async fn get_settings() -> Result<crate::settings::AppSettings, String> {
 /// 保存设置
 #[tauri::command]
 pub async fn save_settings(
+    app: AppHandle,
     state: tauri::State<'_, crate::store::AppState>,
     settings: crate::settings::AppSettings,
 ) -> Result<bool, String> {
     let existing = crate::settings::get_settings();
     let merged = merge_settings_for_save(settings, &existing);
+    #[cfg(target_os = "macos")]
+    let language_changed = merged.language != existing.language;
     let unify_codex_changed =
         merged.unify_codex_session_history != existing.unify_codex_session_history;
     let unify_codex_enabled = merged.unify_codex_session_history;
@@ -123,6 +126,11 @@ pub async fn save_settings(
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    if language_changed {
+        crate::menu::refresh(&app);
+    }
+    crate::tray_quota::request_refresh(&app);
     Ok(true)
 }
 

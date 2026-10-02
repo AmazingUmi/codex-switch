@@ -287,6 +287,38 @@ describe("SettingsPage Component", () => {
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
 
+  it("rolls back a failed macOS tray display save through the shared auto-save handler", async () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Macintosh",
+      platform: "MacIntel",
+    });
+    settingsMock.settings.trayDisplayMode = "icon";
+    settingsMock.autoSaveSettings.mockRejectedValueOnce(
+      new Error("Store unavailable"),
+    );
+    renderSettingsPage();
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tray.quotaRing" }),
+    );
+    await waitFor(() => {
+      expect(settingsMock.updateSettings).toHaveBeenNthCalledWith(1, {
+        trayDisplayMode: "quotaRing",
+      });
+      expect(settingsMock.updateSettings).toHaveBeenNthCalledWith(2, {
+        trayDisplayMode: "icon",
+      });
+    });
+    expect(settingsMock.autoSaveSettings).toHaveBeenCalledWith({
+      trayDisplayMode: "quotaRing",
+    });
+    expect(
+      screen.getByRole("button", { name: "settings.tray.icon" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "settings.saveFailedGeneric",
+    );
+  });
+
   it("exposes only general, advanced and about settings tabs", () => {
     renderSettingsPage();
     for (const label of [

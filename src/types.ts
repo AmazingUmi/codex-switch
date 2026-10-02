@@ -357,6 +357,10 @@ export interface Settings {
   // ===== 设备级 UI 设置 =====
   // 是否在系统托盘（macOS 菜单栏）显示图标
   showInTray: boolean;
+  // macOS menu bar appearance; omitted values keep the existing icon.
+  trayDisplayMode?: "icon" | "quotaRing";
+  trayQuotaWindow?: "fiveHour" | "sevenDay";
+  trayQuotaColorMode?: "system" | "quota";
   // 点击关闭按钮时是否最小化到托盘而不是关闭应用
   minimizeToTrayOnClose: boolean;
   // 是否启用应用级窗口控制按钮（最小化/最大化/关闭）

@@ -42,14 +42,25 @@ pub async fn get_codex_oauth_quota(
         return Ok(SubscriptionQuota::not_found("codex_oauth"));
     };
 
-    let result = query_codex_oauth_quota_for(manager, &id).await;
+    let generation = app_state.usage_cache.codex_oauth_generation(&id);
+    let result = app_state
+        .usage_cache
+        .coalesced_quota(
+            format!("managed-codex:{id}:{generation}"),
+            query_codex_oauth_quota_for(manager, &id),
+        )
+        .await;
     // Cache by the resolved account, even if the default/binding changes while
     // the request is in flight. Transport errors retain the last good snapshot;
     // authentication/HTTP failures replace it so the tray hides invalid quotas.
-    if let Ok(quota) = &result {
-        app_state.usage_cache.put_codex_oauth(id, quota.clone());
-        crate::tray::schedule_tray_refresh(&app);
+    if !app_state
+        .usage_cache
+        .finish_codex_oauth_query(&id, generation, &result)
+    {
+        return Err("Codex account changed during quota refresh".into());
     }
+    crate::tray::schedule_tray_refresh(&app);
+    crate::tray::update_tray_display(&app);
     result
 }
 

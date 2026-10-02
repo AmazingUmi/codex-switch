@@ -190,6 +190,7 @@ pub async fn auth_start_login(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_poll_for_account(
+    app: tauri::AppHandle,
     auth_provider: String,
     device_code: String,
     github_domain: Option<String>,
@@ -230,10 +231,18 @@ pub async fn auth_poll_for_account(
                 Ok(account) => {
                     let default_account_id = auth_manager.get_status().await.default_account_id;
                     match account {
-                        Some(account) => Ok(Some(
-                            map_codex_account(auth_manager, account, default_account_id.as_deref())
+                        Some(account) => {
+                            app_state.usage_cache.invalidate_codex_oauth(&account.id);
+                            crate::tray_quota::request_refresh(&app);
+                            Ok(Some(
+                                map_codex_account(
+                                    auth_manager,
+                                    account,
+                                    default_account_id.as_deref(),
+                                )
                                 .await,
-                        )),
+                            ))
+                        }
                         None => Ok(None),
                     }
                 }
@@ -428,6 +437,7 @@ pub async fn auth_switch_codex_account(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_remove_account(
+    app: tauri::AppHandle,
     auth_provider: String,
     account_id: String,
     app_state: State<'_, AppState>,
@@ -444,7 +454,9 @@ pub async fn auth_remove_account(
                 .map_err(|e| e.to_string())
         }
         AUTH_PROVIDER_CODEX_OAUTH => {
-            remove_codex_oauth_account_with_switch_lock(app_state.inner(), &account_id).await
+            remove_codex_oauth_account_with_switch_lock(app_state.inner(), &account_id).await?;
+            crate::tray::refresh_tray_menu(&app);
+            Ok(())
         }
         AUTH_PROVIDER_XAI_OAUTH => {
             let auth_manager = xai_state.0.write().await;
@@ -472,7 +484,9 @@ pub(crate) async fn remove_codex_oauth_account_with_switch_lock(
         .codex_oauth_manager
         .remove_account(account_id)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    app_state.usage_cache.invalidate_codex_oauth(account_id);
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -512,6 +526,7 @@ pub async fn auth_set_default_account(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_logout(
+    app: tauri::AppHandle,
     auth_provider: String,
     app_state: State<'_, AppState>,
     copilot_state: State<'_, CopilotAuthState>,
@@ -523,7 +538,11 @@ pub async fn auth_logout(
             let auth_manager = copilot_state.0.write().await;
             auth_manager.clear_auth().await.map_err(|e| e.to_string())
         }
-        AUTH_PROVIDER_CODEX_OAUTH => logout_codex_oauth_with_switch_lock(app_state.inner()).await,
+        AUTH_PROVIDER_CODEX_OAUTH => {
+            logout_codex_oauth_with_switch_lock(app_state.inner()).await?;
+            crate::tray::refresh_tray_menu(&app);
+            Ok(())
+        }
         AUTH_PROVIDER_XAI_OAUTH => {
             let auth_manager = xai_state.0.write().await;
             auth_manager.clear_auth().await.map_err(|e| e.to_string())
@@ -543,5 +562,7 @@ pub(crate) async fn logout_codex_oauth_with_switch_lock(
         .codex_oauth_manager
         .clear_auth()
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    app_state.usage_cache.invalidate_all_codex_oauth();
+    Ok(())
 }

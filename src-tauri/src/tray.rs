@@ -68,7 +68,7 @@ pub struct TrayTexts {
 /// （`settings.language` 尚未写入）时托盘语言与界面语言一致：
 /// 繁中系统（zh-TW/HK/MO/Hant）→ `zh-TW`，其余 zh → `zh`，
 /// 日文 → `ja`，英文 → `en`，未知区域回退到 `zh`（与前端默认一致）。
-fn map_locale_to_tray_language(locale: &str) -> &'static str {
+pub(crate) fn map_locale_to_tray_language(locale: &str) -> &'static str {
     let locale = locale.to_lowercase();
     if locale == "zh" {
         "zh"
@@ -90,7 +90,7 @@ fn map_locale_to_tray_language(locale: &str) -> &'static str {
 }
 
 /// 读取系统区域并映射为托盘语言码；取不到区域时回退到 `zh`。
-fn detect_system_tray_language() -> &'static str {
+pub(crate) fn detect_system_tray_language() -> &'static str {
     sys_locale::get_locale()
         .as_deref()
         .map(map_locale_to_tray_language)
@@ -277,7 +277,7 @@ fn format_script_summary(result: &crate::provider::UsageResult) -> Option<String
     }
 }
 
-fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<String> {
+pub(crate) fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<String> {
     if crate::services::provider::codex_direct::is_official(provider) {
         return provider
             .meta
@@ -289,7 +289,7 @@ fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<Stri
     None
 }
 
-fn provider_uses_official_subscription(provider: &crate::provider::Provider) -> bool {
+pub(crate) fn provider_uses_official_subscription(provider: &crate::provider::Provider) -> bool {
     // Managed Codex uses the account-scoped path in tray_usage_source instead
     // of the CLI's app-wide subscription cache.
     if managed_codex_account_id(provider).is_some() {
@@ -308,13 +308,13 @@ fn provider_uses_official_subscription(provider: &crate::provider::Provider) -> 
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum TrayUsageSource {
+pub(crate) enum TrayUsageSource {
     ManagedCodex(String),
     Script,
 }
 
 /// Keep the tray's refresh and display paths on the same credentials and toggle.
-fn tray_usage_source(
+pub(crate) fn tray_usage_source(
     app_type: &AppType,
     provider: &crate::provider::Provider,
 ) -> Option<TrayUsageSource> {
@@ -375,6 +375,28 @@ fn format_usage_suffix(
         usage_cache.invalidate_subscription(app_type);
     }
     None
+}
+
+fn current_usage_suffix(
+    cache: &UsageCache,
+    app_type: &AppType,
+    provider: &crate::provider::Provider,
+) -> Option<String> {
+    if *app_type == AppType::Codex
+        && (managed_codex_account_id(provider).is_some()
+            || (crate::codex_config::is_codex_official_provider(provider)
+                && provider_uses_official_subscription(provider)))
+    {
+        let settings = crate::settings::get_settings();
+        let language = settings
+            .language
+            .as_deref()
+            .map(map_locale_to_tray_language)
+            .unwrap_or_else(detect_system_tray_language);
+        return crate::tray_quota::menu_summary(provider, cache, language)
+            .map(|summary| format!(" · {summary}"));
+    }
+    format_usage_suffix(cache, app_type, provider, &provider.id)
 }
 
 /// 对供应商列表排序：sort_index → created_at → name
@@ -508,6 +530,7 @@ fn handle_provider_click(
         let app_type_str = app_type.as_str();
 
         crate::services::ProviderService::switch(app_state.inner(), app_type.clone(), provider_id)?;
+        crate::tray_quota::request_refresh(app);
 
         // 更新托盘菜单
         if let Ok(new_menu) = create_tray_menu(app, app_state.inner()) {
@@ -577,13 +600,8 @@ pub fn create_tray_menu(
             let current_provider = providers.get(&current_id);
             let submenu_label = match current_provider {
                 Some(p) => {
-                    let suffix = format_usage_suffix(
-                        &app_state.usage_cache,
-                        &section.app_type,
-                        p,
-                        &current_id,
-                    )
-                    .unwrap_or_default();
+                    let suffix = current_usage_suffix(&app_state.usage_cache, &section.app_type, p)
+                        .unwrap_or_default();
                     format!("{} · {}{}", section.header_label, p.name, suffix)
                 }
                 None => section.header_label.to_string(),
@@ -752,13 +770,8 @@ fn update_tray_usage_labels(app: &tauri::AppHandle) {
         let Some(provider) = providers.get(&current_id) else {
             continue;
         };
-        let suffix = format_usage_suffix(
-            &app_state.usage_cache,
-            &section.app_type,
-            provider,
-            &current_id,
-        )
-        .unwrap_or_default();
+        let suffix = current_usage_suffix(&app_state.usage_cache, &section.app_type, provider)
+            .unwrap_or_default();
         let new_label = format!("{} · {}{}", section.header_label, provider.name, suffix);
         if let Err(e) = submenu.set_text(&new_label) {
             log::debug!("[Tray] 更新{}子菜单标题失败: {e}", section.log_name);
@@ -778,6 +791,11 @@ pub fn refresh_tray_menu(app: &tauri::AppHandle) {
             }
         }
     }
+    crate::tray_quota::request_refresh(app);
+}
+
+pub(crate) fn update_tray_display(app: &tauri::AppHandle) {
+    crate::tray_display::update(app);
 }
 
 #[cfg(target_os = "macos")]
@@ -874,6 +892,7 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
         std::thread::sleep(std::time::Duration::from_millis(50));
         TRAY_REBUILD_SCHEDULED.store(false, Ordering::Release);
         update_tray_usage_labels(&app);
+        update_tray_display(&app);
     });
 }
 

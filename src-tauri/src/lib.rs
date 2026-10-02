@@ -29,6 +29,7 @@ mod linux_fix;
 pub mod live;
 mod mcode_config;
 mod mcp;
+mod menu;
 pub mod mode;
 mod model_capabilities;
 mod openclaw_config;
@@ -46,6 +47,8 @@ pub mod switch_lock;
 pub mod usage;
 
 mod tray;
+mod tray_display;
+mod tray_quota;
 mod usage_events;
 mod usage_script;
 
@@ -330,6 +333,7 @@ async fn update_tray_menu(
             if let Some(tray) = app.tray_by_id(tray::TRAY_ID) {
                 tray.set_menu(Some(new_menu))
                     .map_err(|e| format!("更新托盘菜单失败: {e}"))?;
+                crate::tray_quota::request_refresh(&app);
                 return Ok(true);
             }
             Ok(false)
@@ -361,7 +365,7 @@ pub fn run() {
     // 设置 panic hook，在应用崩溃时记录日志到 <app_config_dir>/crash.log（默认 ~/.codex-switch/crash.log）
     panic_hook::setup_panic_hook();
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().manage(menu::PendingSettingsNavigation::default());
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
@@ -432,6 +436,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         // 拦截窗口关闭：根据设置决定是否最小化到托盘
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::ThemeChanged(_)) {
+                tray::update_tray_display(window.app_handle());
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // 数据库版本过新的恢复模式下没有托盘可唤回，关闭即退出，避免应用隐身后台
                 let in_db_recovery = crate::init_status::get_init_error()
@@ -1125,6 +1132,9 @@ pub fn run() {
             });
             log::info!("✓ Deep-link URL handler registered");
 
+            #[cfg(target_os = "macos")]
+            menu::install(app.handle())?;
+
             // 创建动态托盘菜单
             let menu = tray::create_tray_menu(app.handle(), &app_state)?;
 
@@ -1145,7 +1155,10 @@ pub fn run() {
                 })
                 .menu(&menu)
                 .on_menu_event(|app, event| {
-                    tray::handle_tray_menu_event(app, &event.id.0);
+                    // Tauri delivers application menu events to tray callbacks too.
+                    if !event.id.0.starts_with(menu::MENU_ID_PREFIX) {
+                        tray::handle_tray_menu_event(app, &event.id.0);
+                    }
                 })
                 .show_menu_on_left_click(true);
 
@@ -1172,6 +1185,8 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
+            tray::update_tray_display(app.handle());
+            crate::tray_quota::start_worker(app.handle());
             crate::services::webdav_auto_sync::start_worker(
                 app_state.db.clone(),
                 app.handle().clone(),
@@ -1720,6 +1735,7 @@ pub fn run() {
             commands::enter_lightweight_mode,
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
+            menu::take_pending_settings_navigation,
         ]);
 
     let app = builder

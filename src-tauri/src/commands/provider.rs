@@ -169,7 +169,12 @@ pub async fn switch_provider(
         let state = app_handle
             .try_state::<AppState>()
             .ok_or_else(|| "应用状态不可用".to_string())?;
-        switch_provider_internal(state.inner(), app_type, &id).map_err(|e| e.to_string())
+        let result =
+            switch_provider_internal(state.inner(), app_type, &id).map_err(|e| e.to_string());
+        // Re-read committed identity on either outcome: a failed switch can have
+        // recovered the old account, but must never paint the optimistic target.
+        crate::tray_quota::request_refresh(&app_handle);
+        result
     })
     .await
     .map_err(|e| format!("供应商切换任务执行失败: {e}"))?
@@ -762,6 +767,9 @@ async fn query_provider_usage_inner(
                 .and_then(|p| p.meta.as_ref())
                 .and_then(|m| m.managed_account_id_for("xai_oauth"));
             crate::commands::xai_oauth::query_xai_oauth_quota_for(xai_state, account_id).await?
+        } else if app_type == AppType::Codex {
+            crate::commands::query_native_codex_quota_cached(&state.usage_cache, provider_id)
+                .await?
         } else {
             crate::services::subscription::get_subscription_quota(app_type.as_str())
                 .await

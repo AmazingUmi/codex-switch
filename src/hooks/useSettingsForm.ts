@@ -117,6 +117,9 @@ export function useSettingsForm(): UseSettingsFormResult {
     const normalized: SettingsFormState = {
       ...withoutRoutingPreferences(data),
       showInTray: data.showInTray ?? true,
+      trayDisplayMode: data.trayDisplayMode ?? "icon",
+      trayQuotaWindow: data.trayQuotaWindow ?? "fiveHour",
+      trayQuotaColorMode: data.trayQuotaColorMode ?? "quota",
       minimizeToTrayOnClose: data.minimizeToTrayOnClose ?? true,
       useAppWindowControls: data.useAppWindowControls ?? false,
       enableClaudePluginIntegration:
@@ -149,6 +152,9 @@ export function useSettingsForm(): UseSettingsFormResult {
           prev ??
           ({
             showInTray: true,
+            trayDisplayMode: "icon",
+            trayQuotaWindow: "fiveHour",
+            trayQuotaColorMode: "quota",
             minimizeToTrayOnClose: true,
             useAppWindowControls: false,
             enableClaudePluginIntegration: false,
@@ -186,6 +192,9 @@ export function useSettingsForm(): UseSettingsFormResult {
       const normalized: SettingsFormState = {
         ...withoutRoutingPreferences(serverData),
         showInTray: serverData.showInTray ?? true,
+        trayDisplayMode: serverData.trayDisplayMode ?? "icon",
+        trayQuotaWindow: serverData.trayQuotaWindow ?? "fiveHour",
+        trayQuotaColorMode: serverData.trayQuotaColorMode ?? "quota",
         minimizeToTrayOnClose: serverData.minimizeToTrayOnClose ?? true,
         useAppWindowControls: serverData.useAppWindowControls ?? false,
         enableClaudePluginIntegration:

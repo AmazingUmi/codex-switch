@@ -50,6 +50,9 @@ describe("useSettingsForm Hook", () => {
 
     const settings = result.current.settings!;
     expect(settings.showInTray).toBe(true);
+    expect(settings.trayDisplayMode).toBe("icon");
+    expect(settings.trayQuotaWindow).toBe("fiveHour");
+    expect(settings.trayQuotaColorMode).toBe("quota");
     expect(settings.minimizeToTrayOnClose).toBe(true);
     expect(settings.enableClaudePluginIntegration).toBe(false);
     expect(settings.claudeConfigDir).toBe("/Users/demo");
@@ -58,6 +61,34 @@ describe("useSettingsForm Hook", () => {
     expect(settings.language).toBe("en");
     expect(result.current.initialLanguage).toBe("en");
     expect(changeLanguageSpy).toHaveBeenCalledWith("en");
+  });
+
+  it("preserves persisted tray choices and restores their defaults on reset", async () => {
+    useSettingsQueryMock.mockReturnValue({
+      data: {
+        showInTray: true,
+        minimizeToTrayOnClose: true,
+        trayDisplayMode: "quotaRing",
+        trayQuotaWindow: "sevenDay",
+        trayQuotaColorMode: "system",
+      },
+      isLoading: false,
+    });
+    const { result } = renderHook(() => useSettingsForm());
+    await waitFor(() =>
+      expect(result.current.settings?.trayDisplayMode).toBe("quotaRing"),
+    );
+    expect(result.current.settings?.trayQuotaWindow).toBe("sevenDay");
+    expect(result.current.settings?.trayQuotaColorMode).toBe("system");
+    act(() =>
+      result.current.resetSettings({
+        showInTray: true,
+        minimizeToTrayOnClose: true,
+      }),
+    );
+    expect(result.current.settings?.trayDisplayMode).toBe("icon");
+    expect(result.current.settings?.trayQuotaWindow).toBe("fiveHour");
+    expect(result.current.settings?.trayQuotaColorMode).toBe("quota");
   });
 
   it("drops retired routing preferences from loaded and reset form state", async () => {

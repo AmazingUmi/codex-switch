@@ -430,6 +430,46 @@ describe("useSettings hook", () => {
     expect(applyClaudePluginConfigMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    { trayDisplayMode: "quotaRing" },
+    { trayQuotaWindow: "sevenDay" },
+    { trayQuotaColorMode: "system" },
+  ] as const)(
+    "saves tray preference %j without publishing auth/directory drafts",
+    async (updates) => {
+      settingsFormMock = createSettingsFormMock({
+        settings: {
+          ...serverSettings,
+          codexConfigDir: "/unsaved/config",
+          unifyCodexSessionHistory: true,
+          enableClaudePluginIntegration: true,
+          skipClaudeOnboarding: false,
+        },
+      });
+      const { result } = renderHook(() => useSettings());
+      await act(async () => {
+        await result.current.autoSaveSettings(updates);
+      });
+      const payload = mutateAsyncMock.mock.calls[0][0] as Settings;
+      expect(payload).toMatchObject(updates);
+      expect(payload.codexConfigDir).toBe(serverSettings.codexConfigDir);
+      expect(payload.unifyCodexSessionHistory).toBe(
+        serverSettings.unifyCodexSessionHistory,
+      );
+      expect(payload.enableClaudePluginIntegration).toBe(
+        serverSettings.enableClaudePluginIntegration,
+      );
+      expect(payload.skipClaudeOnboarding).toBe(
+        serverSettings.skipClaudeOnboarding,
+      );
+      expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();
+      expect(applyClaudePluginConfigMock).not.toHaveBeenCalled();
+      expect(applyClaudeOnboardingSkipMock).not.toHaveBeenCalled();
+      expect(clearClaudeOnboardingSkipMock).not.toHaveBeenCalled();
+      expect(updateTrayMenuMock).toHaveBeenCalledOnce();
+    },
+  );
+
   it("shows toast when Claude plugin sync fails but continues flow", async () => {
     // 设置服务器状态为 false,本地状态为 true,触发状态变化
     serverSettings = {
