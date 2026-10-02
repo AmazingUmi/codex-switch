@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from "react-i18next";
 import { useCodexOauthQuotaByAccountId } from "@/lib/query/subscription";
 import { SubscriptionQuotaView } from "@/components/SubscriptionQuotaFooter";
+import type { QuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 
 export type CodexAccountQuotaQuery = Pick<
   ReturnType<typeof useCodexOauthQuotaByAccountId>,
@@ -11,6 +12,8 @@ export type CodexAccountQuotaQuery = Pick<
 interface CodexOauthAccountQuotaProps {
   accountId: string;
   enabled?: boolean;
+  visualization?: "rings" | "battery";
+  batteryThresholds?: QuotaBatteryThresholds;
   children?: (
     query: CodexAccountQuotaQuery,
     view: React.ReactNode,
@@ -21,6 +24,8 @@ interface CodexOauthAccountQuotaProps {
 const QueriedAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
   accountId,
   children,
+  visualization = "rings",
+  batteryThresholds,
 }) => {
   const { t } = useTranslation();
   const query = useCodexOauthQuotaByAccountId(accountId, {
@@ -35,7 +40,8 @@ const QueriedAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
       appIdForExpiredHint="codex_oauth"
       expiredHint={t("codexAccounts.quotaExpiredHint")}
       inline={false}
-      visualization="rings"
+      visualization={visualization}
+      batteryThresholds={batteryThresholds}
       showRefresh={!children}
       refreshFailed={query.refreshFailed}
       refreshError={query.refreshError}

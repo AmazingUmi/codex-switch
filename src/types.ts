@@ -376,6 +376,9 @@ export interface Settings {
   // User has confirmed the usage query first-run notice
   usageConfirmed?: boolean;
   usageDashboardRefreshIntervalMs?: number;
+  // Remaining-percent boundaries for warning and low quota battery colors.
+  quotaBatteryWarningThresholdPercent?: number;
+  quotaBatteryLowThresholdPercent?: number;
   // 会话用量自动扫描开关（默认开启=自动模式；关闭后仅手动同步时扫描会话日志，代理记账不受影响）
   sessionAutoSyncEnabled?: boolean;
   // Independent Codex root used only for session token usage scanning.

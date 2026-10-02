@@ -394,6 +394,13 @@
     "language": "Language",
     "languageHint": "Language changes are saved automatically.",
     "theme": "Theme",
+    "quotaBattery": {
+      "title": "Quota battery",
+      "warning": "Warning threshold",
+      "low": "Low quota threshold",
+      "help": "Based on remaining quota: amber at or below the warning threshold, red at or below the low quota threshold, and green above both. Values are percentages from 0 to 100; the low threshold must be below the warning threshold. Changes save automatically.",
+      "invalid": "Enter percentages from 0 to 100, with the low threshold below the warning threshold."
+    },
     "themeHint": "Choose the appearance theme for the app, takes effect immediately.",
     "themeLight": "Light",
     "themeDark": "Dark",
@@ -3057,6 +3064,8 @@
     "helpLabel": "Account and quota help",
     "helpQuota": "Percentages show used quota. The five-hour and weekly windows have independent usage and reset times; available windows depend on the account.",
     "quotaUsedLabel": "Used",
+    "quotaRemainingLabel": "Left",
+    "helpQuotaBattery": "Colored segments and percentages show remaining quota. The gray marker shows the time left until reset as a fraction of the full window. Each window is independent; a marker appears only when its duration and reset time are known.",
     "quotaUnknown": "Quota unavailable",
     "quotaResetUnknown": "Reset time unavailable",
     "advancedConfiguration": "Advanced connections",

@@ -32,6 +32,9 @@ pub struct QuotaTier {
     pub utilization: f64,
     /// ISO 8601 重置时间
     pub resets_at: Option<String>,
+    /// API 返回的真实窗口时长（秒），仅保留正数。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_duration_seconds: Option<i64>,
     /// ZenMux: 已用额度（USD）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub used_value_usd: Option<f64>,
@@ -419,6 +422,7 @@ fn parse_claude_quota(body: &serde_json::Value) -> SubscriptionQuota {
                         name: tier_name.to_string(),
                         utilization: util,
                         resets_at: w.resets_at,
+                        window_duration_seconds: None,
                         used_value_usd: None,
                         max_value_usd: None,
                     });
@@ -439,6 +443,7 @@ fn parse_claude_quota(body: &serde_json::Value) -> SubscriptionQuota {
                         name: key.clone(),
                         utilization: util,
                         resets_at: w.resets_at,
+                        window_duration_seconds: None,
                         used_value_usd: None,
                         max_value_usd: None,
                     });
@@ -485,6 +490,7 @@ fn parse_claude_quota(body: &serde_json::Value) -> SubscriptionQuota {
                 name: tier_name.to_string(),
                 utilization: window.percent,
                 resets_at: window.resets_at,
+                window_duration_seconds: None,
                 used_value_usd: None,
                 max_value_usd: None,
             };
@@ -740,6 +746,20 @@ fn unix_ts_to_iso(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.to_rfc3339())
 }
 
+fn codex_window_to_tier(window: CodexRateLimitWindow) -> Option<QuotaTier> {
+    Some(QuotaTier {
+        name: window
+            .limit_window_seconds
+            .map(window_seconds_to_tier_name)
+            .unwrap_or_else(|| "unknown".to_string()),
+        utilization: window.used_percent?,
+        resets_at: window.reset_at.and_then(unix_ts_to_iso),
+        window_duration_seconds: window.limit_window_seconds.filter(|&seconds| seconds > 0),
+        used_value_usd: None,
+        max_value_usd: None,
+    })
+}
+
 /// 查询 Codex / ChatGPT 反代订阅额度
 ///
 /// 参数化 `tool_label` 和 `expired_message` 让该函数可被两个调用点共用：
@@ -809,17 +829,8 @@ pub(crate) async fn query_codex_quota(
             .into_iter()
             .flatten()
         {
-            if let Some(used) = window.used_percent {
-                tiers.push(QuotaTier {
-                    name: window
-                        .limit_window_seconds
-                        .map(window_seconds_to_tier_name)
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    utilization: used,
-                    resets_at: window.reset_at.and_then(unix_ts_to_iso),
-                    used_value_usd: None,
-                    max_value_usd: None,
-                });
+            if let Some(tier) = codex_window_to_tier(window) {
+                tiers.push(tier);
             }
         }
     }
@@ -1280,6 +1291,7 @@ async fn query_gemini_quota(access_token: &str) -> Result<SubscriptionQuota, Str
             name,
             utilization: (1.0 - remaining) * 100.0,
             resets_at: reset_time,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         })
@@ -1433,6 +1445,90 @@ fn now_millis() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_window_preserves_actual_duration_even_when_names_match() {
+        for (seconds, expected_name) in [
+            (18_000, TIER_FIVE_HOUR),
+            (604_800, TIER_SEVEN_DAY),
+            (2_592_000, TIER_THIRTY_DAY),
+            (2_595_600, TIER_THIRTY_DAY),
+            (7_201, "2_hour"),
+            (90, "0_hour"),
+        ] {
+            let tier = codex_window_to_tier(CodexRateLimitWindow {
+                used_percent: Some(37.5),
+                limit_window_seconds: Some(seconds),
+                reset_at: Some(0),
+            })
+            .unwrap();
+            assert_eq!(tier.name, expected_name);
+            assert_eq!(tier.window_duration_seconds, Some(seconds));
+            assert_eq!(tier.utilization, 37.5);
+            assert_eq!(tier.resets_at.as_deref(), Some("1970-01-01T00:00:00+00:00"));
+            let serialized = serde_json::to_value(&tier).unwrap();
+            assert_eq!(serialized["windowDurationSeconds"], seconds);
+            assert!(serialized.get("window_duration_seconds").is_none());
+        }
+    }
+
+    #[test]
+    fn codex_window_omits_missing_or_nonpositive_duration() {
+        for seconds in [None, Some(0), Some(-1)] {
+            let tier = codex_window_to_tier(CodexRateLimitWindow {
+                used_percent: Some(0.0),
+                limit_window_seconds: seconds,
+                reset_at: None,
+            })
+            .unwrap();
+            assert_eq!(tier.window_duration_seconds, None);
+            assert_eq!(tier.utilization, 0.0);
+            assert_eq!(tier.resets_at, None);
+            assert_eq!(
+                tier.name,
+                seconds
+                    .map(window_seconds_to_tier_name)
+                    .unwrap_or_else(|| "unknown".to_string())
+            );
+            assert!(serde_json::to_value(tier)
+                .unwrap()
+                .get("windowDurationSeconds")
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn codex_window_preserves_percent_and_reset_validation() {
+        let tier = codex_window_to_tier(CodexRateLimitWindow {
+            used_percent: Some(125.0),
+            limit_window_seconds: Some(18_000),
+            reset_at: Some(i64::MAX),
+        })
+        .unwrap();
+        assert_eq!(tier.utilization, 125.0);
+        assert_eq!(tier.resets_at, None);
+        assert!(codex_window_to_tier(CodexRateLimitWindow {
+            used_percent: None,
+            limit_window_seconds: Some(18_000),
+            reset_at: Some(0),
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn quota_tier_deserializes_without_window_duration() {
+        let tier: QuotaTier = serde_json::from_value(serde_json::json!({
+            "name": "five_hour",
+            "utilization": 12.0,
+            "resetsAt": null
+        }))
+        .unwrap();
+        assert_eq!(tier.window_duration_seconds, None);
+        assert!(serde_json::to_value(tier)
+            .unwrap()
+            .get("windowDurationSeconds")
+            .is_none());
+    }
 
     fn scoped_limit(model: &str, percent: f64) -> serde_json::Value {
         serde_json::json!({

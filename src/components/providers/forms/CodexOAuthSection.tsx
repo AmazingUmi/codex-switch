@@ -7,6 +7,7 @@ import { Switch } from "@/components/ui/switch";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { CurrentStatus } from "@/components/ui/current-status";
 import type { SubscriptionQuota } from "@/types/subscription";
+import type { QuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
   DropdownMenu,
@@ -90,6 +91,7 @@ interface CodexOAuthSectionProps {
   className?: string;
   /** Account-focused home presentation; lifecycle remains shared with settings. */
   presentation?: "list" | "cards";
+  batteryThresholds?: QuotaBatteryThresholds;
   /** Explicit effective Codex account; independent of the OAuth default. */
   currentAccountId?: string | null;
   renderAccountActions?: (account: ManagedAuthAccount) => React.ReactNode;
@@ -149,6 +151,7 @@ interface CodexOAuthSectionProps {
 export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
   className,
   presentation = "list",
+  batteryThresholds,
   currentAccountId,
   renderAccountActions,
   renderAccountHeaderActions,
@@ -646,7 +649,10 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
           <div
             className={
               presentation === "cards"
-                ? "grid auto-rows-fr grid-cols-1 items-stretch gap-4 min-[900px]:grid-cols-2"
+                ? cn(
+                    "grid auto-rows-fr grid-cols-1 items-stretch gap-4",
+                    accounts.length > 1 && "min-[900px]:grid-cols-2",
+                  )
                 : "space-y-1"
             }
           >
@@ -655,6 +661,8 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                 key={account.id}
                 accountId={account.id}
                 enabled={showAccountQuota}
+                visualization={presentation === "cards" ? "battery" : "rings"}
+                batteryThresholds={batteryThresholds}
               >
                 {(quotaQuery, quotaView) => (
                   <div
@@ -663,7 +671,7 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                     data-reauth={
                       !!account.reauth_required || !!account.requires_reauth
                     }
-                    className={`min-w-0 border ${presentation === "cards" ? "glass-card flex h-full flex-col gap-2 p-3 [&>.codex-quota-panel]:mt-0" : "space-y-2 rounded-md p-2"} ${
+                    className={`min-w-0 border ${presentation === "cards" ? "codex-account-card glass-card flex h-full flex-col gap-2 p-3 [&>.codex-quota-panel]:mt-0" : "space-y-2 rounded-md p-2"} ${
                       account.reauth_required || account.requires_reauth
                         ? "border-amber-300/70 bg-amber-50/70 dark:border-amber-500/40 dark:bg-amber-950/30"
                         : presentation === "cards"
@@ -676,11 +684,27 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                         presentation === "cards" ? "space-y-1" : "space-y-2"
                       }
                     >
-                      <div className="flex min-w-0 items-start justify-between gap-2">
+                      <div
+                        className={cn(
+                          "flex min-w-0 justify-between gap-2",
+                          presentation === "cards"
+                            ? "items-center"
+                            : "items-start",
+                        )}
+                      >
                         <div
                           className={`flex min-w-0 flex-1 items-center gap-2 ${presentation === "cards" ? "" : "flex-wrap"}`}
                         >
-                          <CodexAccountIcon account={account} />
+                          {presentation === "cards" ? (
+                            <span
+                              aria-hidden="true"
+                              className="codex-account-avatar glass-button inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full [&>svg]:h-3.5 [&>svg]:w-3.5"
+                            >
+                              <CodexAccountIcon account={account} />
+                            </span>
+                          ) : (
+                            <CodexAccountIcon account={account} />
+                          )}
                           {presentation === "cards" ? (
                             <CodexAccountIdentity account={account} />
                           ) : (

@@ -379,6 +379,12 @@ pub struct AppSettings {
     pub usage_confirmed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_dashboard_refresh_interval_ms: Option<u32>,
+    /// 剩余额度不超过该百分比时显示警告颜色。
+    #[serde(default = "default_quota_battery_warning_threshold_percent")]
+    pub quota_battery_warning_threshold_percent: f64,
+    /// 剩余额度不超过该百分比时显示低额度颜色。
+    #[serde(default = "default_quota_battery_low_threshold_percent")]
+    pub quota_battery_low_threshold_percent: f64,
     /// 会话用量自动扫描开关（默认开启=自动模式）。关闭后停止后台定时扫描
     /// 各客户端会话日志，仅在用户点击"立即同步"时手动扫描；只管扫描时机，
     /// 代理接管记账与启动费用回填（不读会话文件）不受此开关影响。
@@ -524,6 +530,14 @@ fn default_session_auto_sync_enabled() -> bool {
     true
 }
 
+fn default_quota_battery_warning_threshold_percent() -> f64 {
+    50.0
+}
+
+fn default_quota_battery_low_threshold_percent() -> f64 {
+    10.0
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -538,6 +552,9 @@ impl Default for AppSettings {
             proxy_confirmed: None,
             usage_confirmed: None,
             usage_dashboard_refresh_interval_ms: None,
+            quota_battery_warning_threshold_percent:
+                default_quota_battery_warning_threshold_percent(),
+            quota_battery_low_threshold_percent: default_quota_battery_low_threshold_percent(),
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
             show_profile_switcher: true,
@@ -580,6 +597,22 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    fn validate_quota_battery_thresholds(&self) -> Result<(), AppError> {
+        let warning = self.quota_battery_warning_threshold_percent;
+        let low = self.quota_battery_low_threshold_percent;
+        if !warning.is_finite()
+            || !low.is_finite()
+            || !(0.0..=100.0).contains(&warning)
+            || !(0.0..=100.0).contains(&low)
+            || low >= warning
+        {
+            return Err(AppError::InvalidInput(
+                "Quota battery thresholds must be finite percentages from 0 to 100, with the low threshold below the warning threshold.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn settings_path() -> Option<PathBuf> {
         // settings.json 保留用于旧版本迁移和无数据库场景
         Some(crate::config::get_default_app_config_dir().join("settings.json"))
@@ -675,10 +708,21 @@ impl AppSettings {
         let Some(path) = Self::settings_path() else {
             return Self::default();
         };
-        if let Ok(content) = fs::read_to_string(&path) {
+        Self::load_from_file_at(&path)
+    }
+
+    fn load_from_file_at(path: &std::path::Path) -> Self {
+        if let Ok(content) = fs::read_to_string(path) {
             match serde_json::from_str::<AppSettings>(&content) {
                 Ok(mut settings) => {
                     settings.normalize_paths();
+                    if let Err(err) = settings.validate_quota_battery_thresholds() {
+                        log::warn!("Invalid saved quota battery thresholds; using defaults: {err}");
+                        settings.quota_battery_warning_threshold_percent =
+                            default_quota_battery_warning_threshold_percent();
+                        settings.quota_battery_low_threshold_percent =
+                            default_quota_battery_low_threshold_percent();
+                    }
                     settings
                 }
                 Err(err) => {
@@ -706,6 +750,7 @@ fn save_settings_file(settings: &AppSettings) -> Result<(), AppError> {
 fn save_settings_file_at(settings: &AppSettings, path: &std::path::Path) -> Result<(), AppError> {
     let mut normalized = settings.clone();
     normalized.normalize_paths();
+    normalized.validate_quota_battery_thresholds()?;
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
@@ -805,6 +850,7 @@ fn persist_settings_update(
     save: impl FnOnce(&AppSettings) -> Result<(), AppError>,
 ) -> Result<(), AppError> {
     incoming.normalize_paths();
+    incoming.validate_quota_battery_thresholds()?;
     // Unrelated saves must still work when a previously chosen source is offline.
     if incoming.codex_usage_source_dir != existing.codex_usage_source_dir {
         if let Some(raw) = &incoming.codex_usage_source_dir {
@@ -1218,6 +1264,125 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::app_config::AppType;
+
+    #[test]
+    fn quota_battery_threshold_defaults_and_roundtrip_preserve_other_settings() {
+        let old: AppSettings = serde_json::from_value(serde_json::json!({
+            "showInTray": false,
+            "language": "ja"
+        }))
+        .unwrap();
+        assert_eq!(old.quota_battery_warning_threshold_percent, 50.0);
+        assert_eq!(old.quota_battery_low_threshold_percent, 10.0);
+        assert_eq!(
+            AppSettings::default().quota_battery_warning_threshold_percent,
+            50.0
+        );
+        assert_eq!(
+            AppSettings::default().quota_battery_low_threshold_percent,
+            10.0
+        );
+        old.validate_quota_battery_thresholds().unwrap();
+
+        let fixture = tempfile::tempdir().unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        let mut existing = old;
+        let mut incoming = existing.clone();
+        incoming.quota_battery_warning_threshold_percent = 60.5;
+        incoming.quota_battery_low_threshold_percent = 20.25;
+        persist_settings_update(&mut existing, incoming, |settings| {
+            save_settings_file_at(settings, &settings_path)
+        })
+        .unwrap();
+        let serialized: serde_json::Value =
+            serde_json::from_slice(&fs::read(&settings_path).unwrap()).unwrap();
+        assert_eq!(serialized["quotaBatteryWarningThresholdPercent"], 60.5);
+        assert_eq!(serialized["quotaBatteryLowThresholdPercent"], 20.25);
+        let loaded: AppSettings = serde_json::from_value(serialized).unwrap();
+        assert_eq!(loaded.quota_battery_warning_threshold_percent, 60.5);
+        assert_eq!(loaded.quota_battery_low_threshold_percent, 20.25);
+        assert!(!loaded.show_in_tray);
+        assert_eq!(loaded.language.as_deref(), Some("ja"));
+        assert_eq!(existing.quota_battery_warning_threshold_percent, 60.5);
+        assert_eq!(existing.quota_battery_low_threshold_percent, 20.25);
+    }
+
+    #[test]
+    fn quota_battery_threshold_validation_accepts_range_boundaries() {
+        for (warning, low) in [(100.0, 0.0), (100.0, 99.5), (0.25, 0.0)] {
+            let settings = AppSettings {
+                quota_battery_warning_threshold_percent: warning,
+                quota_battery_low_threshold_percent: low,
+                ..AppSettings::default()
+            };
+            settings.validate_quota_battery_thresholds().unwrap();
+        }
+    }
+
+    #[test]
+    fn quota_battery_threshold_load_repairs_only_invalid_thresholds() {
+        let fixture = tempfile::tempdir().unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        fs::write(
+            &settings_path,
+            serde_json::to_vec(&serde_json::json!({
+                "showInTray": false,
+                "language": "ja",
+                "codexConfigDir": "  ~/.codex-alternate  ",
+                "quotaBatteryWarningThresholdPercent": 5,
+                "quotaBatteryLowThresholdPercent": 15
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let loaded = AppSettings::load_from_file_at(&settings_path);
+        assert_eq!(loaded.quota_battery_warning_threshold_percent, 50.0);
+        assert_eq!(loaded.quota_battery_low_threshold_percent, 10.0);
+        assert!(!loaded.show_in_tray);
+        assert_eq!(loaded.language.as_deref(), Some("ja"));
+        assert_eq!(
+            loaded.codex_config_dir.as_deref(),
+            Some("~/.codex-alternate")
+        );
+    }
+
+    #[test]
+    fn quota_battery_threshold_invalid_save_preserves_disk_and_memory() {
+        let fixture = tempfile::tempdir().unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        let mut existing = AppSettings::default();
+        save_settings_file_at(&existing, &settings_path).unwrap();
+        let saved = fs::read(&settings_path).unwrap();
+        for (warning, low) in [
+            (50.0, 50.0),
+            (50.0, 60.0),
+            (0.0, 0.0),
+            (100.1, 10.0),
+            (-1.0, 10.0),
+            (50.0, -0.1),
+            (50.0, 100.1),
+            (f64::NAN, 10.0),
+            (50.0, f64::NAN),
+            (f64::INFINITY, 10.0),
+            (50.0, f64::NEG_INFINITY),
+        ] {
+            let mut incoming = existing.clone();
+            incoming.quota_battery_warning_threshold_percent = warning;
+            incoming.quota_battery_low_threshold_percent = low;
+            incoming.show_in_tray = false;
+            assert!(
+                persist_settings_update(&mut existing, incoming.clone(), |_| {
+                    panic!("Invalid thresholds must fail before persistence")
+                })
+                .is_err()
+            );
+            assert!(save_settings_file_at(&incoming, &settings_path).is_err());
+            assert_eq!(fs::read(&settings_path).unwrap(), saved);
+            assert_eq!(existing.quota_battery_warning_threshold_percent, 50.0);
+            assert_eq!(existing.quota_battery_low_threshold_percent, 10.0);
+            assert!(existing.show_in_tray);
+        }
+    }
 
     #[test]
     fn codex_usage_source_settings_serde_and_normalization() {

@@ -6,6 +6,8 @@ import type { AppId } from "@/lib/api";
 import { useSubscriptionQuota } from "@/lib/query/subscription";
 import type { QuotaTier, SubscriptionQuota } from "@/types/subscription";
 import { CodexQuotaRings } from "@/components/CodexQuotaRings";
+import { CodexQuotaBattery } from "@/components/CodexQuotaBattery";
+import type { QuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 
 interface SubscriptionQuotaFooterProps {
   appId: AppId;
@@ -23,7 +25,8 @@ interface SubscriptionQuotaViewProps {
   /** Managed accounts are reauthenticated in the app rather than a CLI. */
   expiredHint?: string;
   inline?: boolean;
-  visualization?: "bars" | "rings";
+  visualization?: "bars" | "rings" | "battery";
+  batteryThresholds?: QuotaBatteryThresholds;
   showRefresh?: boolean;
   refreshFailed?: boolean;
   refreshError?: string | null;
@@ -105,6 +108,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   expiredHint,
   inline = false,
   visualization = "bars",
+  batteryThresholds,
   showRefresh = true,
   refreshFailed = false,
   refreshError,
@@ -121,7 +125,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
 
   // Account cards share one geometry through loading, missing credentials and
   // failures. Unavailable windows remain unknown rather than implying zero.
-  if (visualization === "rings") {
+  if (visualization === "rings" || visualization === "battery") {
     const hasWindows =
       !!quota?.success &&
       !!quota.tiers?.length &&
@@ -159,33 +163,36 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       error: null,
       queriedAt: null,
     };
-    return (
-      <CodexQuotaRings
-        quota={quota ?? unknownQuota}
-        tiers={
-          hasWindows
-            ? quota!.tiers!
-            : [
-                { name: "five_hour", utilization: NaN, resetsAt: null },
-                { name: "seven_day", utilization: NaN, resetsAt: null },
-              ]
-        }
-        labels={TIER_I18N_KEYS}
-        loading={loading}
-        refetch={refetch}
-        inline={inline}
-        showRefresh={showRefresh}
-        updatedLabel={
-          quota?.queriedAt
-            ? formatRelativeTime(quota.queriedAt, now, t)
-            : t("usage.never", { defaultValue: "从未更新" })
-        }
-        refreshFailed={refreshFailed}
-        refreshError={refreshError}
-        statusLabel={statusLabel}
-        statusMessage={statusMessage}
-        statusTone={expired ? "warning" : failed ? "error" : undefined}
-      />
+    const viewProps = {
+      quota: quota ?? unknownQuota,
+      tiers: hasWindows
+        ? quota!.tiers!
+        : [
+            { name: "five_hour", utilization: NaN, resetsAt: null },
+            { name: "seven_day", utilization: NaN, resetsAt: null },
+          ],
+      labels: TIER_I18N_KEYS,
+      loading,
+      refetch,
+      inline,
+      showRefresh,
+      updatedLabel: quota?.queriedAt
+        ? formatRelativeTime(quota.queriedAt, now, t)
+        : t("usage.never", { defaultValue: "从未更新" }),
+      refreshFailed,
+      refreshError,
+      statusLabel,
+      statusMessage,
+      statusTone: expired
+        ? ("warning" as const)
+        : failed
+          ? ("error" as const)
+          : undefined,
+    };
+    return visualization === "battery" ? (
+      <CodexQuotaBattery {...viewProps} thresholds={batteryThresholds} />
+    ) : (
+      <CodexQuotaRings {...viewProps} />
     );
   }
 

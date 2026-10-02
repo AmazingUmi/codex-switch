@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useSettingsQuery } from "@/lib/query";
+import { getQuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 import { useTranslation } from "react-i18next";
 import { ArrowRightLeft, Loader2 } from "lucide-react";
 import type { Provider } from "@/types";
@@ -139,6 +141,7 @@ function AccountSwitchAction({
 
 export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
   const { t } = useTranslation();
+  const { data: settings } = useSettingsQuery();
   const [selectedProviders, setSelectedProviders] = useState<
     Record<string, string>
   >({});
@@ -164,6 +167,7 @@ export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
     >
       <CodexOAuthSection
         presentation="cards"
+        batteryThresholds={getQuotaBatteryThresholds(settings)}
         showAccountQuota
         showLogoutAll={props.showLogoutAll}
         onAddAccount={props.onAddAccount}

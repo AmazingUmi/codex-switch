@@ -394,6 +394,13 @@
     "language": "界面语言",
     "languageHint": "语言更改会自动保存。",
     "theme": "外观主题",
+    "quotaBattery": {
+      "title": "额度电池",
+      "warning": "预警阈值",
+      "low": "低额度阈值",
+      "help": "按剩余额度变色：不超过预警阈值时为琥珀色，不超过低额度阈值时为红色，高于两者时为绿色。数值范围为 0–100%，低额度阈值必须小于预警阈值；修改后自动保存。",
+      "invalid": "请输入 0–100% 的数值，且低额度阈值须小于预警阈值。"
+    },
     "themeHint": "选择应用的外观主题，立即生效。",
     "themeLight": "浅色",
     "themeDark": "深色",
@@ -3057,6 +3064,8 @@
     "helpLabel": "账号与额度说明",
     "helpQuota": "百分比表示已使用额度。5 小时与每周额度分别计算，并显示各自的重置时间；以账号实际返回的额度窗口为准。",
     "quotaUsedLabel": "已用",
+    "quotaRemainingLabel": "剩余",
+    "helpQuotaBattery": "彩色分段和百分比表示剩余额度，灰色刻线表示距离重置的剩余时间占整个窗口的比例。各额度窗口分别计算；窗口长度或重置时间未知时，不显示时间刻线。",
     "quotaUnknown": "额度未知",
     "quotaResetUnknown": "重置时间未知",
     "advancedConfiguration": "高级连接",

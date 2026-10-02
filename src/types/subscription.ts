@@ -8,6 +8,8 @@ export interface QuotaTier {
   name: string;
   utilization: number; // 0-100
   resetsAt: string | null;
+  /** Exact API window length, when provided; names may round custom windows. */
+  windowDurationSeconds?: number | null;
   usedValueUsd?: number | null;
   maxValueUsd?: number | null;
   planLabel?: string | null;

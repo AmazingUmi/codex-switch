@@ -1225,6 +1225,7 @@ mod tests {
             name: name.to_string(),
             utilization,
             resets_at: None,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         }

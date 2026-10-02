@@ -394,6 +394,13 @@
     "language": "介面語言",
     "languageHint": "語言變更會自動儲存。",
     "theme": "外觀主題",
+    "quotaBattery": {
+      "title": "額度電池",
+      "warning": "預警門檻",
+      "low": "低額度門檻",
+      "help": "依剩餘額度變色：不超過預警門檻時為琥珀色，不超過低額度門檻時為紅色，高於兩者時為綠色。數值範圍為 0–100%，低額度門檻必須小於預警門檻；修改後自動儲存。",
+      "invalid": "請輸入 0–100% 的數值，且低額度門檻須小於預警門檻。"
+    },
     "themeHint": "選擇應用程式的外觀主題，立即生效。",
     "themeLight": "淺色",
     "themeDark": "深色",
@@ -3058,6 +3065,8 @@
     "helpLabel": "帳號與額度說明",
     "helpQuota": "百分比表示已使用額度。5 小時與每週額度分別計算，並顯示各自的重置時間；以帳號實際回傳的額度視窗為準。",
     "quotaUsedLabel": "已用",
+    "quotaRemainingLabel": "剩餘",
+    "helpQuotaBattery": "彩色分段和百分比表示剩餘額度，灰色刻線表示距離重置的剩餘時間占整個視窗的比例。各額度視窗分別計算；視窗長度或重置時間未知時，不顯示時間刻線。",
     "quotaUnknown": "額度未知",
     "quotaResetUnknown": "重置時間未知",
     "advancedConfiguration": "進階連線",

@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { settingsApi } from "@/lib/api";
 import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
+import { QuotaBatterySettings } from "@/components/settings/QuotaBatterySettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { TerminalSettings } from "@/components/settings/TerminalSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
@@ -280,6 +281,10 @@ export function SettingsPage({
                       onChange={(lang) => handleAutoSave({ language: lang })}
                     />
                     <ThemeSettings />
+                    <QuotaBatterySettings
+                      settings={settings}
+                      onChange={handleAutoSave}
+                    />
                     <WindowSettings
                       settings={settings}
                       onChange={handleAutoSave}

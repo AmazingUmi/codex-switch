@@ -662,6 +662,7 @@ pub(crate) async fn query_grok_quota(
             .resets_at
             .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
             .map(|dt| dt.to_rfc3339()),
+        window_duration_seconds: None,
         used_value_usd: None,
         max_value_usd: None,
     };

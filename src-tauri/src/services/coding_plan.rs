@@ -179,6 +179,7 @@ async fn query_kimi(api_key: &str) -> Result<SubscriptionQuota, String> {
                     name: "five_hour".to_string(),
                     utilization,
                     resets_at,
+                    window_duration_seconds: None,
                     used_value_usd: None,
                     max_value_usd: None,
                 });
@@ -202,6 +203,7 @@ async fn query_kimi(api_key: &str) -> Result<SubscriptionQuota, String> {
             name: "weekly_limit".to_string(),
             utilization,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         });
@@ -305,6 +307,7 @@ fn parse_zhipu_token_tiers(data: &serde_json::Value) -> Vec<QuotaTier> {
                 name: name.to_string(),
                 utilization: percentage,
                 resets_at,
+                window_duration_seconds: None,
                 used_value_usd: None,
                 max_value_usd: None,
             });
@@ -588,6 +591,7 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> Result<SubscriptionQuota
             name: "five_hour".to_string(),
             utilization: usage_pct * 100.0,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: used_usd,
             max_value_usd: max_usd,
         });
@@ -609,6 +613,7 @@ async fn query_zenmux(base_url: &str, api_key: &str) -> Result<SubscriptionQuota
             name: "weekly_limit".to_string(),
             utilization: usage_pct * 100.0,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: used_usd,
             max_value_usd: max_usd,
         });
@@ -684,6 +689,7 @@ fn parse_minimax_tiers(body: &serde_json::Value) -> Vec<QuotaTier> {
             name: TIER_FIVE_HOUR.to_string(),
             utilization: 100.0 - remain_pct,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         });
@@ -703,6 +709,7 @@ fn parse_minimax_tiers(body: &serde_json::Value) -> Vec<QuotaTier> {
                 name: TIER_WEEKLY_LIMIT.to_string(),
                 utilization: 100.0 - remain_pct,
                 resets_at,
+                window_duration_seconds: None,
                 used_value_usd: None,
                 max_value_usd: None,
             });
@@ -754,6 +761,7 @@ fn parse_opencode_go_tiers(body: &serde_json::Value) -> Vec<QuotaTier> {
             name: tier_name.to_string(),
             utilization: percent,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         });
@@ -1140,6 +1148,7 @@ fn parse_afp_tiers(result: &serde_json::Value) -> Vec<QuotaTier> {
             name: name.to_string(),
             utilization,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         });
@@ -1199,6 +1208,7 @@ fn parse_coding_plan_tiers(result: &serde_json::Value) -> Vec<QuotaTier> {
             name: name.to_string(),
             utilization,
             resets_at,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         });
