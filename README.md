@@ -59,10 +59,15 @@ cargo test --manifest-path src-tauri/Cargo.toml
 
 ## 发布与来源
 
-本分支尚无自动更新渠道。macOS 预览包是本地 ad-hoc 签名的 debug 应用，
-未作公证发布。正式版使用独立标识 `com.codexswitch.desktop` 和
-`codexswitch://` 深链接，预览版不注册外部 URL 协议。旧上游发布、下载镜像、
-联盟推广链接及合作伙伴优惠声明已移除。
+安装包和版本说明见 [GitHub Releases](https://github.com/AmazingUmi/codex-switch/releases)。
+首版 `0.0.2` 为 macOS Apple Silicon（arm64）测试版，配置最低系统版本为
+macOS 12；未在 macOS 12 或 Intel Mac 实机验证。无 Apple 开发者证书时使用
+ad-hoc 签名，未经过 Apple 公证，安装需要在系统“隐私与安全性”中允许打开。
+本分支尚无自动更新渠道，更新时从 Releases 下载新版本。
+
+发布包使用 release 构建、独立标识 `com.codexswitch.desktop` 和
+`codexswitch://` 深链接。`pnpm build:preview` 是独立的本地 debug 预览包，
+不注册外部 URL 协议。打包、校验和签名配置见 [发布流程](docs/RELEASING.md)。
 
 项目源自 Jason Young 和其他贡献者维护的 CC Switch，保留原始版权与
 [MIT 许可](LICENSE)。

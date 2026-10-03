@@ -346,8 +346,8 @@ fn migrate_data_from_source(home: &Path, preview: bool, source: &Path) -> Result
     if !source.exists() || target.join(MARKER).exists() || target.join(DATABASE).exists() {
         return Ok(false);
     }
-    if fs::symlink_metadata(&source)
-        .map_err(|e| AppError::io(&source, e))?
+    if fs::symlink_metadata(source)
+        .map_err(|e| AppError::io(source, e))?
         .file_type()
         .is_symlink()
     {
@@ -364,7 +364,7 @@ fn migrate_data_from_source(home: &Path, preview: bool, source: &Path) -> Result
         .tempdir_in(parent)
         .map_err(|e| AppError::io(parent, e))?;
     let payload = staging.path().join("data");
-    copy_snapshot(&source, &payload, &source, &target)?;
+    copy_snapshot(source, &payload, source, &target)?;
     let device = home.join(LEGACY_DIR);
     if source != device {
         stage_device_data(&device, &payload, &target)?;

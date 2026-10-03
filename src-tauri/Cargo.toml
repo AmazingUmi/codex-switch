@@ -99,6 +99,12 @@ opt-level = "s"
 panic = "unwind"
 strip = "symbols"
 
+# Rust 1.95's Mach-O stripping can misalign host proc-macro dylibs on macOS 27.
+# Keep build tools loadable while retaining stripping for the shipped binary.
+# https://github.com/rust-lang/rust/issues/157750
+[profile.release.build-override]
+strip = "none"
+
 [dev-dependencies]
 serial_test = "3"
 tempfile = "3"

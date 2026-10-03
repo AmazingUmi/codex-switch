@@ -1,0 +1,121 @@
+name: macOS Pre-release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag on main (for example v0.0.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    # Keep this independent fork's releases away from the upstream repository.
+    if: github.repository == 'AmazingUmi/codex-switch'
+    runs-on: macos-14
+    timeout-minutes: 75
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - name: Checkout exact release tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pinned Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+
+      - name: Validate tag, release identity and Apple credentials
+        id: validate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/release-validate.mjs
+
+      - name: Refuse existing releases before building
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-publish.mjs --check-only
+
+      - name: Setup pinned pnpm
+        run: |
+          corepack enable
+          corepack install
+          pnpm --version
+
+      - name: Cache pnpm store
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install locked frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend release checks
+        run: |
+          pnpm typecheck
+          pnpm test:unit
+
+      - name: Setup repository Rust toolchain
+        run: |
+          rustup toolchain install 1.95 --profile minimal
+          rustup target add aarch64-apple-darwin --toolchain 1.95
+          rustc --version
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: src-tauri -> target
+          key: macos-release-arm64
+
+      - name: Build production release DMG
+        env:
+          # No Apple credentials means an explicitly labelled ad-hoc test build.
+          # A partial secret set fails in validation; it cannot silently downgrade.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/release-build.mjs
+
+      - name: Verify actual app and stage fresh artifacts
+        env:
+          RELEASE_SIGNING_MODE: ${{ steps.validate.outputs.signing }}
+        run: node scripts/release-stage.mjs
+
+      - name: Preserve verified artifacts for inspection
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codex-switch-${{ steps.validate.outputs.tag }}-macos-arm64-${{ steps.validate.outputs.signing }}
+          path: src-tauri/target/release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Create draft Pre-release with verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-publish.mjs

@@ -65,11 +65,17 @@ and [architecture and compatibility](ARCHITECTURE.md).
 
 ## Distribution and attribution
 
-This fork has no published automatic update channel. The macOS preview is a local
-ad-hoc signed debug bundle; it is not a notarized release. Regular builds use
-`com.codexswitch.desktop` and the `codexswitch://` deep-link scheme; preview builds
-register no external URL scheme. Upstream release, download-mirror, affiliate
-tracking and partner discount claims have been removed.
+Download installers and version notes from [GitHub Releases](https://github.com/AmazingUmi/codex-switch/releases).
+The first `0.0.2` release is a macOS Apple Silicon (arm64) pre-release. The configured
+minimum is macOS 12; macOS 12 and Intel Macs have not been tested on actual devices.
+Without Apple developer credentials, builds use ad-hoc signing and are not
+notarized by Apple. Installation requires allowing the app in Privacy & Security.
+There is no automatic update channel; download new versions from Releases.
+
+Distributed packages use release builds, identifier `com.codexswitch.desktop` and
+the `codexswitch://` deep-link scheme. `pnpm build:preview` remains a separate local
+debug bundle with no registered external URL scheme. See [the release workflow](RELEASING.md)
+for packaging, verification and signing configuration.
 
 Derived from CC Switch by Jason Young and contributors. Original copyright and
 MIT terms remain in [LICENSE](../LICENSE).

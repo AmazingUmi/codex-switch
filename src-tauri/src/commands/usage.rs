@@ -14,6 +14,10 @@ pub fn get_codex_usage_source() -> crate::codex_usage_source::CodexUsageSource {
 
 /// 获取使用量汇总
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_usage_summary(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -64,6 +68,10 @@ pub fn get_usage_summary_by_app(
 
 /// 获取每日趋势
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_usage_trends(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -90,6 +98,10 @@ pub fn get_usage_trends(
 
 /// 获取 Provider 统计
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_provider_stats(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -116,6 +128,10 @@ pub fn get_provider_stats(
 
 /// 获取模型统计
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_model_stats(
     state: State<'_, AppState>,
     start_date: Option<i64>,

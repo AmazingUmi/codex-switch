@@ -238,6 +238,13 @@ pub enum CodexCatalogToolProfile {
     /// Additionally the Codex `web_search` hosted tool is unusable on this path
     /// (the transform drops it), so it is always disabled — see
     /// `prepare_codex_config_text_with_model_catalog`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Historical catalog profile retained for fixture coverage"
+        )
+    )]
     Anthropic,
 }
 

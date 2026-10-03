@@ -825,15 +825,15 @@ fn save_settings_file_at(settings: &AppSettings, path: &std::path::Path) -> Resu
             .write(true)
             .truncate(true)
             .mode(0o600)
-            .open(&path)
-            .map_err(|e| AppError::io(&path, e))?;
+            .open(path)
+            .map_err(|e| AppError::io(path, e))?;
         file.write_all(json.as_bytes())
-            .map_err(|e| AppError::io(&path, e))?;
+            .map_err(|e| AppError::io(path, e))?;
     }
 
     #[cfg(not(unix))]
     {
-        fs::write(&path, json).map_err(|e| AppError::io(&path, e))?;
+        fs::write(path, json).map_err(|e| AppError::io(path, e))?;
     }
 
     Ok(())

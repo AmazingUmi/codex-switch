@@ -41,8 +41,10 @@ pub async fn get_codex_oauth_quota(
         None => manager.default_account_id().await,
     };
     let Some(id) = resolved else {
-        let mut entry = QuotaCacheEntry::default();
-        entry.latest = Some(SubscriptionQuota::not_found("codex_oauth"));
+        let entry = QuotaCacheEntry {
+            latest: Some(SubscriptionQuota::not_found("codex_oauth")),
+            ..Default::default()
+        };
         return Ok(entry.snapshot(chrono::Utc::now().timestamp_millis(), 0, 0));
     };
 

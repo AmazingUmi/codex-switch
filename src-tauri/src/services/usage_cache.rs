@@ -253,6 +253,7 @@ impl UsageCache {
             .retain(|key, _| !key.starts_with("managed-codex:"));
     }
 
+    #[cfg(test)]
     pub(crate) fn mark_codex_oauth_transient_failure(&self, account_id: &str) {
         if let Ok(mut entries) = self.codex_oauth.write() {
             entries

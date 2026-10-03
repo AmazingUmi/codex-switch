@@ -309,8 +309,8 @@ fn apply_on_main_thread(
     use once_cell::sync::Lazy;
     use std::sync::Mutex;
     // The same native icon is reused; menu tracking is never interrupted by a redraw.
-    static APPLIED: Lazy<Mutex<Option<(String, String, Option<u64>, RingTone, bool, usize)>>> =
-        Lazy::new(|| Mutex::new(None));
+    type AppliedDisplay = (String, String, Option<u64>, RingTone, bool, usize);
+    static APPLIED: Lazy<Mutex<Option<AppliedDisplay>>> = Lazy::new(|| Mutex::new(None));
     let Some(tray) = app.tray_by_id(crate::tray::TRAY_ID) else {
         return;
     };

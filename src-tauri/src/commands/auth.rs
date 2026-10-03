@@ -189,6 +189,10 @@ pub async fn auth_start_login(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC arguments and injected state"
+)]
 pub async fn auth_poll_for_account(
     app: tauri::AppHandle,
     auth_provider: String,
