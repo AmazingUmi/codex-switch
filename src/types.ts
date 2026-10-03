@@ -358,9 +358,11 @@ export interface Settings {
   // 是否在系统托盘（macOS 菜单栏）显示图标
   showInTray: boolean;
   // macOS menu bar appearance; omitted values keep the existing icon.
-  trayDisplayMode?: "icon" | "quotaRing";
+  trayDisplayMode?: "icon" | "quotaRing" | "quotaRingOnly";
   trayQuotaWindow?: "fiveHour" | "sevenDay";
   trayQuotaColorMode?: "system" | "quota";
+  /** Shared quota refresh interval, in seconds. Zero disables polling. */
+  quotaRefreshIntervalSeconds?: number;
   // 点击关闭按钮时是否最小化到托盘而不是关闭应用
   minimizeToTrayOnClose: boolean;
   // 是否启用应用级窗口控制按钮（最小化/最大化/关闭）

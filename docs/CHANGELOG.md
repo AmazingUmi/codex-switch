@@ -2,6 +2,14 @@
 
 ## Unreleased — Codex Switch fork
 
+- Share account-scoped quota refreshes between Home and the menu bar, with a
+  configurable refresh interval and retained success timestamps on transient errors.
+- Keep available quota visible when switching to accounts with only a weekly
+  limit, and add a compact ring-only menu-bar option.
+- Unify settings typography and capsule controls, add a battery threshold slider,
+  and prevent glass-control shadows from being clipped by scroll containers.
+- Add equal-height source/model statistics cards with switchable cost/token
+  comparisons, soft gradient rings, totals and accessible legends.
 - Use Codex Switch product identifiers, independent application directories and
   a one-time migration for visible browser preferences. Remove inherited
   affiliate links and promotional partnership claims.
@@ -26,6 +34,6 @@
 - Retain shared native services, database compatibility, account/credential
   handling, protocol translation and the original MIT license.
 
-The fork version is `0.0.1`; it is not yet a published release. The inherited
+The fork version is `0.0.2`; it is not yet a published release. The inherited
 upstream `3.20.4` version remains part of the project history.
 Historical upstream release notes and implementation reports remain in Git history.

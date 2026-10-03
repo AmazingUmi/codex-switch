@@ -120,6 +120,7 @@ export function useSettingsForm(): UseSettingsFormResult {
       trayDisplayMode: data.trayDisplayMode ?? "icon",
       trayQuotaWindow: data.trayQuotaWindow ?? "fiveHour",
       trayQuotaColorMode: data.trayQuotaColorMode ?? "quota",
+      quotaRefreshIntervalSeconds: data.quotaRefreshIntervalSeconds ?? 60,
       minimizeToTrayOnClose: data.minimizeToTrayOnClose ?? true,
       useAppWindowControls: data.useAppWindowControls ?? false,
       enableClaudePluginIntegration:
@@ -155,6 +156,7 @@ export function useSettingsForm(): UseSettingsFormResult {
             trayDisplayMode: "icon",
             trayQuotaWindow: "fiveHour",
             trayQuotaColorMode: "quota",
+            quotaRefreshIntervalSeconds: 60,
             minimizeToTrayOnClose: true,
             useAppWindowControls: false,
             enableClaudePluginIntegration: false,
@@ -195,6 +197,8 @@ export function useSettingsForm(): UseSettingsFormResult {
         trayDisplayMode: serverData.trayDisplayMode ?? "icon",
         trayQuotaWindow: serverData.trayQuotaWindow ?? "fiveHour",
         trayQuotaColorMode: serverData.trayQuotaColorMode ?? "quota",
+        quotaRefreshIntervalSeconds:
+          serverData.quotaRefreshIntervalSeconds ?? 60,
         minimizeToTrayOnClose: serverData.minimizeToTrayOnClose ?? true,
         useAppWindowControls: serverData.useAppWindowControls ?? false,
         enableClaudePluginIntegration:

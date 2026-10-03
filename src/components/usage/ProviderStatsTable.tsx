@@ -18,6 +18,7 @@ import {
   usageSourceName,
 } from "@/lib/usageSource";
 import { fmtUsd } from "./format";
+import { UsageStatsPanel } from "./UsageStatsPanel";
 import type { ProviderStats, UsageRangeSelection } from "@/types/usage";
 
 interface ProviderStatsTableProps {
@@ -68,8 +69,16 @@ export function ProviderStatsTable({
   }
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
-      <Table>
+    <UsageStatsPanel
+      comparisonTitle={t("usage.comparison.sources", "Source comparison")}
+      items={(stats ?? []).map((stat) => ({
+        id: stat.sourceId,
+        label: sourceLabel(stat),
+        totalTokens: stat.totalTokens,
+        totalCost: stat.totalCost,
+      }))}
+    >
+      <Table className="min-w-[420px]">
         <TableHeader>
           <TableRow>
             <TableHead>{t("usage.source", "Source")}</TableHead>
@@ -82,19 +91,13 @@ export function ProviderStatsTable({
             <TableHead className="text-right">
               {t("usage.estimatedCost", "Estimated cost")}
             </TableHead>
-            <TableHead className="text-right">
-              {t("usage.successRate", "成功率")}
-            </TableHead>
-            <TableHead className="text-right">
-              {t("usage.avgLatency", "平均延迟")}
-            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {stats?.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={4}
                 className="text-center text-muted-foreground"
               >
                 {t("usage.noData", "暂无数据")}
@@ -118,17 +121,11 @@ export function ProviderStatsTable({
                 <TableCell className="text-right">
                   {fmtUsd(stat.totalCost, 4)}
                 </TableCell>
-                <TableCell className="text-right">
-                  {stat.successRate.toFixed(1)}%
-                </TableCell>
-                <TableCell className="text-right">
-                  {stat.avgLatencyMs}ms
-                </TableCell>
               </TableRow>
             ))
           )}
         </TableBody>
       </Table>
-    </div>
+    </UsageStatsPanel>
   );
 }

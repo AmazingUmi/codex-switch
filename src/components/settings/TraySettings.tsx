@@ -4,6 +4,7 @@ import { CircleGauge } from "lucide-react";
 import { CodexSwitchMark } from "@/components/branding/CodexSwitchMark";
 import { CapsuleControl } from "@/components/ui/capsule";
 import { HelpButton } from "@/components/ui/help-button";
+import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import type { SettingsFormState } from "@/hooks/useSettings";
 import { isMac } from "@/lib/platform";
 import { getQuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
@@ -50,14 +51,16 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
   if (!isMac()) return null;
 
   return (
-    <section className="space-y-3" aria-busy={saving}>
-      <div className="flex items-center gap-2">
-        <CircleGauge className="h-4 w-4 text-primary" aria-hidden="true" />
-        <h3 className="text-sm font-medium">{t("settings.tray.title")}</h3>
-        <HelpButton label={t("settings.tray.title")}>
-          <p>{t("settings.tray.help")}</p>
-        </HelpButton>
-      </div>
+    <section className="settings-section space-y-3" aria-busy={saving}>
+      <SettingsSectionHeader
+        title={t("settings.tray.title")}
+        icon={<CircleGauge />}
+        help={
+          <HelpButton label={t("settings.tray.title")}>
+            <p>{t("settings.tray.help")}</p>
+          </HelpButton>
+        }
+      />
       <fieldset disabled={saving} className="min-w-0 space-y-3">
         <CapsuleControl
           value={mode}
@@ -65,7 +68,6 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
           onChange={(trayDisplayMode) => {
             if (trayDisplayMode !== mode) void save({ trayDisplayMode });
           }}
-          optionClassName="min-w-[80px]"
           options={[
             {
               value: "icon",
@@ -81,11 +83,11 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
               label: (
                 <>
                   <span
-                    className="codex-quota-battery inline-flex w-[66px] flex-none"
+                    className="codex-quota-battery inline-flex w-[50px] flex-none"
                     aria-hidden="true"
                   >
                     <span
-                      className="inline-flex items-center gap-1.5"
+                      className="inline-flex items-center gap-1"
                       data-quota-tone={tone}
                     >
                       <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none">
@@ -113,7 +115,7 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
                           transform="rotate(-90 10 10)"
                         />
                       </svg>
-                      <span className="text-xs tabular-nums">
+                      <span className="settings-control-text tabular-nums">
                         {previewRemaining}%
                       </span>
                     </span>
@@ -124,12 +126,47 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
                 </>
               ),
             },
+            {
+              value: "quotaRingOnly",
+              label: (
+                <>
+                  <svg
+                    viewBox="0 0 20 20"
+                    className="h-4 w-4"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <circle
+                      cx="10"
+                      cy="10"
+                      r="8"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      opacity="0.2"
+                    />
+                    <circle
+                      cx="10"
+                      cy="10"
+                      r="8"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      pathLength="100"
+                      strokeDasharray="36 100"
+                      transform="rotate(-90 10 10)"
+                    />
+                  </svg>
+                  <span className="sr-only">
+                    {t("settings.tray.quotaRingOnly")}
+                  </span>
+                </>
+              ),
+            },
           ]}
         />
-        {mode === "quotaRing" && (
+        {mode !== "icon" && (
           <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
             <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">
+              <p className="settings-field-label">
                 {t("settings.tray.window")}
               </p>
               <CapsuleControl
@@ -146,9 +183,7 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
               />
             </div>
             <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">
-                {t("settings.tray.color")}
-              </p>
+              <p className="settings-field-label">{t("settings.tray.color")}</p>
               <CapsuleControl
                 value={colorMode}
                 label={t("settings.tray.color")}
@@ -165,11 +200,9 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
           </div>
         )}
       </fieldset>
-      <p className="text-[11px] text-muted-foreground">
-        {t("settings.tray.hint")}
-      </p>
+      <p className="settings-description">{t("settings.tray.hint")}</p>
       {error && (
-        <p role="alert" className="text-xs text-destructive">
+        <p role="alert" className="settings-description text-destructive">
           {t("settings.saveFailedGeneric")}
         </p>
       )}

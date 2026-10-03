@@ -189,7 +189,7 @@ describe("Account quota header controls", () => {
     expect(refresh).toBeDisabled();
     expect(refresh).toHaveAttribute("aria-busy", "true");
     expect(getQuota).toHaveBeenCalledTimes(1);
-    expect(getQuota).toHaveBeenCalledWith("first");
+    expect(getQuota).toHaveBeenCalledWith("first", true);
     expect(within(card("second")).getByText("30%")).toBeInTheDocument();
     await act(async () => resolve(quota(36)));
     expect(await firstCard.findByText("64%")).toBeInTheDocument();

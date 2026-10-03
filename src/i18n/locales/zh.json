@@ -381,8 +381,11 @@
       "title": "额度电池",
       "warning": "预警阈值",
       "low": "低额度阈值",
-      "help": "按剩余额度变色：不超过预警阈值时为琥珀色，不超过低额度阈值时为红色，高于两者时为绿色。数值范围为 0–100%，低额度阈值必须小于预警阈值；修改后自动保存。",
-      "invalid": "请输入 0–100% 的数值，且低额度阈值须小于预警阈值。"
+      "help": "拖动电池下方的红色手柄调整低额度阈值，上方的琥珀色手柄调整预警阈值。电池按剩余额度分为红、琥珀和绿三段，边界柔和过渡。方向键每次调整 1%，Shift+方向键或 Page Up/Down 每次调整 5%，Home/End 到达可用边界；松开后自动保存。",
+      "invalid": "请输入 0–100% 的数值，且低额度阈值须小于预警阈值。",
+      "lowShort": "低额度",
+      "warningShort": "预警",
+      "availableShort": "充足"
     },
     "tray": {
       "title": "菜单栏",
@@ -396,7 +399,8 @@
       "system": "系统",
       "quota": "额度",
       "hint": "显示当前账户的剩余额度。",
-      "help": "保留应用图标，或显示当前账户的剩余额度环形和百分比。可选择 5 小时或每周额度。系统颜色随菜单栏外观变化；额度颜色复用额度电池的警告和低额度阈值，高于两者时使用系统颜色。未知额度显示 —。修改自动保存。"
+      "help": "显示应用图标、紧凑的剩余额度环形与百分比，或仅显示环形。可选择 5 小时或每周额度；所选周期不可用时，自动显示另一个可用周期。悬停查看实际显示的周期、账号、两个周期的额度和更新时间。系统颜色跟随菜单栏，额度颜色使用警示阈值。未知额度显示 —。修改自动保存。",
+      "quotaRingOnly": "仅环形"
     },
     "themeHint": "选择应用的外观主题，立即生效。",
     "themeLight": "浅色",
@@ -639,6 +643,8 @@
     "languageOptionEnglish": "English",
     "languageOptionJapanese": "日本語",
     "windowBehavior": "窗口行为",
+    "toggleOff": "关闭",
+    "toggleOn": "开启",
     "windowBehaviorHint": "配置窗口最小化与 Claude 插件联动策略。",
     "launchOnStartup": "开机自启",
     "launchOnStartupDescription": "随系统启动自动运行 Codex Switch",
@@ -646,7 +652,7 @@
     "silentStartupDescription": "程序启动时不显示主窗口，仅在系统托盘运行",
     "autoLaunchFailed": "设置开机自启失败",
     "minimizeToTray": "关闭时最小化到托盘",
-    "minimizeToTrayDescription": "勾选后点击关闭按钮会隐藏到系统托盘，取消则直接退出应用。",
+    "minimizeToTrayDescription": "开启后，点击关闭按钮会隐藏到系统托盘；关闭后则退出应用。",
     "useAppWindowControls": "启用应用级窗口按钮",
     "useAppWindowControlsDescription": "开启后使用应用自建的最小化、最大化/还原、关闭按钮；关闭后沿用系统窗口模式。",
     "enableClaudePluginIntegration": "应用到 Claude Code 插件",
@@ -830,7 +836,18 @@
       "pricingLoadFailed": "加载计费配置失败：{{error}}"
     },
     "saveFailedGeneric": "保存失败，请重试",
-    "localBuildHint": "Codex Switch 当前以本地构建分发，应用更新由外部管理。"
+    "localBuildHint": "Codex Switch 当前以本地构建分发，应用更新由外部管理。",
+    "quotaRefresh": {
+      "title": "额度自动刷新",
+      "off": "关闭",
+      "custom": "自定义",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分钟",
+      "secondsUnit": "秒",
+      "secondsUnitShort": "秒",
+      "invalid": "请输入 30–3600 秒之间的整数。",
+      "help": "主页与菜单栏共用刷新间隔，同一账号共用一次请求。当前账号在后台刷新，其他账号在主页可见时刷新。关闭后停止自动刷新，仍可手动刷新。"
+    }
   },
   "apps": {
     "claude": "Claude",
@@ -1577,6 +1594,16 @@
     "requestLogs": "用量记录",
     "sourceStats": "来源统计",
     "modelStats": "模型统计",
+    "comparison": {
+      "sources": "来源对比",
+      "models": "模型对比",
+      "metric": "对比指标",
+      "cost": "金额",
+      "tokens": "用量",
+      "total": "合计",
+      "costHint": "金额为当前筛选范围内的估算美元费用。",
+      "tokensHint": "用量与表格 Tokens 一致：非缓存输入 + 输出，不含缓存。"
+    },
     "time": "时间",
     "provider": "供应商",
     "billingModel": "计费模型",

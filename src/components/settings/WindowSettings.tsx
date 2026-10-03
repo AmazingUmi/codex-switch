@@ -1,8 +1,10 @@
 import { useTranslation } from "react-i18next";
+import type { ReactNode } from "react";
 import type { SettingsFormState } from "@/hooks/useSettings";
 import { AppWindow, Power, EyeOff } from "lucide-react";
 import { HelpButton } from "@/components/ui/help-button";
-import { ToggleRow } from "@/components/ui/toggle-row";
+import { CapsuleControl } from "@/components/ui/capsule";
+import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import { AnimatePresence, motion } from "framer-motion";
 import { isLinux } from "@/lib/platform";
 
@@ -11,19 +13,59 @@ interface WindowSettingsProps {
   onChange: (updates: Partial<SettingsFormState>) => void;
 }
 
+function WindowBehaviorControl({
+  icon,
+  title,
+  help,
+  checked,
+  onCheckedChange,
+}: {
+  icon: ReactNode;
+  title: string;
+  help?: ReactNode;
+  checked: boolean;
+  onCheckedChange: (value: boolean) => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="min-w-0 max-w-full space-y-2">
+      <div className="flex min-h-7 items-center gap-1.5">
+        <span className="shrink-0 text-muted-foreground" aria-hidden="true">
+          {icon}
+        </span>
+        <p className="settings-field-label min-w-0">{title}</p>
+        {help}
+      </div>
+      <CapsuleControl
+        label={title}
+        value={checked ? "on" : "off"}
+        onChange={(value) => {
+          if ((value === "on") !== checked) onCheckedChange(value === "on");
+        }}
+        optionClassName="min-w-[64px]"
+        options={[
+          { value: "off", label: t("settings.toggleOff") },
+          { value: "on", label: t("settings.toggleOn") },
+        ]}
+      />
+    </div>
+  );
+}
+
 export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
   const { t } = useTranslation();
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-2 pb-2 border-b border-border/40">
-        <AppWindow className="h-4 w-4 text-primary" />
-        <h3 className="text-sm font-medium">{t("settings.windowBehavior")}</h3>
-      </div>
+    <section className="settings-section space-y-3">
+      <SettingsSectionHeader
+        title={t("settings.windowBehavior")}
+        icon={<AppWindow />}
+      />
 
-      <div className="space-y-3">
-        <ToggleRow
-          icon={<Power className="h-4 w-4 text-orange-500" />}
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-4">
+        <WindowBehaviorControl
+          icon={<Power className="h-3.5 w-3.5" />}
           title={t("settings.launchOnStartup")}
           checked={!!settings.launchOnStartup}
           onCheckedChange={(value) => onChange({ launchOnStartup: value })}
@@ -37,9 +79,10 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
               transition={{ duration: 0.3 }}
+              className="min-w-0 max-w-full"
             >
-              <ToggleRow
-                icon={<EyeOff className="h-4 w-4 text-green-500" />}
+              <WindowBehaviorControl
+                icon={<EyeOff className="h-3.5 w-3.5" />}
                 title={t("settings.silentStartup")}
                 help={
                   <HelpButton label={t("settings.silentStartup")}>
@@ -53,8 +96,8 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
           )}
         </AnimatePresence>
 
-        <ToggleRow
-          icon={<AppWindow className="h-4 w-4 text-blue-500" />}
+        <WindowBehaviorControl
+          icon={<AppWindow className="h-3.5 w-3.5" />}
           title={t("settings.minimizeToTray")}
           help={
             <HelpButton label={t("settings.minimizeToTray")}>
@@ -68,8 +111,8 @@ export function WindowSettings({ settings, onChange }: WindowSettingsProps) {
         />
 
         {isLinux() && (
-          <ToggleRow
-            icon={<AppWindow className="h-4 w-4 text-amber-500" />}
+          <WindowBehaviorControl
+            icon={<AppWindow className="h-3.5 w-3.5" />}
             title={t("settings.useAppWindowControls")}
             help={
               <HelpButton label={t("settings.useAppWindowControls")}>

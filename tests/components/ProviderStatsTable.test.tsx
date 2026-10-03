@@ -11,6 +11,7 @@ vi.mock("@/lib/query/usage", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
+    i18n: { language: "en", resolvedLanguage: "en" },
   }),
 }));
 
@@ -95,18 +96,23 @@ describe("source statistics table", () => {
       />,
     );
     expect(screen.getByRole("columnheader", { name: "Source" })).toBeVisible();
+    const table = within(screen.getByRole("table"));
     for (const [label, count] of [
       ["umi", "3"],
       ["work", "4"],
       ["DeepSeek", "5"],
       ["Unassigned", "6"],
     ]) {
-      const row = screen.getByText(label).closest("tr")!;
+      const row = table.getByText(label).closest("tr")!;
       expect(within(row).getByText(count)).toBeVisible();
       expect(within(row).getByText("1,000")).toBeVisible();
       expect(within(row).getByText("$0.0100")).toBeVisible();
     }
     expect(screen.queryByText("OpenAI")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("img")).toHaveLength(4);
+    expect(
+      screen.getByRole("img", { name: /umi: 1,000 Tokens/ }),
+    ).toBeVisible();
     expect(query.stats).toHaveBeenLastCalledWith(
       { preset: "today" },
       {

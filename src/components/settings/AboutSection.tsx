@@ -790,7 +790,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
       className="space-y-6"
     >
       <header className="space-y-1">
-        <h3 className="text-sm font-medium">{t("common.about")}</h3>
+        <h2 className="settings-page-title">{t("common.about")}</h2>
       </header>
 
       <motion.div
@@ -804,9 +804,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-2">
                 <CodexSwitchMark className="h-7 w-7 text-zinc-900 dark:text-zinc-100" />
-                <h4 className="text-lg font-semibold text-foreground">
-                  Codex Switch
-                </h4>
+                <h3 className="settings-section-title">Codex Switch</h3>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="gap-1.5 bg-background/80">
@@ -834,7 +832,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
         </div>
 
         {IS_CODEX_PREVIEW && (
-          <p className="text-sm text-muted-foreground">
+          <p className="settings-description">
             {t("settings.previewDataNotice")}
           </p>
         )}
@@ -842,7 +840,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
 
       <div className="space-y-3">
         <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-sm font-medium">{t("settings.localEnvCheck")}</h3>
+          <h3 className="settings-section-title">
+            {t("settings.localEnvCheck")}
+          </h3>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -954,7 +954,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                       </div>
                       {tool?.env_type && ENV_BADGE_CONFIG[tool.env_type] && (
                         <span
-                          className={`mt-1 inline-flex w-fit text-[9px] px-1.5 py-0.5 rounded-full border ${ENV_BADGE_CONFIG[tool.env_type].className}`}
+                          className={`mt-1 inline-flex w-fit text-xs px-1.5 py-0.5 rounded-full border ${ENV_BADGE_CONFIG[tool.env_type].className}`}
                         >
                           {t(ENV_BADGE_CONFIG[tool.env_type].labelKey)}
                           {tool.wsl_distro ? ` · ${tool.wsl_distro}` : ""}
@@ -966,7 +966,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                     <Loader2 className="mt-1 h-4 w-4 animate-spin text-muted-foreground" />
                   ) : tool?.version ? (
                     isOutdated ? (
-                      <span className="mt-1 shrink-0 rounded-full border border-yellow-500/20 bg-yellow-500/10 px-1.5 py-0.5 text-[10px] text-yellow-600 dark:text-yellow-400">
+                      <span className="mt-1 shrink-0 rounded-full border border-yellow-500/20 bg-yellow-500/10 px-1.5 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
                         {t("settings.updateAvailableShort")}
                       </span>
                     ) : (
@@ -1020,7 +1020,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                       <SelectTrigger className="h-7 w-[82px] text-xs">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="settings-control-menu">
                         <SelectItem value="auto">{t("common.auto")}</SelectItem>
                         {WSL_SHELL_OPTIONS.map((shell) => (
                           <SelectItem key={shell} value={shell}>
@@ -1039,7 +1039,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                       <SelectTrigger className="h-7 w-[82px] text-xs">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="settings-control-menu">
                         <SelectItem value="auto">{t("common.auto")}</SelectItem>
                         {WSL_SHELL_FLAG_OPTIONS.map((flag) => (
                           <SelectItem key={flag} value={flag}>
@@ -1054,10 +1054,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                 {/* 多处安装冲突诊断结果：仅在懒触发后有数据时渲染。 */}
                 {conflicts && conflicts.length > 0 && (
                   <div className="space-y-1.5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-2.5">
-                    <div className="text-[11px] font-medium text-yellow-600 dark:text-yellow-400">
+                    <div className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
                       {t("settings.toolConflictTitle")}
                     </div>
-                    <p className="text-[10px] leading-snug text-muted-foreground">
+                    <p className="text-xs leading-snug text-muted-foreground">
                       {t("settings.toolConflictHint")}
                     </p>
                     <ul className="space-y-1.5">

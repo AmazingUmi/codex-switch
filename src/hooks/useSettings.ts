@@ -195,6 +195,9 @@ export function useSettings(): UseSettingsResult {
             "usageDashboardRefreshIntervalMs",
             "sessionAutoSyncEnabled",
             "codexUsageSourceDir",
+            "quotaRefreshIntervalSeconds",
+            "quotaBatteryWarningThresholdPercent",
+            "quotaBatteryLowThresholdPercent",
           ].includes(key),
         );
       const trayOnly =

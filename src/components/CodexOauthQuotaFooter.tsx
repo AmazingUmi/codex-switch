@@ -34,7 +34,6 @@ const CodexOauthQuotaFooter: React.FC<CodexOauthQuotaFooterProps> = ({
   } = useCodexOauthQuota(meta, {
     enabled: true,
     autoQuery: isCurrent && autoQueryInterval > 0,
-    autoQueryIntervalMinutes: autoQueryInterval,
   });
 
   return (

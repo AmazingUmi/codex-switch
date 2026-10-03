@@ -8,8 +8,9 @@
 use crate::auth::codex_oauth::{CodexOAuthError, CodexOAuthManager};
 use crate::services::model_fetch::FetchedModel;
 use crate::services::subscription::{query_codex_quota, CredentialStatus, SubscriptionQuota};
+use crate::services::usage_cache::{CodexQuotaSnapshot, QuotaCacheEntry};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Emitter, State};
 
 /// Codex OAuth 认证状态
 ///
@@ -30,7 +31,8 @@ pub async fn get_codex_oauth_quota(
     app_state: State<'_, crate::store::AppState>,
     account_id: Option<String>,
     state: State<'_, CodexOAuthState>,
-) -> Result<SubscriptionQuota, String> {
+    force_refresh: Option<bool>,
+) -> Result<CodexQuotaSnapshot, String> {
     let manager = &state.0;
 
     // 解析最终使用的账号 ID：显式 > 默认账号 > 无账号 (not_found)
@@ -39,29 +41,67 @@ pub async fn get_codex_oauth_quota(
         None => manager.default_account_id().await,
     };
     let Some(id) = resolved else {
-        return Ok(SubscriptionQuota::not_found("codex_oauth"));
+        let mut entry = QuotaCacheEntry::default();
+        entry.latest = Some(SubscriptionQuota::not_found("codex_oauth"));
+        return Ok(entry.snapshot(chrono::Utc::now().timestamp_millis(), 0, 0));
     };
 
+    let interval = crate::settings::get_settings().quota_refresh_interval_seconds;
+    let max_age = if force_refresh.unwrap_or(true) {
+        std::time::Duration::ZERO
+    } else if interval == 0 {
+        std::time::Duration::MAX
+    } else {
+        std::time::Duration::from_secs(u64::from(interval))
+    };
     let generation = app_state.usage_cache.codex_oauth_generation(&id);
-    let result = app_state
+    let _ = app_state
         .usage_cache
-        .coalesced_quota(
-            format!("managed-codex:{id}:{generation}"),
-            query_codex_oauth_quota_for(manager, &id),
-        )
+        .quota_with_max_age(format!("managed-codex:{id}:{generation}"), max_age, async {
+            let result = query_codex_oauth_quota_for(manager, &id).await;
+            if !app_state
+                .usage_cache
+                .finish_codex_oauth_query(&id, generation, &result)
+            {
+                return Err("Codex account changed during quota refresh".into());
+            }
+            let entry = app_state
+                .usage_cache
+                .codex_oauth_entry(&id)
+                .unwrap_or_default();
+            let snapshot = entry.snapshot(
+                chrono::Utc::now().timestamp_millis(),
+                crate::settings::get_settings().quota_refresh_interval_seconds,
+                generation,
+            );
+            if let Err(error) = app.emit(
+                "usage-cache-updated",
+                serde_json::json!({
+                    "kind": "codexOauth", "accountId": id, "data": snapshot,
+                }),
+            ) {
+                log::warn!("Publishing managed Codex quota failed: {error}");
+            }
+            crate::tray::schedule_tray_refresh(&app);
+            crate::tray::update_tray_display(&app);
+            result
+        })
         .await;
     // Cache by the resolved account, even if the default/binding changes while
     // the request is in flight. Transport errors retain the last good snapshot;
     // authentication/HTTP failures replace it so the tray hides invalid quotas.
-    if !app_state
-        .usage_cache
-        .finish_codex_oauth_query(&id, generation, &result)
-    {
+    if app_state.usage_cache.codex_oauth_generation(&id) != generation {
         return Err("Codex account changed during quota refresh".into());
     }
-    crate::tray::schedule_tray_refresh(&app);
-    crate::tray::update_tray_display(&app);
-    result
+    Ok(app_state
+        .usage_cache
+        .codex_oauth_entry(&id)
+        .unwrap_or_default()
+        .snapshot(
+            chrono::Utc::now().timestamp_millis(),
+            crate::settings::get_settings().quota_refresh_interval_seconds,
+            generation,
+        ))
 }
 
 async fn query_codex_oauth_quota_for(
@@ -78,7 +118,8 @@ async fn query_codex_oauth_quota_for(
         .await
         .map_err(|e| e.to_string())?;
 
-    // 瞬时传输失败以 Err 传播（前端 reject → retry + 保留上次成功值）。
+    // Transport failures are recorded by the shared cache and projected with
+    // the last successful quota and its original timestamp.
     query_codex_quota(
         &token,
         Some(&chatgpt_account_id),

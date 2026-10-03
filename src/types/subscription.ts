@@ -32,4 +32,14 @@ export interface SubscriptionQuota {
   extraUsage: ExtraUsage | null;
   error: string | null;
   queriedAt: number | null;
+  /** Account-scoped projection shared with the native menu bar. */
+  refreshState?: {
+    status: "ready" | "stale" | "unavailable" | "expired";
+    refreshFailed: boolean;
+    error: string | null;
+    freshUntil: number | null;
+    validUntil: number | null;
+    generation: number;
+    attemptedAt: number | null;
+  };
 }

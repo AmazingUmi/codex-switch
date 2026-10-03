@@ -1185,8 +1185,6 @@ pub fn run() {
             }
 
             let _tray = tray_builder.build(app)?;
-            tray::update_tray_display(app.handle());
-            crate::tray_quota::start_worker(app.handle());
             crate::services::webdav_auto_sync::start_worker(
                 app_state.db.clone(),
                 app.handle().clone(),
@@ -1241,6 +1239,11 @@ pub fn run() {
             if let Err(error) = crate::http_client::init() {
                 log::error!("[HttpClient] Failed to initialize shared client: {error}");
             }
+            // The first quota read needs both shared cache and OAuth state.
+            // Starting before registration can leave the tray empty until its
+            // next timer, or indefinitely when automatic polling is disabled.
+            tray::update_tray_display(app.handle());
+            crate::tray_quota::start_worker(app.handle());
 
             // Recover interrupted writes and migrate historical takeover state.
             let app_handle = app.handle().clone();

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
@@ -36,7 +36,9 @@ describe("Settings guidance", () => {
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 
     fireEvent.click(
-      screen.getByRole("switch", { name: "settings.minimizeToTray" }),
+      within(
+        screen.getByRole("group", { name: "settings.minimizeToTray" }),
+      ).getByRole("button", { name: "settings.toggleOff" }),
     );
     expect(onChange).toHaveBeenCalledWith({ minimizeToTrayOnClose: false });
   });

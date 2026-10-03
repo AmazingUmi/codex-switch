@@ -1,5 +1,7 @@
 import { CapsuleControl } from "@/components/ui/capsule";
 import { useTranslation } from "react-i18next";
+import { Languages } from "lucide-react";
+import { SettingsSectionHeader } from "./SettingsSectionHeader";
 
 type LanguageOption = "zh" | "zh-TW" | "en" | "ja";
 
@@ -12,15 +14,16 @@ export function LanguageSettings({ value, onChange }: LanguageSettingsProps) {
   const { t } = useTranslation();
 
   return (
-    <section className="space-y-2">
-      <header className="space-y-1">
-        <h3 className="text-sm font-medium">{t("settings.language")}</h3>
-      </header>
+    <section className="settings-section space-y-3">
+      <SettingsSectionHeader
+        title={t("settings.language")}
+        icon={<Languages />}
+      />
       <CapsuleControl
         value={value}
         onChange={onChange}
         label={t("settings.language")}
-        optionClassName="min-w-[96px]"
+        optionClassName="min-w-[64px] sm:min-w-[96px]"
         options={[
           { value: "zh", label: t("settings.languageOptionChinese") },
           {

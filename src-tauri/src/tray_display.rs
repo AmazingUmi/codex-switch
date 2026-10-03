@@ -97,6 +97,7 @@ fn ring_rgba(value: Option<f64>, tone: RingTone) -> Vec<u8> {
 }
 
 struct Labels {
+    menu_bar: &'static str,
     remaining: &'static str,
     five_hour: &'static str,
     seven_day: &'static str,
@@ -112,6 +113,7 @@ struct Labels {
 fn labels(language: &str) -> Labels {
     match language {
         "en" => Labels {
+            menu_bar: "Menu bar",
             remaining: "Remaining",
             five_hour: "5 hours",
             seven_day: "Weekly",
@@ -124,6 +126,7 @@ fn labels(language: &str) -> Labels {
             unsupported: "This connection has no supported subscription quota",
         },
         "ja" => Labels {
+            menu_bar: "メニューバー",
             remaining: "残り",
             five_hour: "5 時間",
             seven_day: "週間",
@@ -136,6 +139,7 @@ fn labels(language: &str) -> Labels {
             unsupported: "この接続のサブスクリプション残量には対応していません",
         },
         "zh-TW" => Labels {
+            menu_bar: "狀態列",
             remaining: "剩餘",
             five_hour: "5 小時",
             seven_day: "每週",
@@ -148,6 +152,7 @@ fn labels(language: &str) -> Labels {
             unsupported: "目前連線不支援訂閱額度",
         },
         _ => Labels {
+            menu_bar: "状态栏",
             remaining: "剩余",
             five_hour: "5 小时",
             seven_day: "每周",
@@ -183,7 +188,33 @@ fn window_line(
     format!("{label} {} {value}{reset}", text.remaining)
 }
 
-fn tooltip(snapshot: &TrayQuotaSnapshot, language: &str) -> String {
+/// Some plans only return a weekly quota. The setting is the preferred window,
+/// not a requirement that hides the account's other available quota on switch.
+fn selected_window(
+    snapshot: &TrayQuotaSnapshot,
+    preferred: TrayQuotaWindow,
+) -> Option<(TrayQuotaWindow, &TrayQuotaWindowSnapshot)> {
+    if !matches!(
+        snapshot.status,
+        TrayQuotaStatus::Ready | TrayQuotaStatus::Stale
+    ) {
+        return None;
+    }
+    let five_hour = snapshot
+        .five_hour
+        .as_ref()
+        .map(|window| (TrayQuotaWindow::FiveHour, window));
+    let seven_day = snapshot
+        .seven_day
+        .as_ref()
+        .map(|window| (TrayQuotaWindow::SevenDay, window));
+    match preferred {
+        TrayQuotaWindow::FiveHour => five_hour.or(seven_day),
+        TrayQuotaWindow::SevenDay => seven_day.or(five_hour),
+    }
+}
+
+fn tooltip(snapshot: &TrayQuotaSnapshot, language: &str, preferred: TrayQuotaWindow) -> String {
     let text = labels(language);
     let mut lines = vec!["Codex Switch".to_owned()];
     if let Some(label) = &snapshot.account_label {
@@ -191,18 +222,36 @@ fn tooltip(snapshot: &TrayQuotaSnapshot, language: &str) -> String {
         lines.push(label.replace(['\n', '\r'], " "));
     }
     let stale = snapshot.status == TrayQuotaStatus::Stale;
-    lines.push(window_line(
-        text.five_hour,
-        snapshot.five_hour.as_ref(),
-        stale,
-        &text,
-    ));
-    lines.push(window_line(
-        text.seven_day,
-        snapshot.seven_day.as_ref(),
-        stale,
-        &text,
-    ));
+    let selected = selected_window(snapshot, preferred);
+    if let Some((kind, window)) = selected {
+        let label = match kind {
+            TrayQuotaWindow::FiveHour => text.five_hour,
+            TrayQuotaWindow::SevenDay => text.seven_day,
+        };
+        lines.push(format!(
+            "{}: {}",
+            text.menu_bar,
+            window_line(label, Some(window), stale, &text)
+        ));
+    }
+    // Include the other window, including an unavailable preferred window, so
+    // the tooltip identifies the fallback without suggesting both limits exist.
+    if selected.is_none_or(|(kind, _)| kind != TrayQuotaWindow::FiveHour) {
+        lines.push(window_line(
+            text.five_hour,
+            snapshot.five_hour.as_ref(),
+            stale,
+            &text,
+        ));
+    }
+    if selected.is_none_or(|(kind, _)| kind != TrayQuotaWindow::SevenDay) {
+        lines.push(window_line(
+            text.seven_day,
+            snapshot.seven_day.as_ref(),
+            stale,
+            &text,
+        ));
+    }
     let status = match snapshot.status {
         TrayQuotaStatus::Ready => None,
         TrayQuotaStatus::Stale => Some(text.stale),
@@ -265,24 +314,21 @@ fn apply_on_main_thread(
     let Some(tray) = app.tray_by_id(crate::tray::TRAY_ID) else {
         return;
     };
-    let ring = settings.tray_display_mode == TrayDisplayMode::QuotaRing;
+    let ring = settings.tray_display_mode != TrayDisplayMode::Icon;
     let language = settings
         .language
         .as_deref()
         .map(crate::tray::map_locale_to_tray_language)
         .unwrap_or_else(crate::tray::detect_system_tray_language);
-    let selected = match settings.tray_quota_window {
-        TrayQuotaWindow::FiveHour => snapshot.five_hour.as_ref(),
-        TrayQuotaWindow::SevenDay => snapshot.seven_day.as_ref(),
-    };
-    let value = selected.map(|w| w.remaining);
+    let selected = selected_window(&snapshot, settings.tray_quota_window);
+    let value = selected.map(|(_, window)| window.remaining);
     let stale = snapshot.status == TrayQuotaStatus::Stale;
-    let title = if ring {
+    let title = if settings.tray_display_mode == TrayDisplayMode::QuotaRing {
         remaining_text(value, stale)
     } else {
         String::new()
     };
-    let tooltip = tooltip(&snapshot, language);
+    let tooltip = tooltip(&snapshot, language, settings.tray_quota_window);
     let tone = ring_tone(value, stale, &settings);
     let native_id = tray
         .with_inner_tray_icon(|inner| {
@@ -319,7 +365,11 @@ fn apply_on_main_thread(
         if let Some(item) = inner.ns_status_item() {
             // SAFETY: with_inner_tray_icon executes on AppKit's main thread.
             // Reserving the longest quota title prevents adjacent menu items jumping.
-            item.setLength(if ring { 78.0 } else { -1.0 });
+            item.setLength(match settings.tray_display_mode {
+                TrayDisplayMode::Icon => -1.0,
+                TrayDisplayMode::QuotaRing => 60.0,
+                TrayDisplayMode::QuotaRingOnly => 24.0,
+            });
             if ring {
                 use objc2::{class, msg_send, runtime::AnyObject};
                 // The two objc2 crate versions share Objective-C's stable object ABI.
@@ -327,7 +377,7 @@ fn apply_on_main_thread(
                 unsafe {
                     let item = (&*item as *const _) as *const AnyObject;
                     let button: *mut AnyObject = msg_send![item, button];
-                    let font: *mut AnyObject = msg_send![class!(NSFont), monospacedDigitSystemFontOfSize: 13.0f64 weight: 0.0f64];
+                    let font: *mut AnyObject = msg_send![class!(NSFont), monospacedDigitSystemFontOfSize: 11.0f64 weight: 0.0f64];
                     if !button.is_null() && !font.is_null() {
                         let _: () = msg_send![button, setFont: font];
                     }
@@ -352,6 +402,70 @@ pub(crate) fn update(_app: &tauri::AppHandle) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn account_quota(five_hour: Option<f64>, seven_day: Option<f64>) -> TrayQuotaSnapshot {
+        let window = |remaining| TrayQuotaWindowSnapshot {
+            remaining,
+            resets_at: None,
+        };
+        TrayQuotaSnapshot {
+            account_label: Some("Account".into()),
+            five_hour: five_hour.map(window),
+            seven_day: seven_day.map(window),
+            status: TrayQuotaStatus::Ready,
+            updated_at: None,
+        }
+    }
+
+    #[test]
+    fn switching_to_weekly_only_account_keeps_available_quota_and_identifies_window() {
+        let preferred = TrayQuotaWindow::FiveHour;
+        let first = account_quota(Some(45.0), Some(91.0));
+        let weekly_only = account_quota(None, Some(99.0));
+        let switched_back = account_quota(Some(36.0), Some(80.0));
+        for (snapshot, expected_kind, expected_value) in [
+            (&first, TrayQuotaWindow::FiveHour, 45.0),
+            (&weekly_only, TrayQuotaWindow::SevenDay, 99.0),
+            (&switched_back, TrayQuotaWindow::FiveHour, 36.0),
+        ] {
+            let (kind, window) = selected_window(snapshot, preferred).unwrap();
+            assert_eq!(kind, expected_kind);
+            assert_eq!(window.remaining, expected_value);
+        }
+        let text = tooltip(&weekly_only, "en", preferred);
+        assert!(text.contains("Menu bar: Weekly Remaining 99%"));
+        assert!(text.contains("5 hours Remaining —"));
+        assert!(!text.contains("5 hours Remaining 99%"));
+        assert!(tooltip(&weekly_only, "zh", preferred).contains("状态栏: 每周 剩余 99%"));
+    }
+
+    #[test]
+    fn preferred_weekly_window_falls_back_to_five_hour_without_hiding_real_zero() {
+        let mut snapshot = account_quota(Some(0.0), None);
+        snapshot.status = TrayQuotaStatus::Stale;
+        let (kind, window) = selected_window(&snapshot, TrayQuotaWindow::SevenDay).unwrap();
+        assert_eq!(kind, TrayQuotaWindow::FiveHour);
+        assert_eq!(remaining_text(Some(window.remaining), true), "~0%");
+        assert!(tooltip(&snapshot, "en", TrayQuotaWindow::SevenDay)
+            .contains("Menu bar: 5 hours Remaining ~0%"));
+    }
+
+    #[test]
+    fn unavailable_or_invalid_accounts_never_fall_back_to_old_values() {
+        for preferred in [TrayQuotaWindow::FiveHour, TrayQuotaWindow::SevenDay] {
+            assert!(selected_window(&account_quota(None, None), preferred).is_none());
+            for status in [
+                TrayQuotaStatus::Unavailable,
+                TrayQuotaStatus::Expired,
+                TrayQuotaStatus::Disabled,
+                TrayQuotaStatus::Unsupported,
+            ] {
+                let mut snapshot = account_quota(Some(45.0), Some(91.0));
+                snapshot.status = status;
+                assert!(selected_window(&snapshot, preferred).is_none());
+            }
+        }
+    }
 
     #[test]
     fn quota_labels_preserve_unknown_zero_and_full_boundaries() {

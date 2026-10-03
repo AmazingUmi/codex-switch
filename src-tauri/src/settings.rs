@@ -348,6 +348,7 @@ pub enum TrayDisplayMode {
     #[default]
     Icon,
     QuotaRing,
+    QuotaRingOnly,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -382,6 +383,9 @@ pub struct AppSettings {
     pub tray_quota_window: TrayQuotaWindow,
     #[serde(default)]
     pub tray_quota_color_mode: TrayQuotaColorMode,
+    /// Shared quota polling interval. Zero disables automatic refresh.
+    #[serde(default = "default_quota_refresh_interval_seconds")]
+    pub quota_refresh_interval_seconds: u32,
     #[serde(default = "default_minimize_to_tray_on_close")]
     pub minimize_to_tray_on_close: bool,
     #[serde(default)]
@@ -564,6 +568,10 @@ fn default_quota_battery_warning_threshold_percent() -> f64 {
     50.0
 }
 
+fn default_quota_refresh_interval_seconds() -> u32 {
+    60
+}
+
 fn default_quota_battery_low_threshold_percent() -> f64 {
     10.0
 }
@@ -575,6 +583,7 @@ impl Default for AppSettings {
             tray_display_mode: TrayDisplayMode::default(),
             tray_quota_window: TrayQuotaWindow::default(),
             tray_quota_color_mode: TrayQuotaColorMode::default(),
+            quota_refresh_interval_seconds: default_quota_refresh_interval_seconds(),
             minimize_to_tray_on_close: true,
             use_app_window_controls: false,
             enable_claude_plugin_integration: false,
@@ -630,6 +639,15 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    fn validate_quota_refresh_interval(&self) -> Result<(), AppError> {
+        let interval = self.quota_refresh_interval_seconds;
+        if interval != 0 && !(30..=3600).contains(&interval) {
+            return Err(AppError::InvalidInput(
+                "Quota refresh interval must be 0 or between 30 and 3600 seconds.".into(),
+            ));
+        }
+        Ok(())
+    }
     fn validate_quota_battery_thresholds(&self) -> Result<(), AppError> {
         let warning = self.quota_battery_warning_threshold_percent;
         let low = self.quota_battery_low_threshold_percent;
@@ -749,6 +767,10 @@ impl AppSettings {
             match serde_json::from_str::<AppSettings>(&content) {
                 Ok(mut settings) => {
                     settings.normalize_paths();
+                    if settings.validate_quota_refresh_interval().is_err() {
+                        settings.quota_refresh_interval_seconds =
+                            default_quota_refresh_interval_seconds();
+                    }
                     if let Err(err) = settings.validate_quota_battery_thresholds() {
                         log::warn!("Invalid saved quota battery thresholds; using defaults: {err}");
                         settings.quota_battery_warning_threshold_percent =
@@ -784,6 +806,7 @@ fn save_settings_file_at(settings: &AppSettings, path: &std::path::Path) -> Resu
     let mut normalized = settings.clone();
     normalized.normalize_paths();
     normalized.validate_quota_battery_thresholds()?;
+    normalized.validate_quota_refresh_interval()?;
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
@@ -884,6 +907,7 @@ fn persist_settings_update(
 ) -> Result<(), AppError> {
     incoming.normalize_paths();
     incoming.validate_quota_battery_thresholds()?;
+    incoming.validate_quota_refresh_interval()?;
     // Unrelated saves must still work when a previously chosen source is offline.
     if incoming.codex_usage_source_dir != existing.codex_usage_source_dir {
         if let Some(raw) = &incoming.codex_usage_source_dir {
@@ -1297,6 +1321,47 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::app_config::AppType;
+
+    #[test]
+    fn quota_refresh_defaults_roundtrip_and_rejects_invalid_saves() {
+        let old: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.quota_refresh_interval_seconds, 60);
+        for seconds in [0, 30, 60, 90, 3600] {
+            let incoming = AppSettings {
+                quota_refresh_interval_seconds: seconds,
+                tray_display_mode: TrayDisplayMode::QuotaRingOnly,
+                ..old.clone()
+            };
+            incoming.validate_quota_refresh_interval().unwrap();
+            let json = serde_json::to_value(incoming).unwrap();
+            assert_eq!(json["quotaRefreshIntervalSeconds"], seconds);
+            assert_eq!(json["trayDisplayMode"], "quotaRingOnly");
+            let restored: AppSettings = serde_json::from_value(json).unwrap();
+            assert_eq!(restored.quota_refresh_interval_seconds, seconds);
+            assert_eq!(restored.tray_display_mode, TrayDisplayMode::QuotaRingOnly);
+        }
+        for seconds in [1, 29, 3601, u32::MAX] {
+            let mut existing = old.clone();
+            let incoming = AppSettings {
+                quota_refresh_interval_seconds: seconds,
+                ..old.clone()
+            };
+            let mut saved = false;
+            assert!(persist_settings_update(&mut existing, incoming, |_| {
+                saved = true;
+                Ok(())
+            })
+            .is_err());
+            assert!(!saved);
+            assert_eq!(existing.quota_refresh_interval_seconds, 60);
+        }
+        for invalid in [-1.0, 30.5] {
+            assert!(serde_json::from_value::<AppSettings>(
+                serde_json::json!({"quotaRefreshIntervalSeconds": invalid})
+            )
+            .is_err());
+        }
+    }
 
     #[test]
     fn tray_preferences_default_roundtrip_and_reject_unknown_values() {

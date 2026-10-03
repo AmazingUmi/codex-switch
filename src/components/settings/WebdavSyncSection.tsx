@@ -961,17 +961,17 @@ export function WebdavSyncSection({
   return (
     <section className="space-y-4">
       <header className="space-y-2">
-        <h3 className="text-base font-semibold text-foreground">
+        <h4 className="settings-field-label">
           {t("settings.webdavSync.title")}
-        </h3>
-        <p className="text-sm text-muted-foreground">
+        </h4>
+        <p className="settings-description">
           {t("settings.webdavSync.description")}
         </p>
       </header>
 
       {/* ─── Sync type selector ───────────────────────────── */}
       <div className="flex items-center gap-4">
-        <label className="w-40 text-xs font-medium text-foreground shrink-0">
+        <label className="settings-field-label w-40 shrink-0">
           {t("settings.syncType.label")}
         </label>
         <Select
@@ -979,10 +979,10 @@ export function WebdavSyncSection({
           onValueChange={handleSyncTypeChange}
           disabled={isLoading || isS3Loading}
         >
-          <SelectTrigger className="text-xs flex-1">
+          <SelectTrigger className="settings-control-text flex-1">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="settings-control-menu">
             <SelectItem value="webdav">
               {t("settings.syncType.webdav")}
             </SelectItem>
@@ -998,7 +998,7 @@ export function WebdavSyncSection({
           <div className="space-y-3">
             {/* Service preset selector */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.presets.label")}
               </label>
               <Select
@@ -1006,10 +1006,10 @@ export function WebdavSyncSection({
                 onValueChange={handlePresetChange}
                 disabled={isLoading}
               >
-                <SelectTrigger className="text-xs flex-1">
+                <SelectTrigger className="settings-control-text flex-1">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="settings-control-menu">
                   {WEBDAV_PRESETS.map((preset) => (
                     <SelectItem key={preset.id} value={preset.id}>
                       {t(preset.label)}
@@ -1021,7 +1021,7 @@ export function WebdavSyncSection({
 
             {/* Server URL */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.baseUrl")}
               </label>
               <Input
@@ -1029,28 +1029,28 @@ export function WebdavSyncSection({
                 onChange={(e) => updateField("baseUrl", e.target.value)}
                 onBlur={handleBaseUrlBlur}
                 placeholder={t("settings.webdavSync.baseUrlPlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isLoading}
               />
             </div>
 
             {/* Username */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.username")}
               </label>
               <Input
                 value={form.username}
                 onChange={(e) => updateField("username", e.target.value)}
                 placeholder={t("settings.webdavSync.usernamePlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isLoading}
               />
             </div>
 
             {/* Password */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.password")}
               </label>
               <Input
@@ -1058,7 +1058,7 @@ export function WebdavSyncSection({
                 value={form.password}
                 onChange={(e) => updateField("password", e.target.value)}
                 placeholder={t("settings.webdavSync.passwordPlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 autoComplete="off"
                 disabled={isLoading}
               />
@@ -1074,9 +1074,9 @@ export function WebdavSyncSection({
 
             {/* Remote Root */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.remoteRoot")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.webdavSync.remoteRootDefault")}
                 </span>
               </label>
@@ -1084,16 +1084,16 @@ export function WebdavSyncSection({
                 value={form.remoteRoot}
                 onChange={(e) => updateField("remoteRoot", e.target.value)}
                 placeholder="codex-switch-sync"
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isLoading}
               />
             </div>
 
             {/* Profile */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.profile")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.webdavSync.profileDefault")}
                 </span>
               </label>
@@ -1101,15 +1101,15 @@ export function WebdavSyncSection({
                 value={form.profile}
                 onChange={(e) => updateField("profile", e.target.value)}
                 placeholder="default"
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isLoading}
               />
             </div>
 
             <div className="flex items-start gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.webdavSync.autoSync")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.webdavSync.autoSyncHint")}
                 </span>
               </label>
@@ -1136,7 +1136,7 @@ export function WebdavSyncSection({
                 {t("settings.webdavSync.autoSyncLastErrorTitle")}
               </p>
               <p className="mt-1 break-all whitespace-pre-wrap">{lastError}</p>
-              <p className="mt-1 text-[11px] text-red-700/90 dark:text-red-300/80">
+              <p className="mt-1 text-xs text-red-700/90 dark:text-red-300/80">
                 {t("settings.webdavSync.autoSyncLastErrorHint")}
               </p>
             </div>
@@ -1232,7 +1232,7 @@ export function WebdavSyncSection({
           <div className="space-y-3">
             {/* S3 preset selector */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.presets.label")}
               </label>
               <Select
@@ -1240,10 +1240,10 @@ export function WebdavSyncSection({
                 onValueChange={handleS3PresetChange}
                 disabled={isS3Loading}
               >
-                <SelectTrigger className="text-xs flex-1">
+                <SelectTrigger className="settings-control-text flex-1">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="settings-control-menu">
                   {S3_PRESETS.map((preset) => (
                     <SelectItem key={preset.id} value={preset.id}>
                       {t(preset.label)}
@@ -1263,7 +1263,7 @@ export function WebdavSyncSection({
 
             {/* Region */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.region")}
               </label>
               <Input
@@ -1273,14 +1273,14 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder={activeS3Preset?.regionPlaceholder ?? "us-east-1"}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isS3Loading}
               />
             </div>
 
             {/* Bucket */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.bucket")}
               </label>
               <Input
@@ -1290,14 +1290,14 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder={t("settings.s3Sync.bucketPlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isS3Loading}
               />
             </div>
 
             {/* Access Key ID */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.accessKeyId")}
               </label>
               <Input
@@ -1307,14 +1307,14 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder={t("settings.s3Sync.accessKeyIdPlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isS3Loading}
               />
             </div>
 
             {/* Secret Access Key */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.secretAccessKey")}
               </label>
               <Input
@@ -1326,7 +1326,7 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder={t("settings.s3Sync.secretAccessKeyPlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 autoComplete="off"
                 disabled={isS3Loading}
               />
@@ -1334,9 +1334,9 @@ export function WebdavSyncSection({
 
             {/* Endpoint (optional) */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.endpoint")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.s3Sync.endpointHint")}
                 </span>
               </label>
@@ -1347,16 +1347,16 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder={t("settings.s3Sync.endpointPlaceholder")}
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isS3Loading}
               />
             </div>
 
             {/* Remote Root */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.remoteRoot")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.s3Sync.remoteRootDefault")}
                 </span>
               </label>
@@ -1367,16 +1367,16 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder="codex-switch-sync"
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isS3Loading}
               />
             </div>
 
             {/* Profile */}
             <div className="flex items-center gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.profile")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.s3Sync.profileDefault")}
                 </span>
               </label>
@@ -1387,16 +1387,16 @@ export function WebdavSyncSection({
                   markS3Dirty();
                 }}
                 placeholder="default"
-                className="text-xs flex-1"
+                className="settings-control-text flex-1"
                 disabled={isS3Loading}
               />
             </div>
 
             {/* Auto Sync toggle */}
             <div className="flex items-start gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.autoSync")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.s3Sync.autoSyncHint")}
                 </span>
               </label>
@@ -1415,9 +1415,9 @@ export function WebdavSyncSection({
 
             {/* Enabled toggle */}
             <div className="flex items-start gap-4">
-              <label className="w-40 text-xs font-medium text-foreground shrink-0">
+              <label className="settings-field-label w-40 shrink-0">
                 {t("settings.s3Sync.enabled")}
-                <span className="block text-[10px] font-normal text-muted-foreground">
+                <span className="block text-xs font-normal text-muted-foreground">
                   {t("settings.s3Sync.enabledHint")}
                 </span>
               </label>
@@ -1449,7 +1449,7 @@ export function WebdavSyncSection({
               <p className="mt-1 break-all whitespace-pre-wrap">
                 {s3LastError}
               </p>
-              <p className="mt-1 text-[11px] text-red-700/90 dark:text-red-300/80">
+              <p className="mt-1 text-xs text-red-700/90 dark:text-red-300/80">
                 {t("settings.s3Sync.autoSyncLastErrorHint")}
               </p>
             </div>

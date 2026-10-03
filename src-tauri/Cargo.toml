@@ -1,6 +1,6 @@
 [package]
 name = "codex-switch"
-version = "0.0.1"
+version = "0.0.2"
 description = "Account management and usage monitoring for OpenAI Codex"
 authors = ["Jason Young"]
 license = "MIT"

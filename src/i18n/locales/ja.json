@@ -381,8 +381,11 @@
       "title": "利用枠のバッテリー",
       "warning": "警告しきい値",
       "low": "低残量しきい値",
-      "help": "残りの枠が警告しきい値以下なら琥珀色、低残量しきい値以下なら赤色、それより多い場合は緑色になります。0–100% の範囲で、低残量しきい値を警告しきい値より小さく設定してください。変更は自動保存されます。",
-      "invalid": "0–100% の値を入力し、低残量しきい値を警告しきい値より小さくしてください。"
+      "help": "電池下側の赤いハンドルで低残量、上側の琥珀色のハンドルで警告しきい値を調整します。残量の範囲は赤・琥珀・緑で表示され、境界は滑らかに変化します。矢印キーは1%、Shift+矢印キーまたはPage Up/Downは5%、Home/Endは調整可能な端まで移動します。操作を終えると自動保存されます。",
+      "invalid": "0–100% の値を入力し、低残量しきい値を警告しきい値より小さくしてください。",
+      "lowShort": "低残量",
+      "warningShort": "警告",
+      "availableShort": "余裕あり"
     },
     "tray": {
       "title": "メニューバー",
@@ -396,7 +399,8 @@
       "system": "システム",
       "quota": "残量",
       "hint": "現在のアカウントの残量を表示します。",
-      "help": "アプリアイコンを維持するか、現在のアカウントの残量をリングとパーセントで表示します。5 時間枠または週間枠を選択できます。システム色はメニューバーの外観に従います。残量色は利用枠バッテリーの警告と低残量のしきい値を使い、両方を上回る場合はシステム色になります。不明な残量は — で表示されます。変更は自動保存されます。"
+      "help": "アプリアイコン、残量リングと割合のコンパクト表示、またはリングのみを選べます。5時間または週間枠を選択できます。選択した期間の枠がない場合は、もう一方の利用可能な枠を表示します。ホバーで表示中の期間、アカウント、両方の枠と更新時刻を確認できます。システム色はメニューバーに追従し、使用枠色は警告しきい値に従います。不明な残量は — と表示します。変更は自動保存されます。",
+      "quotaRingOnly": "リングのみ"
     },
     "themeHint": "アプリのテーマを選択します。すぐに反映されます。",
     "themeLight": "ライト",
@@ -639,6 +643,8 @@
     "languageOptionEnglish": "English",
     "languageOptionJapanese": "日本語",
     "windowBehavior": "ウィンドウ動作",
+    "toggleOff": "オフ",
+    "toggleOn": "オン",
     "windowBehaviorHint": "最小化動作や Claude プラグイン連携を設定します。",
     "launchOnStartup": "起動時に自動実行",
     "launchOnStartupDescription": "システム起動時に Codex Switch を自動起動します",
@@ -646,7 +652,7 @@
     "silentStartupDescription": "起動時にメインウィンドウを表示せず、トレイのみで起動",
     "autoLaunchFailed": "自動起動の設定に失敗しました",
     "minimizeToTray": "閉じるときトレイへ最小化",
-    "minimizeToTrayDescription": "チェックすると閉じるボタンでトレイに隠し、オフならアプリを終了します。",
+    "minimizeToTrayDescription": "オンの場合、閉じるボタンでシステムトレイに隠します。オフの場合はアプリを終了します。",
     "useAppWindowControls": "アプリ内ウィンドウボタンを有効化",
     "useAppWindowControlsDescription": "有効にすると、アプリヘッダーに最小化・最大化/復元・閉じるボタンを表示します。",
     "enableClaudePluginIntegration": "Claude Code 拡張に適用",
@@ -830,7 +836,18 @@
       "pricingLoadFailed": "課金設定の読み込みに失敗しました: {{error}}"
     },
     "saveFailedGeneric": "保存に失敗しました。もう一度お試しください",
-    "localBuildHint": "Codex Switch はローカルビルドとして配布されます。アプリの更新は外部で管理します。"
+    "localBuildHint": "Codex Switch はローカルビルドとして配布されます。アプリの更新は外部で管理します。",
+    "quotaRefresh": {
+      "title": "使用枠の自動更新",
+      "off": "オフ",
+      "custom": "カスタム",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分",
+      "secondsUnit": "秒",
+      "secondsUnitShort": "秒",
+      "invalid": "30〜3600 秒の整数を入力してください。",
+      "help": "ホームとメニューバーは更新間隔とアカウントごとのリクエストを共有します。使用中のアカウントはバックグラウンドで、他のアカウントはホームが表示されている間に更新します。オフでも手動更新は利用できます。"
+    }
   },
   "apps": {
     "claude": "Claude",
@@ -1577,6 +1594,16 @@
     "requestLogs": "使用量記録",
     "sourceStats": "ソース統計",
     "modelStats": "モデル統計",
+    "comparison": {
+      "sources": "ソース比較",
+      "models": "モデル比較",
+      "metric": "比較指標",
+      "cost": "金額",
+      "tokens": "使用量",
+      "total": "合計",
+      "costHint": "現在のフィルター範囲における推定費用（米ドル）です。",
+      "tokensHint": "表の Tokens と同じ集計：キャッシュを除く入力 + 出力。"
+    },
     "time": "時間",
     "provider": "プロバイダー",
     "billingModel": "課金モデル",

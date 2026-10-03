@@ -768,7 +768,7 @@ async fn query_provider_usage_inner(
                 .and_then(|m| m.managed_account_id_for("xai_oauth"));
             crate::commands::xai_oauth::query_xai_oauth_quota_for(xai_state, account_id).await?
         } else if app_type == AppType::Codex {
-            crate::commands::query_native_codex_quota_cached(&state.usage_cache, provider_id)
+            crate::commands::query_native_codex_quota_cached(&state.usage_cache, provider_id, true)
                 .await?
         } else {
             crate::services::subscription::get_subscription_quota(app_type.as_str())

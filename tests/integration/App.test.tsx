@@ -359,15 +359,13 @@ describe("App integration with MSW", () => {
     );
 
     const mainScrollContainer = container.querySelector("main") as HTMLElement;
-    const providerScrollContainer = Array.from(
-      container.querySelectorAll<HTMLElement>(".overflow-y-auto"),
-    ).find(
-      (element) =>
-        element !== mainScrollContainer && element.className.includes("pb-12"),
-    );
+    const providerScrollContainer = screen
+      .getByTestId("accounts-panel")
+      .closest<HTMLElement>(".overflow-y-auto");
 
     expect(mainScrollContainer).not.toBeNull();
-    expect(providerScrollContainer).toBeDefined();
+    expect(providerScrollContainer).not.toBeNull();
+    expect(providerScrollContainer).not.toBe(mainScrollContainer);
 
     mainScrollContainer.scrollTop = 320;
     mainScrollContainer.scrollLeft = 12;

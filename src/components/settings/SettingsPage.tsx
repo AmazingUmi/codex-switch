@@ -40,6 +40,7 @@ import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
 import { QuotaBatterySettings } from "@/components/settings/QuotaBatterySettings";
 import { TraySettings } from "@/components/settings/TraySettings";
+import { QuotaRefreshSettings } from "@/components/settings/QuotaRefreshSettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
 import { TerminalSettings } from "@/components/settings/TerminalSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
@@ -226,7 +227,7 @@ export function SettingsPage({
   const isBusy = useMemo(() => isLoading && !settings, [isLoading, settings]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-3 sm:px-6">
+    <div className="settings-page page-frame flex flex-1 min-h-0 flex-col overflow-hidden">
       {isBusy ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -235,7 +236,7 @@ export function SettingsPage({
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          className="flex flex-col h-full"
+          className="flex flex-1 min-h-0 flex-col"
         >
           <TabsList
             aria-label={t("settings.title")}
@@ -254,7 +255,7 @@ export function SettingsPage({
             ))}
           </TabsList>
           {activeTab !== "about" && (
-            <h2 className="mb-4 text-lg font-semibold">
+            <h2 className="settings-page-title mb-6">
               {settingsTabs.find((tab) => tab.value === activeTab)?.label}
             </h2>
           )}
@@ -262,7 +263,7 @@ export function SettingsPage({
           <div className="flex-1 min-h-0 flex flex-col">
             <div
               ref={tabScrollContainerRef}
-              className="app-scroll flex-1 overflow-y-auto overflow-x-hidden pr-2"
+              className="app-scroll page-shadow-scroll flex-1 overflow-y-auto overflow-x-hidden"
             >
               <TabsContent value="general" className="space-y-6 mt-0">
                 {settings ? (
@@ -270,13 +271,17 @@ export function SettingsPage({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="space-y-6"
+                    className="settings-general"
                   >
                     <LanguageSettings
                       value={settings.language}
                       onChange={(lang) => handleAutoSave({ language: lang })}
                     />
                     <ThemeSettings />
+                    <QuotaRefreshSettings
+                      settings={settings}
+                      onChange={handleAutoSave}
+                    />
                     <QuotaBatterySettings
                       settings={settings}
                       onChange={handleAutoSave}
@@ -320,7 +325,7 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <FolderSearch className="h-5 w-5 text-primary" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.configDir.title")}
                               </h3>
                             </div>
@@ -349,7 +354,7 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <HardDriveDownload className="h-5 w-5 text-amber-500" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.backup.title", {
                                   defaultValue: "Backup & Restore",
                                 })}
@@ -389,7 +394,7 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <Cloud className="h-5 w-5 text-blue-500" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.cloudSync.title")}
                               </h3>
                             </div>
@@ -413,7 +418,7 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <ScrollText className="h-5 w-5 text-cyan-500" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.logConfig.title")}
                               </h3>
                             </div>
@@ -435,7 +440,7 @@ export function SettingsPage({
 
             {activeTab === "advanced" && settings && (
               <div
-                className="flex-shrink-0 pt-4 border-t border-border-default"
+                className="flex-shrink-0 pt-4 pb-3 border-t border-border-default"
                 style={{ backgroundColor: "hsl(var(--background))" }}
               >
                 <div className="px-6 flex items-center justify-end gap-3">

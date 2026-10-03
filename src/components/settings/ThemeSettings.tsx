@@ -1,22 +1,21 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun, Palette } from "lucide-react";
 import { CapsuleControl } from "@/components/ui/capsule";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/components/theme-provider";
+import { SettingsSectionHeader } from "./SettingsSectionHeader";
 
 export function ThemeSettings() {
   const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
 
   return (
-    <section className="space-y-2">
-      <header className="space-y-1">
-        <h3 className="text-sm font-medium">{t("settings.theme")}</h3>
-      </header>
+    <section className="settings-section space-y-3">
+      <SettingsSectionHeader title={t("settings.theme")} icon={<Palette />} />
       <CapsuleControl
         value={theme}
         onChange={setTheme}
         label={t("settings.theme")}
-        optionClassName="min-w-[96px]"
+        optionClassName="min-w-[80px] sm:min-w-[96px]"
         options={[
           {
             value: "light",

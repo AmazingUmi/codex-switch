@@ -34,6 +34,10 @@
     --control-height-sm: 32px;
     --control-height-md: 36px;
     --control-height-lg: 40px;
+    --settings-page-font-size: 22px;
+    --settings-section-font-size: 15px;
+    --settings-control-font-size: 13px;
+    --settings-description-font-size: 12px;
     --capsule-active: hsl(210 90% 42%);
     --capsule-selection: hsl(210 100% 94%);
     --glass-surface: rgb(255 255 255 / 58%);
@@ -43,6 +47,8 @@
     --glass-popover: rgb(250 252 255 / 92%);
     --glass-shadow:
       0 8px 28px rgb(40 60 110 / 8%), 0 1px 3px rgb(40 60 110 / 5%);
+    --glass-control-shadow:
+      0 4px 12px -2px rgb(40 60 110 / 10%), 0 1px 3px rgb(40 60 110 / 5%);
     --glass-blur: blur(24px) saturate(160%);
   }
 
@@ -79,6 +85,8 @@
     --glass-edge: rgb(0 0 0 / 30%);
     --glass-popover: rgb(28 36 50 / 94%);
     --glass-shadow: 0 8px 28px rgb(0 0 0 / 20%), 0 1px 3px rgb(0 0 0 / 15%);
+    --glass-control-shadow:
+      0 4px 12px -2px rgb(0 0 0 / 24%), 0 1px 3px rgb(0 0 0 / 15%);
   }
 }
 
@@ -445,6 +453,237 @@ html[data-window-active="false"] .status-heartbeat {
   background: transparent;
 }
 
+.usage-stats-panel {
+  container: usage-stats / inline-size;
+  min-width: 0;
+}
+
+.usage-stats-layout {
+  display: grid;
+  align-items: stretch;
+  gap: 16px;
+}
+
+.usage-stats-table {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.usage-stats-table > div {
+  min-height: 0;
+  max-height: 480px;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
+}
+
+.usage-stats-table th,
+.usage-stats-table td {
+  padding: 12px;
+  font-size: 13px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-stats-table th {
+  height: 44px;
+  white-space: nowrap;
+}
+
+.usage-stats-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--glass-popover);
+}
+
+.usage-comparison {
+  container: usage-comparison / inline-size;
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+
+.usage-comparison-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.usage-comparison-header {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.usage-comparison-control.capsule-bar {
+  height: var(--control-height-sm);
+  --capsule-inset: 3px;
+}
+
+.usage-comparison-control .capsule-option {
+  padding-inline: 12px;
+  font-size: 12px;
+}
+
+.usage-comparison-body {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  gap: 16px;
+}
+
+.usage-comparison-chart {
+  container: usage-pie / inline-size;
+  position: relative;
+  width: min(100%, 220px);
+  max-height: 100%;
+  aspect-ratio: 1;
+  justify-self: center;
+}
+
+.usage-comparison-pie {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.usage-comparison-center {
+  position: absolute;
+  inset: 30% 18%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.usage-comparison-total {
+  font-size: clamp(14px, 9cqi, 20px);
+  line-height: 1.25;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-comparison-total[data-long="true"] {
+  font-size: clamp(12px, 7cqi, 16px);
+}
+
+.usage-pie-empty {
+  fill: none;
+  stroke: hsl(var(--muted-foreground) / 0.08);
+  stroke-width: 24px;
+}
+
+.usage-pie-slice {
+  transition: opacity 160ms ease;
+}
+
+.usage-pie-slice[data-dimmed="true"] {
+  opacity: 0.45;
+}
+
+.usage-comparison-list {
+  display: flex;
+  max-height: 216px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.usage-comparison-legend {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+  padding: 6px;
+  font-size: 13px;
+  line-height: 18px;
+  transition: background 160ms ease;
+}
+
+.usage-comparison-legend[data-highlighted="true"] {
+  background: hsl(var(--primary) / 0.07);
+}
+
+.usage-comparison-swatch {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.usage-comparison-value {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--foreground) / 0.8);
+}
+
+@container usage-comparison (min-width: 350px) {
+  .usage-comparison-body {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+@container usage-stats (min-width: 960px) {
+  .usage-stats-layout {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    height: 360px;
+  }
+
+  .usage-stats-table > div {
+    height: 100%;
+    max-height: none;
+  }
+
+  .usage-comparison-list {
+    height: 100%;
+    max-height: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-pie-slice,
+  .usage-comparison-legend {
+    transition: none;
+  }
+}
+
+/* Keep shadow space inside the scrollport: padding outside it still clips. */
+.page-frame {
+  --page-gutter: 16px;
+  min-width: 0;
+  padding-inline: var(--page-gutter);
+  padding-top: 12px;
+}
+
+.page-shadow-scroll {
+  min-height: 0;
+  margin-inline: calc(-1 * var(--page-gutter));
+  padding: 16px var(--page-gutter) 40px;
+}
+
+@media (min-width: 640px) {
+  .page-frame {
+    --page-gutter: 24px;
+  }
+}
+
 *:focus-visible {
   @apply outline-2 outline-blue-500 outline-offset-2;
 }
@@ -521,7 +760,7 @@ input[type="password"]::-ms-clear {
   background: var(--glass-surface);
   box-shadow:
     inset 0 1px 0 var(--glass-highlight),
-    var(--glass-shadow);
+    var(--glass-control-shadow);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -625,6 +864,100 @@ input[type="password"]::-ms-clear {
   line-height: 28px;
 }
 
+.settings-page {
+  font-size: var(--settings-control-font-size);
+  line-height: 20px;
+}
+
+.settings-page [role="tabpanel"] {
+  width: 100%;
+  max-width: 768px;
+}
+
+.settings-page .text-sm {
+  font-size: var(--settings-control-font-size);
+  line-height: 20px;
+}
+
+.settings-page .text-xs {
+  font-size: var(--settings-description-font-size);
+  line-height: 18px;
+}
+
+.settings-page-title {
+  font-size: var(--settings-page-font-size);
+  font-weight: 600;
+  line-height: 30px;
+  letter-spacing: -0.02em;
+  color: hsl(var(--foreground));
+}
+
+.settings-general {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-general > .settings-section + .settings-section {
+  padding-top: 16px;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+
+.settings-section-heading {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-section-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: hsl(var(--primary));
+}
+
+.settings-section-icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-section-title {
+  font-size: var(--settings-section-font-size);
+  font-weight: 600;
+  line-height: 22px;
+  color: hsl(var(--foreground));
+}
+
+.settings-field-label,
+.settings-page label {
+  font-size: var(--settings-control-font-size);
+  font-weight: 500;
+  line-height: 20px;
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-control-text,
+.settings-control-menu [role="option"],
+.settings-page .capsule-bar .capsule-option,
+.settings-page .app-button,
+.settings-page input,
+.settings-page textarea {
+  font-size: var(--settings-control-font-size);
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.settings-description {
+  font-size: var(--settings-description-font-size);
+  font-weight: 400;
+  line-height: 18px;
+  color: hsl(var(--muted-foreground));
+}
+
+.settings-description.text-destructive {
+  color: hsl(var(--destructive));
+}
+
 .section-actions {
   display: flex;
   flex-shrink: 0;
@@ -688,12 +1021,38 @@ input[type="password"]::-ms-clear {
   opacity: 0;
 }
 
+.quota-refresh-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.quota-refresh-input::-webkit-inner-spin-button,
+.quota-refresh-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+@property --codex-battery-low-stop {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 10%;
+}
+
+@property --codex-battery-warning-stop {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 50%;
+}
+
 .codex-quota-battery {
   container: codex-quota-battery / inline-size;
   flex: 1;
   --codex-battery-height: 40px;
   --codex-battery-radius: 7px;
-  --codex-quota-color: #0aa983;
+  --codex-quota-available-color: #0aa983;
+  --codex-quota-warning-color: #c68a25;
+  --codex-quota-low-color: #dc6262;
+  --codex-quota-color: var(--codex-quota-available-color);
   --codex-quota-marker: #778596;
 }
 
@@ -710,24 +1069,18 @@ input[type="password"]::-ms-clear {
 }
 
 .dark .codex-quota-battery {
-  --codex-quota-color: #41cba4;
+  --codex-quota-available-color: #41cba4;
+  --codex-quota-warning-color: #e6b254;
+  --codex-quota-low-color: #f28585;
   --codex-quota-marker: #b6c3d4;
 }
 
 .codex-quota-battery [data-quota-tone="warning"] {
-  --codex-quota-color: #c68a25;
+  --codex-quota-color: var(--codex-quota-warning-color);
 }
 
 .codex-quota-battery [data-quota-tone="low"] {
-  --codex-quota-color: #dc6262;
-}
-
-.dark .codex-quota-battery [data-quota-tone="warning"] {
-  --codex-quota-color: #e6b254;
-}
-
-.dark .codex-quota-battery [data-quota-tone="low"] {
-  --codex-quota-color: #f28585;
+  --codex-quota-color: var(--codex-quota-low-color);
 }
 
 .codex-quota-battery [data-quota-tone="unknown"] {
@@ -740,6 +1093,7 @@ input[type="password"]::-ms-clear {
 
 .codex-battery-track {
   --codex-quota-segments: 20;
+  --codex-battery-cell-gap: 4px;
   position: relative;
   isolation: isolate;
 }
@@ -762,7 +1116,7 @@ input[type="password"]::-ms-clear {
 .codex-battery-cells {
   display: grid;
   grid-template-columns: repeat(var(--codex-quota-segments), minmax(0, 1fr));
-  gap: 4px;
+  gap: var(--codex-battery-cell-gap);
   height: var(--codex-battery-height);
 }
 
@@ -814,10 +1168,7 @@ input[type="password"]::-ms-clear {
 @container codex-quota-battery (min-width: 480px) {
   .codex-battery-track {
     --codex-quota-segments: 28;
-  }
-
-  .codex-battery-cells {
-    gap: 5px;
+    --codex-battery-cell-gap: 5px;
   }
 
   .codex-battery-cell:nth-child(n + 21) {
@@ -825,7 +1176,148 @@ input[type="password"]::-ms-clear {
   }
 }
 
+.codex-battery-threshold-track {
+  --codex-battery-feather: min(
+    1.5%,
+    calc(
+      (var(--codex-battery-warning-stop) - var(--codex-battery-low-stop)) / 4
+    )
+  );
+  --codex-battery-band-gradient: linear-gradient(
+    90deg,
+    var(--codex-quota-low-color)
+      max(
+        0%,
+        calc(var(--codex-battery-low-stop) - var(--codex-battery-feather))
+      ),
+    var(--codex-quota-warning-color)
+      calc(var(--codex-battery-low-stop) + var(--codex-battery-feather)),
+    var(--codex-quota-warning-color)
+      calc(var(--codex-battery-warning-stop) - var(--codex-battery-feather)),
+    var(--codex-quota-available-color)
+      min(
+        100%,
+        calc(var(--codex-battery-warning-stop) + var(--codex-battery-feather))
+      )
+  );
+}
+
+.codex-battery-threshold-track::before {
+  background-color: transparent;
+  background-image: var(--codex-battery-band-gradient);
+  opacity: 0.22;
+}
+
+.codex-battery-threshold-track .codex-battery-fill {
+  background-color: transparent;
+  background-image:
+    linear-gradient(180deg, hsl(var(--card) / 0.24), transparent),
+    var(--codex-battery-band-gradient);
+  /* Each cell reveals its slice of one continuous gradient across the battery. */
+  background-size:
+    100% 100%,
+    calc(
+        100% * var(--codex-quota-segments) + var(--codex-battery-cell-gap) *
+          (var(--codex-quota-segments) - 1)
+      )
+      100%;
+  background-position:
+    0 0,
+    calc(var(--codex-quota-cell) * 100% / (var(--codex-quota-segments) - 1)) 0;
+  background-repeat: no-repeat;
+}
+
+.codex-battery-threshold-handle {
+  position: absolute;
+  z-index: 1;
+  top: -8px;
+  width: 28px;
+  height: calc(var(--codex-battery-height) + 16px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateX(-50%);
+  cursor: ew-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.codex-battery-threshold-handle:focus,
+.codex-battery-threshold-handle:hover {
+  z-index: 2;
+}
+
+.codex-battery-threshold-line {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: calc(50% - 1px);
+  width: 2px;
+  border-radius: 2px;
+  background: var(--codex-quota-color);
+  box-shadow: 0 0 0 2px hsl(var(--card) / 0.85);
+}
+
+.codex-battery-threshold-thumb {
+  position: absolute;
+  left: 2px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.codex-battery-threshold-handle[data-threshold="warning"]
+  .codex-battery-threshold-thumb {
+  top: -16px;
+}
+
+.codex-battery-threshold-handle[data-threshold="low"]
+  .codex-battery-threshold-thumb {
+  bottom: -16px;
+}
+
+.codex-battery-threshold-thumb > span {
+  width: 5px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--codex-quota-color);
+}
+
+.codex-battery-threshold-handle:focus-visible .codex-battery-threshold-thumb {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+
+.codex-battery-threshold-handle:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.codex-battery-threshold-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--codex-quota-color);
+}
+
 @media (prefers-reduced-motion: no-preference) {
+  .codex-battery-threshold-track {
+    transition:
+      --codex-battery-low-stop 160ms ease-out,
+      --codex-battery-warning-stop 160ms ease-out;
+  }
+
+  .codex-battery-threshold-handle {
+    transition: left 160ms ease-out;
+  }
+
+  .codex-battery-threshold-track[data-dragging="true"],
+  .codex-battery-threshold-track[data-dragging="true"]
+    .codex-battery-threshold-handle {
+    transition: none;
+  }
   .codex-battery-value {
     transition: color 180ms ease-out;
   }
@@ -855,6 +1347,21 @@ input[type="password"]::-ms-clear {
 
   .codex-battery-time-marker {
     background: CanvasText;
+  }
+
+  .codex-battery-threshold-track .codex-battery-fill {
+    background: Highlight;
+  }
+
+  .codex-battery-threshold-line,
+  .codex-battery-threshold-thumb > span,
+  .codex-battery-threshold-dot {
+    background: CanvasText;
+  }
+
+  .codex-battery-threshold-thumb {
+    border-color: ButtonText;
+    background: Canvas;
   }
 }
 

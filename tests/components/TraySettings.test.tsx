@@ -73,10 +73,10 @@ describe("TraySettings", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("defaults to the existing icon and offers only icon or ring plus remaining percentage", () => {
+  it("defaults to the existing icon and offers compact quota and ring-only modes", () => {
     const { onChange } = setup();
     const display = screen.getByRole("group", { name: label("display") });
-    expect(within(display).getAllByRole("button")).toHaveLength(2);
+    expect(within(display).getAllByRole("button")).toHaveLength(3);
     expect(button("icon")).toHaveAttribute("aria-pressed", "true");
     expect(button("quotaRing")).toHaveAttribute("aria-pressed", "false");
     expect(button("icon").querySelector("svg")).toHaveAttribute(
@@ -104,6 +104,24 @@ describe("TraySettings", () => {
     expect(button("fiveHour")).toHaveAttribute("aria-pressed", "true");
     expect(button("quota")).toHaveAttribute("aria-pressed", "true");
     expect(button("sevenDay")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("saves ring-only mode and retains the period and color controls", async () => {
+    const { onChange, rerenderSettings } = setup();
+    fireEvent.click(button("quotaRingOnly"));
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        trayDisplayMode: "quotaRingOnly",
+      }),
+    );
+    rerenderSettings({
+      trayDisplayMode: "quotaRingOnly",
+      trayQuotaWindow: "sevenDay",
+    });
+    expect(button("quotaRingOnly")).toHaveAttribute("aria-pressed", "true");
+    expect(button("quotaRingOnly")).not.toHaveTextContent("36%");
+    expect(button("sevenDay")).toHaveAttribute("aria-pressed", "true");
+    expect(button("quota")).toBeEnabled();
   });
 
   it.each([
@@ -162,6 +180,7 @@ describe("TraySettings", () => {
     for (const key of [
       "icon",
       "quotaRing",
+      "quotaRingOnly",
       "fiveHour",
       "sevenDay",
       "system",
@@ -243,6 +262,7 @@ describe("TraySettings", () => {
       for (const key of [
         "icon",
         "quotaRing",
+        "quotaRingOnly",
         "fiveHour",
         "sevenDay",
         "system",

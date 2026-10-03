@@ -9,7 +9,39 @@ use std::time::{Duration, Instant};
 
 use crate::app_config::AppType;
 use crate::provider::UsageResult;
-use crate::services::subscription::SubscriptionQuota;
+use crate::services::subscription::{CredentialStatus, SubscriptionQuota};
+
+pub(crate) const QUOTA_KEEP_LAST_GOOD_MS: i64 = 600_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum QuotaSnapshotStatus {
+    Ready,
+    Stale,
+    Unavailable,
+    Expired,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaRefreshState {
+    pub status: QuotaSnapshotStatus,
+    pub refresh_failed: bool,
+    pub error: Option<String>,
+    pub fresh_until: Option<i64>,
+    pub valid_until: Option<i64>,
+    pub generation: u64,
+    pub attempted_at: Option<i64>,
+}
+
+/// The same projection is returned to the webview and rendered by the tray.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexQuotaSnapshot {
+    #[serde(flatten)]
+    pub quota: SubscriptionQuota,
+    pub refresh_state: QuotaRefreshState,
+}
 
 /// Last successful data and the outcome of the most recent attempt are separate:
 /// a transport failure never changes the timestamp of the successful data.
@@ -18,15 +50,91 @@ pub(crate) struct QuotaCacheEntry {
     pub(crate) latest: Option<SubscriptionQuota>,
     pub(crate) last_good: Option<SubscriptionQuota>,
     pub(crate) transient_failure: bool,
+    pub(crate) refresh_error: Option<String>,
+    pub(crate) attempted_at: Option<i64>,
 }
 
 impl QuotaCacheEntry {
     fn put(&mut self, quota: SubscriptionQuota) {
         self.transient_failure = false;
+        self.refresh_error = None;
+        self.attempted_at = Some(chrono::Utc::now().timestamp_millis());
         // Deterministic failures (including expired/missing credentials) discard
         // the previous values rather than letting them leak into a stale ring.
         self.last_good = quota.success.then(|| quota.clone());
         self.latest = Some(quota);
+    }
+
+    fn fail(&mut self, error: Option<String>) {
+        self.transient_failure = true;
+        self.refresh_error = error;
+        self.attempted_at = Some(chrono::Utc::now().timestamp_millis());
+    }
+
+    pub(crate) fn snapshot(
+        &self,
+        now: i64,
+        interval_seconds: u32,
+        generation: u64,
+    ) -> CodexQuotaSnapshot {
+        let fresh_for = 120_000.max(i64::from(interval_seconds) * 1000 + 30_000);
+        let keep_for = QUOTA_KEEP_LAST_GOOD_MS.max(fresh_for);
+        let latest = self.latest.as_ref();
+        let expired =
+            latest.is_some_and(|q| matches!(q.credential_status, CredentialStatus::Expired));
+        let usable = latest
+            .is_none_or(|q| q.success && matches!(q.credential_status, CredentialStatus::Valid));
+        let good = self.last_good.as_ref().filter(|_| usable);
+        let updated = good.and_then(|q| q.queried_at).filter(|at| *at <= now);
+        let fresh_until = updated.map(|at| at.saturating_add(fresh_for));
+        let valid_until = updated.map(|at| at.saturating_add(keep_for));
+        let available = good.is_some() && valid_until.is_some_and(|at| now <= at);
+        let crossed_reset = good.is_some_and(|q| {
+            q.tiers.iter().any(|tier| {
+                tier.resets_at.as_deref().is_some_and(|reset| {
+                    chrono::DateTime::parse_from_rfc3339(reset)
+                        .map(|at| at.timestamp_millis() <= now)
+                        .unwrap_or(true)
+                })
+            })
+        });
+        let status = if expired {
+            QuotaSnapshotStatus::Expired
+        } else if !available {
+            QuotaSnapshotStatus::Unavailable
+        } else if self.transient_failure || crossed_reset || fresh_until.is_some_and(|at| now > at)
+        {
+            QuotaSnapshotStatus::Stale
+        } else {
+            QuotaSnapshotStatus::Ready
+        };
+        let quota = if available {
+            good.unwrap().clone()
+        } else if let Some(quota) = latest.filter(|q| !q.success) {
+            quota.clone()
+        } else {
+            let mut quota = SubscriptionQuota::error(
+                "codex_oauth",
+                CredentialStatus::Valid,
+                self.refresh_error
+                    .clone()
+                    .unwrap_or_else(|| "Quota unavailable".into()),
+            );
+            quota.queried_at = updated;
+            quota
+        };
+        CodexQuotaSnapshot {
+            quota,
+            refresh_state: QuotaRefreshState {
+                status,
+                refresh_failed: self.transient_failure,
+                error: self.refresh_error.clone(),
+                fresh_until,
+                valid_until,
+                generation,
+                attempted_at: self.attempted_at,
+            },
+        }
     }
 }
 
@@ -102,7 +210,7 @@ impl UsageCache {
         let entry = entries.entry(account_id.to_owned()).or_default();
         match result {
             Ok(quota) => entry.put(quota.clone()),
-            Err(_) => entry.transient_failure = true,
+            Err(error) => entry.fail(Some(error.clone())),
         }
         true
     }
@@ -150,7 +258,7 @@ impl UsageCache {
             entries
                 .entry(account_id.to_string())
                 .or_default()
-                .transient_failure = true;
+                .fail(None);
         }
     }
 
@@ -190,28 +298,36 @@ impl UsageCache {
 
     pub(crate) fn mark_subscription_transient_failure(&self, app_type: AppType) {
         if let Ok(mut entries) = self.subscription.write() {
-            entries.entry(app_type).or_default().transient_failure = true;
+            entries.entry(app_type).or_default().fail(None);
         }
     }
 
-    pub(crate) fn mark_native_codex_transient_failure(&self, provider_id: &str, scope: &str) {
+    pub(crate) fn mark_native_codex_transient_failure(
+        &self,
+        provider_id: &str,
+        scope: &str,
+        error: &str,
+    ) {
         if let Ok(mut entries) = self.native_codex.write() {
             let entry = entries.entry(provider_id.to_string()).or_default();
             if entry.0 != scope {
                 *entry = (scope.to_string(), QuotaCacheEntry::default());
             }
-            entry.1.transient_failure = true;
+            entry.1.fail(Some(error.into()));
         }
     }
 
-    /// Join concurrent requests for the same credential scope. A tiny completion
-    /// grace period catches tray/frontend calls queued just after completion.
-    /// Failures are shared too, so one failing refresh cannot start a retry storm.
-    pub(crate) async fn coalesced_quota(
+    /// Automatic readers share the configured freshness window, even when their
+    /// timers are offset. Explicit refreshes (zero max age) join in-flight work,
+    /// while a subsequent explicit refresh always starts a new request.
+    /// Failures are shared too, avoiding retries from offset automatic readers.
+    pub(crate) async fn quota_with_max_age(
         &self,
         key: String,
+        max_age: Duration,
         query: impl std::future::Future<Output = Result<SubscriptionQuota, String>>,
     ) -> Result<SubscriptionQuota, String> {
+        let requested_at = Instant::now();
         let slot = self
             .quota_queries
             .write()
@@ -221,7 +337,7 @@ impl UsageCache {
             .clone();
         let mut result = slot.lock().await;
         if let Some((finished, previous)) = result.as_ref() {
-            if finished.elapsed() < Duration::from_secs(2) {
+            if *finished >= requested_at || finished.elapsed() < max_age {
                 return previous.clone();
             }
         }
@@ -307,6 +423,89 @@ impl UsageCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn offset_automatic_quota_readers_share_the_interval_and_manual_refresh_bypasses_it() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let cache = UsageCache::new();
+        let calls = AtomicUsize::new(0);
+        let query = || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Ok(fake_quota())
+        };
+        cache
+            .quota_with_max_age("a".into(), Duration::from_secs(60), query())
+            .await
+            .unwrap();
+        let slot = cache
+            .quota_queries
+            .read()
+            .unwrap()
+            .get("a")
+            .unwrap()
+            .clone();
+        slot.lock().await.as_mut().unwrap().0 = Instant::now() - Duration::from_secs(5);
+        cache
+            .quota_with_max_age("a".into(), Duration::from_secs(60), query())
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        cache
+            .quota_with_max_age("a".into(), Duration::ZERO, query())
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        cache
+            .quota_with_max_age("a".into(), Duration::ZERO, query())
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        cache
+            .quota_with_max_age("b".into(), Duration::from_secs(60), query())
+            .await
+            .unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+    }
+
+    #[test]
+    fn quota_projection_shares_failure_and_original_success_time_without_reviving_expired_credentials(
+    ) {
+        let cache = UsageCache::new();
+        let generation = cache.codex_oauth_generation("a");
+        let mut good = fake_quota();
+        good.queried_at = Some(1000);
+        cache.finish_codex_oauth_query("a", generation, &Ok(good));
+        cache.finish_codex_oauth_query("a", generation, &Err("Network error".into()));
+        let entry = cache.codex_oauth_entry("a").unwrap();
+        let snapshot = entry.snapshot(2000, 60, generation);
+        assert!(snapshot.quota.success);
+        assert_eq!(snapshot.quota.queried_at, Some(1000));
+        assert_eq!(snapshot.refresh_state.status, QuotaSnapshotStatus::Stale);
+        assert!(snapshot.refresh_state.refresh_failed);
+        assert_eq!(
+            snapshot.refresh_state.error.as_deref(),
+            Some("Network error")
+        );
+        assert!(!entry.snapshot(601001, 60, generation).quota.success);
+        // A deliberately long interval does not invalidate a successful snapshot early.
+        assert!(entry.snapshot(601001, 3600, generation).quota.success);
+        cache.finish_codex_oauth_query(
+            "a",
+            generation,
+            &Ok(SubscriptionQuota::error(
+                "codex_oauth",
+                CredentialStatus::Expired,
+                "expired".into(),
+            )),
+        );
+        cache.finish_codex_oauth_query("a", generation, &Err("Network error".into()));
+        let snapshot = cache
+            .codex_oauth_entry("a")
+            .unwrap()
+            .snapshot(2000, 60, generation);
+        assert!(!snapshot.quota.success);
+        assert_eq!(snapshot.refresh_state.status, QuotaSnapshotStatus::Expired);
+    }
     use crate::services::subscription::CredentialStatus;
 
     fn fake_quota() -> SubscriptionQuota {
@@ -425,25 +624,31 @@ mod tests {
             Ok(fake_quota())
         };
         let (a, b) = tokio::join!(
-            cache.coalesced_quota("managed:a".into(), query()),
-            cache.coalesced_quota("managed:a".into(), query()),
+            cache.quota_with_max_age("managed:a".into(), Duration::ZERO, query()),
+            cache.quota_with_max_age("managed:a".into(), Duration::ZERO, query()),
         );
         assert!(a.is_ok() && b.is_ok());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         cache
-            .coalesced_quota("managed:b".into(), query())
+            .quota_with_max_age("managed:b".into(), Duration::ZERO, query())
             .await
             .unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         let failing = || async {
             calls.fetch_add(1, Ordering::SeqCst);
+            tokio::task::yield_now().await;
             Err("temporary transport failure".into())
         };
         let (a, b) = tokio::join!(
-            cache.coalesced_quota("managed:failed".into(), failing()),
-            cache.coalesced_quota("managed:failed".into(), failing()),
+            cache.quota_with_max_age("managed:failed".into(), Duration::ZERO, failing()),
+            cache.quota_with_max_age("managed:failed".into(), Duration::ZERO, failing()),
         );
         assert_eq!(a.unwrap_err(), b.unwrap_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
+        assert!(cache
+            .quota_with_max_age("managed:failed".into(), Duration::from_secs(60), failing())
+            .await
+            .is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 }

@@ -381,8 +381,11 @@
       "title": "Quota battery",
       "warning": "Warning threshold",
       "low": "Low quota threshold",
-      "help": "Based on remaining quota: amber at or below the warning threshold, red at or below the low quota threshold, and green above both. Values are percentages from 0 to 100; the low threshold must be below the warning threshold. Changes save automatically.",
-      "invalid": "Enter percentages from 0 to 100, with the low threshold below the warning threshold."
+      "help": "Drag the red handle below the battery to set low quota, and the amber handle above it to set the warning threshold. Red, amber and green bands show remaining quota ranges with soft boundaries. Arrow keys adjust by 1%, Shift+Arrow or Page Up/Down by 5%, and Home/End move to the allowed bounds. Release to save automatically.",
+      "invalid": "Enter percentages from 0 to 100, with the low threshold below the warning threshold.",
+      "lowShort": "Low quota",
+      "warningShort": "Warning",
+      "availableShort": "Available"
     },
     "tray": {
       "title": "Menu bar",
@@ -396,7 +399,8 @@
       "system": "System",
       "quota": "Quota",
       "hint": "Shows the current account’s remaining quota.",
-      "help": "Keep the app icon, or show a ring with the current account’s remaining quota. Choose the 5-hour or weekly window. System follows the menu bar appearance; quota colors use the quota battery warning and low thresholds, with the system color above both. Unknown quota shows —. Changes save automatically."
+      "help": "Show the app icon, a compact remaining quota ring with percentage, or the ring alone. Choose the 5-hour or weekly window. If that window is unavailable, the other available window is shown. Hover for the displayed window, both quotas, account and update time. System colors follow the menu bar; quota colors use the warning thresholds. Unknown quota is shown as —. Changes save automatically.",
+      "quotaRingOnly": "Ring only"
     },
     "themeHint": "Choose the appearance theme for the app, takes effect immediately.",
     "themeLight": "Light",
@@ -639,6 +643,8 @@
     "languageOptionEnglish": "English",
     "languageOptionJapanese": "日本語",
     "windowBehavior": "Window Behavior",
+    "toggleOff": "Off",
+    "toggleOn": "On",
     "windowBehaviorHint": "Configure window minimize and Claude plugin integration policies.",
     "launchOnStartup": "Launch on Startup",
     "launchOnStartupDescription": "Automatically run Codex Switch when system starts",
@@ -646,7 +652,7 @@
     "silentStartupDescription": "Start in background mode without showing main window",
     "autoLaunchFailed": "Failed to set auto-launch",
     "minimizeToTray": "Minimize to tray on close",
-    "minimizeToTrayDescription": "When checked, clicking the close button will hide to system tray, otherwise the app will exit directly.",
+    "minimizeToTrayDescription": "When on, the close button hides the app to the system tray. When off, it quits the app.",
     "useAppWindowControls": "Enable app-level window controls",
     "useAppWindowControlsDescription": "Use built-in minimize, maximize/restore, and close buttons in the app header.",
     "enableClaudePluginIntegration": "Apply to Claude Code extension",
@@ -830,7 +836,18 @@
       "pricingLoadFailed": "Failed to load pricing defaults: {{error}}"
     },
     "saveFailedGeneric": "Save failed, please try again",
-    "localBuildHint": "Codex Switch is distributed as a local build. App updates are managed outside the app."
+    "localBuildHint": "Codex Switch is distributed as a local build. App updates are managed outside the app.",
+    "quotaRefresh": {
+      "title": "Quota refresh",
+      "off": "Off",
+      "custom": "Custom",
+      "seconds": "{{count}} sec",
+      "minutes": "{{count}} min",
+      "secondsUnit": "seconds",
+      "secondsUnitShort": "s",
+      "invalid": "Enter a whole number from 30 to 3600 seconds.",
+      "help": "Home and the menu bar share this interval and one request per account. The current account refreshes in the background; other accounts refresh while Home is visible. Off stops automatic refresh; manual refresh remains available."
+    }
   },
   "apps": {
     "claude": "Claude",
@@ -1577,6 +1594,16 @@
     "requestLogs": "Usage records",
     "sourceStats": "Source Stats",
     "modelStats": "Model Stats",
+    "comparison": {
+      "sources": "Source comparison",
+      "models": "Model comparison",
+      "metric": "Comparison metric",
+      "cost": "Cost",
+      "tokens": "Tokens",
+      "total": "Total",
+      "costHint": "Estimated cost in USD, based on the current filters.",
+      "tokensHint": "Same Tokens as the table: fresh input + output, excluding cache."
+    },
     "time": "Time",
     "provider": "Provider",
     "billingModel": "Billing Model",

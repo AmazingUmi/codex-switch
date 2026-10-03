@@ -4,11 +4,13 @@
 use tauri::Manager;
 
 use crate::app_config::AppType;
-use crate::services::subscription::{CredentialStatus, QuotaTier, TIER_FIVE_HOUR, TIER_SEVEN_DAY};
-use crate::services::usage_cache::QuotaCacheEntry;
+use crate::services::subscription::{QuotaTier, TIER_FIVE_HOUR, TIER_SEVEN_DAY};
+use crate::services::usage_cache::{QuotaCacheEntry, QuotaSnapshotStatus};
 use crate::store::AppState;
 
+#[cfg(test)]
 const FRESH_FOR_MS: i64 = 120_000;
+#[cfg(test)]
 const STALE_FOR_MS: i64 = 600_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +70,12 @@ pub(crate) fn snapshot(app: &tauri::AppHandle) -> TrayQuotaSnapshot {
     };
     let label = Some(provider.name.clone());
     match source_entry(&provider, &state.usage_cache) {
-        Ok(entry) => project(entry.as_ref(), label, now_millis()),
+        Ok(entry) => project_with_interval(
+            entry.as_ref(),
+            label,
+            now_millis(),
+            crate::settings::get_settings().quota_refresh_interval_seconds,
+        ),
         Err(status) => TrayQuotaSnapshot::empty(status, label),
     }
 }
@@ -115,17 +122,27 @@ pub(crate) fn menu_summary(
         Ok(entry) => entry,
         Err(_) => None,
     };
-    Some(remaining_menu_text(entry.as_ref(), language, now_millis()))
+    Some(remaining_menu_text(
+        entry.as_ref(),
+        language,
+        now_millis(),
+        crate::settings::get_settings().quota_refresh_interval_seconds,
+    ))
 }
 
-fn remaining_menu_text(entry: Option<&QuotaCacheEntry>, language: &str, now: i64) -> String {
+fn remaining_menu_text(
+    entry: Option<&QuotaCacheEntry>,
+    language: &str,
+    now: i64,
+    interval: u32,
+) -> String {
     let prefix = match language {
         "en" => "Remaining",
         "ja" => "残り",
         "zh-TW" => "剩餘",
         _ => "剩余",
     };
-    let snapshot = project(entry, None, now);
+    let snapshot = project_with_interval(entry, None, now, interval);
     let parts = if matches!(
         snapshot.status,
         TrayQuotaStatus::Ready | TrayQuotaStatus::Stale
@@ -188,79 +205,57 @@ fn window(tiers: &[QuotaTier], name: &str, seconds: i64) -> Option<TrayQuotaWind
     })
 }
 
-fn reset_has_crossed(window: &Option<TrayQuotaWindowSnapshot>, now: i64) -> bool {
-    window
-        .as_ref()
-        .and_then(|window| window.resets_at.as_deref())
-        .is_some_and(|reset| {
-            chrono::DateTime::parse_from_rfc3339(reset)
-                .map(|time| time.timestamp_millis() <= now)
-                // An invalid reset cannot support a claim that data is current.
-                .unwrap_or(true)
-        })
+#[cfg(test)]
+fn project(entry: Option<&QuotaCacheEntry>, label: Option<String>, now: i64) -> TrayQuotaSnapshot {
+    project_with_interval(entry, label, now, 60)
 }
 
-fn project(entry: Option<&QuotaCacheEntry>, label: Option<String>, now: i64) -> TrayQuotaSnapshot {
+fn project_with_interval(
+    entry: Option<&QuotaCacheEntry>,
+    label: Option<String>,
+    now: i64,
+    interval: u32,
+) -> TrayQuotaSnapshot {
     let Some(entry) = entry else {
         return TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, label);
     };
-    if let Some(latest) = entry.latest.as_ref() {
-        if matches!(latest.credential_status, CredentialStatus::Expired) {
-            return TrayQuotaSnapshot::empty(TrayQuotaStatus::Expired, label);
-        }
-        if !latest.success || !matches!(latest.credential_status, CredentialStatus::Valid) {
-            return TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, label);
-        }
-    }
-    let Some(good) = entry.last_good.as_ref() else {
-        return TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, label);
+    let projected = entry.snapshot(now, interval, 0);
+    let status = match projected.refresh_state.status {
+        QuotaSnapshotStatus::Ready => TrayQuotaStatus::Ready,
+        QuotaSnapshotStatus::Stale => TrayQuotaStatus::Stale,
+        QuotaSnapshotStatus::Unavailable => TrayQuotaStatus::Unavailable,
+        QuotaSnapshotStatus::Expired => TrayQuotaStatus::Expired,
     };
-    let Some(updated) = good.queried_at.filter(|updated| *updated <= now) else {
-        return TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, label);
-    };
-    let age = now.saturating_sub(updated);
-    if age > STALE_FOR_MS {
-        // Keeping a timestamp is useful for the tooltip; keeping percentages
-        // past the stale limit would make an old account look freshly queried.
-        let mut result = TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, label);
-        result.updated_at = Some(updated);
+    if !projected.quota.success {
+        let mut result = TrayQuotaSnapshot::empty(status, label);
+        result.updated_at = projected.quota.queried_at;
         return result;
     }
-    let five_hour = window(&good.tiers, TIER_FIVE_HOUR, 18_000);
-    let seven_day = window(&good.tiers, TIER_SEVEN_DAY, 604_800);
+    let five_hour = window(&projected.quota.tiers, TIER_FIVE_HOUR, 18_000);
+    let seven_day = window(&projected.quota.tiers, TIER_SEVEN_DAY, 604_800);
     let month = window(
-        &good.tiers,
+        &projected.quota.tiers,
         crate::services::subscription::TIER_THIRTY_DAY,
         2_592_000,
     );
     let status = if five_hour.is_none() && seven_day.is_none() && month.is_none() {
         TrayQuotaStatus::Unavailable
-    } else if entry.transient_failure
-        || age > FRESH_FOR_MS
-        || reset_has_crossed(&five_hour, now)
-        || reset_has_crossed(&seven_day, now)
-        || reset_has_crossed(&month, now)
-    {
-        TrayQuotaStatus::Stale
     } else {
-        TrayQuotaStatus::Ready
+        status
     };
     TrayQuotaSnapshot {
         account_label: label,
         five_hour,
         seven_day,
         status,
-        updated_at: Some(updated),
+        updated_at: projected.quota.queried_at,
     }
 }
 
-#[cfg(target_os = "macos")]
 static WORKER_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-#[cfg(target_os = "macos")]
 static WORKER_WAKE: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
 
 pub(crate) fn start_worker(app: &tauri::AppHandle) {
-    #[cfg(target_os = "macos")]
     {
         use std::sync::atomic::Ordering;
         if WORKER_STARTED.swap(true, Ordering::AcqRel) {
@@ -272,34 +267,30 @@ pub(crate) fn start_worker(app: &tauri::AppHandle) {
             let mut requested = true;
             loop {
                 let settings = crate::settings::get_settings();
-                if settings.show_in_tray
-                    && settings.tray_display_mode == crate::settings::TrayDisplayMode::QuotaRing
-                {
+                // Turning off polling must not suppress an explicit account
+                // switch, login or settings change that wakes this worker.
+                if requested || settings.quota_refresh_interval_seconds > 0 {
                     refresh_current(&app, requested).await;
-                    crate::tray::update_tray_display(&app);
                 }
+                crate::tray::update_tray_display(&app);
                 tokio::select! {
                     _ = wake.notified() => { requested = true; },
-                    _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => { requested = false; },
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(u64::from(settings.quota_refresh_interval_seconds.max(30)))) => { requested = false; },
                 }
             }
         });
     }
-    #[cfg(not(target_os = "macos"))]
-    let _ = app;
 }
 
 /// A notify permit coalesces rapid changes, and survives an in-flight refresh.
 /// The next iteration resolves the new binding rather than repeating the old one.
 pub(crate) fn request_refresh(app: &tauri::AppHandle) {
     crate::tray::update_tray_display(app);
-    #[cfg(target_os = "macos")]
     WORKER_WAKE
         .get_or_init(tokio::sync::Notify::new)
         .notify_one();
 }
 
-#[cfg(target_os = "macos")]
 async fn refresh_current(app: &tauri::AppHandle, requested: bool) {
     if !requested && snapshot(app).status == TrayQuotaStatus::Expired {
         return;
@@ -323,8 +314,15 @@ async fn refresh_current(app: &tauri::AppHandle, requested: bool) {
             let Some(oauth) = app.try_state::<crate::commands::CodexOAuthState>() else {
                 return;
             };
-            crate::commands::get_codex_oauth_quota(app.clone(), state, Some(account_id), oauth)
-                .await
+            crate::commands::get_codex_oauth_quota(
+                app.clone(),
+                state,
+                Some(account_id),
+                oauth,
+                Some(false),
+            )
+            .await
+            .map(|_| ())
         }
         Some(crate::tray::TrayUsageSource::Script)
             if crate::codex_config::is_codex_official_provider(&current)
@@ -333,16 +331,9 @@ async fn refresh_current(app: &tauri::AppHandle, requested: bool) {
             if crate::services::subscription::native_codex_file_scope().is_none() {
                 return;
             }
-            let result =
-                crate::commands::query_native_codex_quota_cached(&state.usage_cache, &current.id)
-                    .await;
-            if let Ok(quota) = &result {
-                state
-                    .usage_cache
-                    .put_subscription(AppType::Codex, quota.clone());
-            }
-            crate::tray::schedule_tray_refresh(app);
-            result
+            crate::commands::get_subscription_quota(app.clone(), state, "codex".into(), Some(false))
+                .await
+                .map(|_| ())
         }
         _ => return,
     };
@@ -354,6 +345,7 @@ async fn refresh_current(app: &tauri::AppHandle, requested: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::subscription::CredentialStatus;
     use crate::services::subscription::SubscriptionQuota;
     use crate::services::usage_cache::UsageCache;
 
@@ -391,7 +383,7 @@ mod tests {
     fn menu_uses_remaining_freshness_and_keeps_monthly_window() {
         let cache = UsageCache::new();
         cache.put_codex_oauth("a".into(), quota(64.0, NOW));
-        let summary = |at| remaining_menu_text(cache.codex_oauth_entry("a").as_ref(), "zh", at);
+        let summary = |at| remaining_menu_text(cache.codex_oauth_entry("a").as_ref(), "zh", at, 60);
         assert_eq!(summary(NOW), "剩余 5h 36%");
         cache.mark_codex_oauth_transient_failure("a");
         assert_eq!(summary(NOW), "剩余 5h ~36%");
@@ -404,6 +396,25 @@ mod tests {
         assert!(read(&cache, "a", NOW).seven_day.is_none());
         cache.invalidate_codex_oauth("a");
         assert_eq!(summary(NOW), "剩余 —");
+    }
+
+    #[test]
+    fn menu_and_ring_share_long_interval_validity() {
+        let cache = UsageCache::new();
+        let mut good = quota(64.0, NOW);
+        good.tiers[0].resets_at = None;
+        cache.put_codex_oauth("a".into(), good);
+        let entry = cache.codex_oauth_entry("a");
+        let now = NOW + STALE_FOR_MS + 1;
+        assert_eq!(
+            remaining_menu_text(entry.as_ref(), "zh", now, 3600),
+            "剩余 5h 36%"
+        );
+        assert_eq!(
+            project_with_interval(entry.as_ref(), None, now, 3600).status,
+            TrayQuotaStatus::Ready
+        );
+        assert_eq!(remaining_menu_text(entry.as_ref(), "zh", now, 60), "剩余 —");
     }
 
     #[test]

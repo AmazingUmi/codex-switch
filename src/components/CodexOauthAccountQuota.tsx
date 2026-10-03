@@ -30,7 +30,7 @@ const QueriedAccountQuota: React.FC<CodexOauthAccountQuotaProps> = ({
   const { t } = useTranslation();
   const query = useCodexOauthQuotaByAccountId(accountId, {
     enabled: true,
-    autoQuery: false,
+    autoQuery: true,
   });
   const view = (
     <SubscriptionQuotaView

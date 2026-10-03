@@ -45,12 +45,8 @@ export function ImportExportSection({
   return (
     <section className="space-y-4">
       <header className="space-y-2">
-        <h4 className="text-sm font-medium text-foreground">
-          {t("settings.importExport")}
-        </h4>
-        <p className="text-sm text-muted-foreground">
-          {t("settings.importExportHint")}
-        </p>
+        <h4 className="settings-field-label">{t("settings.importExport")}</h4>
+        <p className="settings-description">{t("settings.importExportHint")}</p>
       </header>
 
       <div className="space-y-4">

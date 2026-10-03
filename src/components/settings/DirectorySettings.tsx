@@ -40,7 +40,7 @@ export function DirectorySettings({
       {/* Codex Switch 配置目录 - 独立区块 */}
       <section className="space-y-4">
         <header className="flex items-center gap-2">
-          <label htmlFor={appDirectoryId} className="text-sm font-medium">
+          <label htmlFor={appDirectoryId} className="settings-field-label">
             {t("settings.appConfigDir")}
           </label>
           <HelpButton label={t("settings.appConfigDir")}>
@@ -53,7 +53,7 @@ export function DirectorySettings({
             id={appDirectoryId}
             value={appConfigDir ?? resolvedDirs.appConfig ?? ""}
             placeholder={t("settings.browsePlaceholderApp")}
-            className="text-xs"
+            className="settings-control-text"
             onChange={(event) => onAppConfigChange(event.target.value)}
           />
           <Button
@@ -128,10 +128,7 @@ function DirectoryInput({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
-        <label
-          htmlFor={inputId}
-          className="text-sm font-medium text-foreground"
-        >
+        <label htmlFor={inputId} className="settings-field-label">
           {label}
         </label>
         {description ? (
@@ -143,7 +140,7 @@ function DirectoryInput({
           id={inputId}
           value={displayValue}
           placeholder={placeholder}
-          className="text-xs"
+          className="settings-control-text"
           onChange={(event) => onChange(event.target.value)}
         />
         <Button

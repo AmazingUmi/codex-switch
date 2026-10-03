@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { RefreshButton } from "@/components/ui/refresh-button";
 import { HelpButton } from "@/components/ui/help-button";
 import { QueryTimestamp } from "@/components/ui/query-timestamp";
+import { QuotaBatteryTrack } from "@/components/QuotaBatteryTrack";
 import type { QuotaTier, SubscriptionQuota } from "@/types/subscription";
 import {
   DEFAULT_QUOTA_BATTERY_THRESHOLDS,
@@ -195,8 +196,8 @@ function QuotaBatteryWindow({
             )}
           </span>
         </div>
-        <div
-          className="codex-battery-track"
+        <QuotaBatteryTrack
+          charged={known && displayedRemaining! > 0}
           role={known ? "meter" : "img"}
           aria-label={known ? label : `${label}: ${unknownLabel}`}
           aria-valuemin={known ? 0 : undefined}
@@ -204,19 +205,6 @@ function QuotaBatteryWindow({
           aria-valuenow={remaining ?? undefined}
           aria-valuetext={known ? `${value} ${remainingLabel}` : undefined}
         >
-          <div className="codex-battery-cells" aria-hidden="true">
-            {Array.from({ length: 28 }, (_, index) => (
-              <span
-                key={index}
-                className="codex-battery-cell"
-                style={{ "--codex-quota-cell": index } as React.CSSProperties}
-              >
-                {known && displayedRemaining! > 0 && (
-                  <span className="codex-battery-fill" />
-                )}
-              </span>
-            ))}
-          </div>
           {timeRemaining !== null && (
             <span
               className="codex-battery-time-marker"
@@ -229,7 +217,7 @@ function QuotaBatteryWindow({
               }
             />
           )}
-        </div>
+        </QuotaBatteryTrack>
       </div>
       <div>
         <span

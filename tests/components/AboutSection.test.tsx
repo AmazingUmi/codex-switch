@@ -22,7 +22,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api", () => ({ settingsApi: mocks }));
-vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.0.1" }));
+vi.mock("@tauri-apps/api/app", () => ({ getVersion: async () => "0.0.2" }));
 vi.mock("@/config/appConfig", () => ({ APP_ICON_MAP: {} }));
 vi.mock("sonner", () => ({ toast: mocks }));
 

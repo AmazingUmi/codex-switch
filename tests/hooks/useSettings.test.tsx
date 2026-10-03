@@ -432,10 +432,16 @@ describe("useSettings hook", () => {
 
   it.each([
     { trayDisplayMode: "quotaRing" },
+    { trayDisplayMode: "quotaRingOnly" },
     { trayQuotaWindow: "sevenDay" },
     { trayQuotaColorMode: "system" },
+    { quotaRefreshIntervalSeconds: 90 },
+    {
+      quotaBatteryWarningThresholdPercent: 70,
+      quotaBatteryLowThresholdPercent: 20,
+    },
   ] as const)(
-    "saves tray preference %j without publishing auth/directory drafts",
+    "saves device preference %j without publishing auth/directory drafts",
     async (updates) => {
       settingsFormMock = createSettingsFormMock({
         settings: {

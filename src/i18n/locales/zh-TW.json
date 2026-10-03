@@ -381,8 +381,11 @@
       "title": "額度電池",
       "warning": "預警門檻",
       "low": "低額度門檻",
-      "help": "依剩餘額度變色：不超過預警門檻時為琥珀色，不超過低額度門檻時為紅色，高於兩者時為綠色。數值範圍為 0–100%，低額度門檻必須小於預警門檻；修改後自動儲存。",
-      "invalid": "請輸入 0–100% 的數值，且低額度門檻須小於預警門檻。"
+      "help": "拖曳電池下方的紅色手柄調整低額度門檻，上方的琥珀色手柄調整預警門檻。電池依剩餘額度分為紅、琥珀及綠三段，邊界柔和過渡。方向鍵每次調整 1%，Shift+方向鍵或 Page Up/Down 每次調整 5%，Home/End 到達可用邊界；放開後自動儲存。",
+      "invalid": "請輸入 0–100% 的數值，且低額度門檻須小於預警門檻。",
+      "lowShort": "低額度",
+      "warningShort": "預警",
+      "availableShort": "充足"
     },
     "tray": {
       "title": "選單列",
@@ -396,7 +399,8 @@
       "system": "系統",
       "quota": "額度",
       "hint": "顯示目前帳戶的剩餘額度。",
-      "help": "保留應用程式圖示，或顯示目前帳戶的剩餘額度圓環和百分比。可選擇 5 小時或每週額度。系統顏色隨選單列外觀變化；額度顏色沿用額度電池的警告和低額度門檻，高於兩者時使用系統顏色。未知額度顯示 —。修改自動儲存。"
+      "help": "顯示應用程式圖示、精簡的剩餘額度環形與百分比，或僅顯示環形。可選擇 5 小時或每週額度；所選週期不可用時，自動顯示另一個可用週期。游標停留時查看實際顯示的週期、帳號、兩個週期的額度和更新時間。系統顏色跟隨選單列，額度顏色使用警示閾值。未知額度顯示 —。修改自動儲存。",
+      "quotaRingOnly": "僅環形"
     },
     "themeHint": "選擇應用程式的外觀主題，立即生效。",
     "themeLight": "淺色",
@@ -639,6 +643,8 @@
     "languageOptionEnglish": "English",
     "languageOptionJapanese": "日本語",
     "windowBehavior": "視窗行為",
+    "toggleOff": "關閉",
+    "toggleOn": "開啟",
     "windowBehaviorHint": "設定視窗最小化與 Claude 外掛程式連動策略。",
     "launchOnStartup": "開機自動啟動",
     "launchOnStartupDescription": "隨系統啟動自動執行 Codex Switch",
@@ -646,7 +652,7 @@
     "silentStartupDescription": "程式啟動時不顯示主視窗，僅在系統匣執行",
     "autoLaunchFailed": "設定開機自動啟動失敗",
     "minimizeToTray": "關閉時最小化至系統匣",
-    "minimizeToTrayDescription": "勾選後點擊關閉按鈕會隱藏至系統匣，取消則直接退出應用程式。",
+    "minimizeToTrayDescription": "開啟後，點擊關閉按鈕會隱藏至系統匣；關閉後則退出應用程式。",
     "useAppWindowControls": "啟用應用程式等級視窗按鈕",
     "useAppWindowControlsDescription": "開啟後使用應用程式自建的最小化、最大化/還原、關閉按鈕；關閉後沿用系統視窗模式。",
     "enableClaudePluginIntegration": "套用至 Claude Code 外掛程式",
@@ -831,7 +837,18 @@
       "pricingLoadFailed": "載入計費設定失敗：{{error}}"
     },
     "saveFailedGeneric": "儲存失敗，請重試",
-    "localBuildHint": "Codex Switch 目前以本機組建分發，應用程式更新由外部管理。"
+    "localBuildHint": "Codex Switch 目前以本機組建分發，應用程式更新由外部管理。",
+    "quotaRefresh": {
+      "title": "額度自動重新整理",
+      "off": "關閉",
+      "custom": "自訂",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分鐘",
+      "secondsUnit": "秒",
+      "secondsUnitShort": "秒",
+      "invalid": "請輸入 30–3600 秒之間的整數。",
+      "help": "首頁與選單列共用重新整理間隔，同一帳號共用一次請求。目前帳號在背景重新整理，其他帳號在首頁可見時重新整理。關閉後停止自動重新整理，仍可手動重新整理。"
+    }
   },
   "apps": {
     "claude": "Claude",
@@ -1578,6 +1595,16 @@
     "requestLogs": "用量記錄",
     "sourceStats": "來源統計",
     "modelStats": "模型統計",
+    "comparison": {
+      "sources": "來源比較",
+      "models": "模型比較",
+      "metric": "比較指標",
+      "cost": "金額",
+      "tokens": "用量",
+      "total": "合計",
+      "costHint": "金額為目前篩選範圍內的估算美元費用。",
+      "tokensHint": "用量與表格 Tokens 一致：非快取輸入 + 輸出，不含快取。"
+    },
     "time": "時間",
     "provider": "供應商",
     "billingModel": "計費模型",

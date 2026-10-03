@@ -908,6 +908,10 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
     use crate::commands::CopilotAuthState;
     use futures::future::join_all;
 
+    if crate::settings::get_settings().quota_refresh_interval_seconds == 0 {
+        return;
+    }
+
     {
         let mut guard = LAST_TRAY_USAGE_REFRESH
             .lock()
@@ -958,6 +962,8 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
         };
 
         if let Some(source) = tray_usage_source(&section.app_type, &current) {
+            let native_subscription = crate::codex_config::is_codex_official_provider(&current)
+                && provider_uses_official_subscription(&current);
             let app_clone = app.clone();
             let state = app.state::<AppState>();
             let copilot_state = app.state::<CopilotAuthState>();
@@ -973,6 +979,17 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
                             state,
                             Some(account_id),
                             codex_state,
+                            Some(false),
+                        )
+                        .await
+                        .map(|_| ())
+                    }
+                    TrayUsageSource::Script if native_subscription => {
+                        crate::commands::get_subscription_quota(
+                            app_clone,
+                            state,
+                            app_str,
+                            Some(false),
                         )
                         .await
                         .map(|_| ())

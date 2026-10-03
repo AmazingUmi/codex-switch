@@ -1,13 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { BatteryMedium } from "lucide-react";
 import type { SettingsFormState } from "@/hooks/useSettings";
 import { HelpButton } from "@/components/ui/help-button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { QuotaBatteryTrack } from "@/components/QuotaBatteryTrack";
+import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import {
   areQuotaBatteryThresholdsValid,
   getQuotaBatteryThresholds,
+  type QuotaBatteryThresholds,
 } from "@/utils/quotaBatteryThresholds";
 
 interface QuotaBatterySettingsProps {
@@ -17,47 +25,80 @@ interface QuotaBatterySettingsProps {
   ) => Promise<boolean> | boolean | void;
 }
 
+type Threshold = keyof QuotaBatteryThresholds;
+const ADJUST_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowDown",
+  "ArrowUp",
+  "PageDown",
+  "PageUp",
+  "Home",
+  "End",
+]);
+
 export function QuotaBatterySettings({
   settings,
   onChange,
 }: QuotaBatterySettingsProps) {
   const { t } = useTranslation();
   const thresholds = getQuotaBatteryThresholds(settings);
-  const [warning, setWarning] = useState(String(thresholds.warning));
-  const [low, setLow] = useState(String(thresholds.low));
+  const [draft, setDraft] = useState(thresholds);
+  const draftRef = useRef(draft);
+  const savedRef = useRef(thresholds);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const gesture = useRef<{
+    field: Threshold;
+    pointerId: number;
+    startX: number;
+    width: number;
+    initial: QuotaBatteryThresholds;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  // Keep existing fractional preferences valid; new gestures maintain separation.
+  const gap = Math.min(1, thresholds.warning - thresholds.low);
 
+  const updateDraft = (next: QuotaBatteryThresholds) => {
+    draftRef.current = next;
+    setDraft(next);
+    setError(null);
+  };
   useEffect(() => {
-    setWarning(String(thresholds.warning));
-    setLow(String(thresholds.low));
+    const next = { warning: thresholds.warning, low: thresholds.low };
+    savedRef.current = next;
+    draftRef.current = next;
+    setDraft(next);
   }, [thresholds.warning, thresholds.low]);
 
   const save = async () => {
-    if (savingRef.current) return;
-    const next = {
-      warning: warning.trim() ? Number(warning) : NaN,
-      low: low.trim() ? Number(low) : NaN,
-    };
+    if (savingRef.current || gesture.current) return;
+    const next = draftRef.current;
     if (!areQuotaBatteryThresholdsValid(next)) {
       setError(t("settings.quotaBattery.invalid"));
       return;
     }
-    setError(null);
-    if (next.warning === thresholds.warning && next.low === thresholds.low)
+    if (
+      next.warning === savedRef.current.warning &&
+      next.low === savedRef.current.low
+    )
       return;
     savingRef.current = true;
     setSaving(true);
+    setError(null);
     try {
-      const saved = await onChange({
-        quotaBatteryWarningThresholdPercent: next.warning,
-        quotaBatteryLowThresholdPercent: next.low,
-      });
-      if (saved === false) throw new Error("Threshold save failed");
+      if (
+        (await onChange({
+          quotaBatteryWarningThresholdPercent: next.warning,
+          quotaBatteryLowThresholdPercent: next.low,
+        })) === false
+      )
+        throw new Error("Threshold save failed");
+      savedRef.current = next;
     } catch {
-      setWarning(String(thresholds.warning));
-      setLow(String(thresholds.low));
+      updateDraft(savedRef.current);
       setError(t("settings.saveFailedGeneric"));
     } finally {
       savingRef.current = false;
@@ -65,73 +106,179 @@ export function QuotaBatterySettings({
     }
   };
 
+  const adjust = (field: Threshold, value: number) => {
+    if (savingRef.current || !Number.isFinite(value)) return;
+    const current = draftRef.current;
+    const min = field === "low" ? 0 : current.low + gap;
+    const max = field === "low" ? current.warning - gap : 100;
+    updateDraft({ ...current, [field]: Math.max(min, Math.min(max, value)) });
+  };
+  const startDrag = (
+    event: PointerEvent<HTMLButtonElement>,
+    field: Threshold,
+  ) => {
+    if (event.button !== 0 || savingRef.current || gesture.current) return;
+    const width = trackRef.current?.getBoundingClientRect().width;
+    if (!width) return;
+    event.preventDefault();
+    event.currentTarget.focus();
+    if (savingRef.current) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gesture.current = {
+      field,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      width,
+      initial: { ...draftRef.current },
+    };
+    setDragging(true);
+  };
+  const moveDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const active = gesture.current;
+    if (!active || event.pointerId !== active.pointerId) return;
+    const delta = ((event.clientX - active.startX) / active.width) * 100;
+    adjust(
+      active.field,
+      delta === 0
+        ? active.initial[active.field]
+        : Math.round(active.initial[active.field] + delta),
+    );
+  };
+  const finishDrag = (
+    event: PointerEvent<HTMLButtonElement>,
+    cancelled = false,
+  ) => {
+    const active = gesture.current;
+    if (!active || event.pointerId !== active.pointerId) return;
+    if (!cancelled) moveDrag(event);
+    gesture.current = null;
+    setDragging(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    if (cancelled) updateDraft(active.initial);
+    else void save();
+  };
+  const keyDown = (
+    event: KeyboardEvent<HTMLButtonElement>,
+    field: Threshold,
+  ) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void save();
+      return;
+    }
+    if (!ADJUST_KEYS.has(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey || event.key.startsWith("Page") ? 5 : 1;
+    const current = draftRef.current[field];
+    adjust(
+      field,
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? 100
+          : current +
+            (["ArrowLeft", "ArrowDown", "PageDown"].includes(event.key)
+              ? -step
+              : step),
+    );
+  };
+  const percent = (value: number) =>
+    `${new Intl.NumberFormat(settings.language, { maximumFractionDigits: 20 }).format(value)}%`;
+
   return (
-    <section className="space-y-3" aria-busy={saving}>
-      <div className="flex items-center gap-2">
-        <BatteryMedium className="h-4 w-4 text-primary" aria-hidden="true" />
-        <h3 className="text-sm font-medium">
-          {t("settings.quotaBattery.title")}
-        </h3>
-        <HelpButton label={t("settings.quotaBattery.title")}>
-          <p>{t("settings.quotaBattery.help")}</p>
-        </HelpButton>
-      </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        {[
-          {
-            id: "quota-battery-warning",
-            label: "warning",
-            value: warning,
-            set: setWarning,
-          },
-          { id: "quota-battery-low", label: "low", value: low, set: setLow },
-        ].map((field) => (
-          <div
-            key={field.id}
-            className="flex items-center justify-between gap-3"
+    <section className="settings-section space-y-3" aria-busy={saving}>
+      <SettingsSectionHeader
+        title={t("settings.quotaBattery.title")}
+        icon={<BatteryMedium />}
+        help={
+          <HelpButton label={t("settings.quotaBattery.title")}>
+            <p>{t("settings.quotaBattery.help")}</p>
+          </HelpButton>
+        }
+      />
+      <div className="codex-quota-panel codex-quota-battery w-full max-w-md rounded-2xl px-3 py-3">
+        <div className="px-1 py-6" dir="ltr">
+          <QuotaBatteryTrack
+            ref={trackRef}
+            charged
+            className="codex-battery-threshold-track"
+            data-dragging={dragging}
+            style={
+              {
+                "--codex-quota-remaining": 100,
+                "--codex-battery-low-stop": `${draft.low}%`,
+                "--codex-battery-warning-stop": `${draft.warning}%`,
+              } as CSSProperties
+            }
           >
-            <Label htmlFor={field.id} className="text-xs text-muted-foreground">
-              {t(`settings.quotaBattery.${field.label}`)}
-            </Label>
-            <div className="relative w-24 shrink-0">
-              <Input
-                id={field.id}
-                type="number"
-                min={0}
-                max={100}
-                step="any"
-                className="h-8 pr-6 tabular-nums"
-                value={field.value}
-                disabled={saving}
-                aria-invalid={!!error}
+            {(["low", "warning"] as const).map((field) => (
+              <button
+                key={field}
+                type="button"
+                role="slider"
+                aria-label={t(`settings.quotaBattery.${field}`)}
+                aria-valuemin={field === "low" ? 0 : draft.low + gap}
+                aria-valuemax={field === "low" ? draft.warning - gap : 100}
+                aria-valuenow={draft[field]}
+                aria-valuetext={percent(draft[field])}
+                aria-orientation="horizontal"
                 aria-describedby={error ? "quota-battery-error" : undefined}
-                onChange={(event) => {
-                  field.set(event.target.value);
-                  setError(null);
+                disabled={saving}
+                className="codex-battery-threshold-handle"
+                data-threshold={field}
+                data-quota-tone={field}
+                title={`${t(`settings.quotaBattery.${field}`)} ${percent(draft[field])}`}
+                style={{ left: `${draft[field]}%` }}
+                onPointerDown={(event) => startDrag(event, field)}
+                onPointerMove={moveDrag}
+                onPointerUp={(event) => finishDrag(event)}
+                onPointerCancel={(event) => finishDrag(event, true)}
+                onLostPointerCapture={(event) => finishDrag(event, true)}
+                onKeyDown={(event) => keyDown(event, field)}
+                onKeyUp={(event) => {
+                  if (ADJUST_KEYS.has(event.key)) void save();
                 }}
                 onBlur={() => void save()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void save();
-                  }
-                }}
-              />
-              <span
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground"
-                aria-hidden="true"
               >
-                %
-              </span>
-            </div>
-          </div>
-        ))}
+                <span
+                  className="codex-battery-threshold-line"
+                  aria-hidden="true"
+                />
+                <span
+                  className="codex-battery-threshold-thumb glass-button"
+                  aria-hidden="true"
+                >
+                  <span />
+                </span>
+              </button>
+            ))}
+          </QuotaBatteryTrack>
+        </div>
+        <div className="settings-description flex flex-wrap items-center gap-x-5 gap-y-1">
+          {(["low", "warning", "available"] as const).map((tone) => (
+            <span
+              key={tone}
+              className="inline-flex items-center gap-1.5"
+              data-quota-tone={tone}
+            >
+              <span
+                className="codex-battery-threshold-dot"
+                aria-hidden="true"
+              />
+              {t(`settings.quotaBattery.${tone}Short`)}
+              {tone !== "available" && (
+                <span className="tabular-nums">{percent(draft[tone])}</span>
+              )}
+            </span>
+          ))}
+        </div>
       </div>
       {error && (
         <p
           id="quota-battery-error"
           role="alert"
-          className="text-xs text-destructive"
+          className="settings-description text-destructive"
         >
           {error}
         </p>
