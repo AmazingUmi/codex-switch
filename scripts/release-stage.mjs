@@ -7,6 +7,7 @@ import {
   readFileSync,
   readlinkSync,
   readdirSync,
+  realpathSync,
   rmdirSync,
   rmSync,
   writeFileSync,
@@ -48,6 +49,12 @@ if (
   );
 const app = join(bundle, "macos", "Codex Switch.app");
 function verifyApp(appPath) {
+  if (
+    !readFileSync(join(appPath, "Contents", "Resources", "LICENSE")).equals(
+      readFileSync(join(root, "LICENSE")),
+    )
+  )
+    throw new Error("The app must include the original MIT license.");
   const info = JSON.parse(
     run("/usr/bin/plutil", [
       "-convert",
@@ -131,7 +138,9 @@ if (dmgs.length !== 1)
   throw new Error("Expected exactly one freshly built DMG.");
 const dmg = join(bundle, "dmg", dmgs[0]);
 run("/usr/bin/hdiutil", ["verify", dmg]);
-const mountPoint = mkdtempSync(join(tmpdir(), "codex-switch-release-"));
+const mountPoint = realpathSync(
+  mkdtempSync(join(tmpdir(), "codex-switch-release-")),
+);
 let attached = false;
 try {
   const mountPlist = run("/usr/bin/hdiutil", [
@@ -151,7 +160,9 @@ try {
   );
   if (
     !mounted["system-entities"].some(
-      (entity) => entity["mount-point"] === mountPoint,
+      (entity) =>
+        entity["mount-point"] &&
+        realpathSync(entity["mount-point"]) === mountPoint,
     )
   )
     throw new Error("DMG did not mount at the requested path.");

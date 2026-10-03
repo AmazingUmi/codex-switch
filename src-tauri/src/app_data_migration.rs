@@ -134,7 +134,10 @@ fn snapshot_database(source: &Path, destination: &Path) -> Result<(), AppError> 
     output
         .close()
         .map_err(|(_, e)| AppError::Database(e.to_string()))?;
-    fs::File::open(destination)
+    // Windows FlushFileBuffers requires a writable handle to the new snapshot.
+    fs::OpenOptions::new()
+        .write(true)
+        .open(destination)
         .and_then(|file| file.sync_all())
         .map_err(|e| AppError::io(destination, e))?;
     #[cfg(unix)]

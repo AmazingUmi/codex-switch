@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { migrateBrowserPreferences } from "@/lib/browserStorage";
 
+function storageMethodOwner(method: "setItem" | "key"): Storage {
+  // jsdom Storage is a proxy; its methods must be mocked on the prototype.
+  // The fallback storage used by other Node versions owns its methods directly.
+  return Object.prototype.hasOwnProperty.call(localStorage, method)
+    ? localStorage
+    : Object.getPrototypeOf(localStorage);
+}
+
 beforeEach(() => {
   localStorage.clear();
   vi.restoreAllMocks();
@@ -38,10 +46,13 @@ describe("browser preference migration", () => {
 
   it("retains the source on a failed write and retries after recovery", () => {
     localStorage.setItem("cc-switch-theme", "dark");
-    const write = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
-      throw new Error("Quota exceeded");
-    });
+    const write = vi
+      .spyOn(storageMethodOwner("setItem"), "setItem")
+      .mockImplementation(() => {
+        throw new Error("Quota exceeded");
+      });
     expect(() => migrateBrowserPreferences()).not.toThrow();
+    expect(write).toHaveBeenCalledWith("codex-switch-theme", "dark");
     expect(localStorage.getItem("cc-switch-theme")).toBe("dark");
     write.mockRestore();
     migrateBrowserPreferences();
@@ -50,11 +61,14 @@ describe("browser preference migration", () => {
   });
 
   it("does not block rendering when storage cannot be enumerated", () => {
-    vi.spyOn(localStorage, "key").mockImplementation(() => {
-      throw new Error("Storage unavailable");
-    });
+    const enumerate = vi
+      .spyOn(storageMethodOwner("key"), "key")
+      .mockImplementation(() => {
+        throw new Error("Storage unavailable");
+      });
     localStorage.setItem("cc-switch-theme", "dark");
     expect(() => migrateBrowserPreferences()).not.toThrow();
+    expect(enumerate).toHaveBeenCalledWith(0);
     expect(localStorage.getItem("cc-switch-theme")).toBe("dark");
   });
 });
@@ -80,10 +94,13 @@ describe("pre-render theme migration", () => {
 
   it("keeps the old theme available if a write fails", () => {
     localStorage.setItem("cc-switch-theme", "dark");
-    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
-      throw new Error("Quota exceeded");
-    });
+    const write = vi
+      .spyOn(storageMethodOwner("setItem"), "setItem")
+      .mockImplementation(() => {
+        throw new Error("Quota exceeded");
+      });
     expect(runThemeScript).not.toThrow();
+    expect(write).toHaveBeenCalledWith("codex-switch-theme", "dark");
     expect(localStorage.getItem("cc-switch-theme")).toBe("dark");
   });
 });

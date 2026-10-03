@@ -607,7 +607,7 @@ describe("grouped usage records", () => {
     await user.tab();
     expect(screen.getByRole("combobox", { name: "Time zone" })).toHaveFocus();
     await user.keyboard("{Enter}");
-    await screen.findByRole("option", { name: "UTC" });
+    await screen.findByRole("option", { name: "UTC", selected: false });
     await user.keyboard("{End}{Enter}");
     await waitFor(() =>
       expect(usageApi.getUsageRecords).toHaveBeenLastCalledWith(

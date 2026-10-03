@@ -30,8 +30,12 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 Use `CODEX_SWITCH_TEST_HOME` with an isolated temporary home for native smoke
-runs. Never exercise account switching,
-reauthentication or migration against a running user's profile as a cleanup check.
+runs. It isolates default database, OAuth and Codex paths, but not Tauri's
+platform preferences; a saved custom directory can override the default. Launch
+the executable directly and verify its active data directory. UI automation may
+relaunch the app without that environment variable.
+Never exercise account switching, reauthentication or migration against a
+running user's profile as a cleanup check.
 Report live account/CLI/Desktop checks separately from fixture tests.
 
 ## Documentation and changes
