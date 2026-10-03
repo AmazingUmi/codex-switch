@@ -12,6 +12,7 @@ import type { settingsApi, ToolInstallationReport } from "@/lib/api/settings";
 type ToolVersions = Awaited<ReturnType<typeof settingsApi.getToolVersions>>;
 
 const mocks = vi.hoisted(() => ({
+  getChatGptAppVersion: vi.fn(),
   getToolVersions: vi.fn(),
   probeToolInstallations: vi.fn(),
   runToolLifecycleAction: vi.fn(),
@@ -83,6 +84,13 @@ describe("AboutSection Codex CLI lifecycle", () => {
     outdated.clear();
     missing.clear();
     outdated.add("codex");
+    mocks.getChatGptAppVersion.mockReset().mockResolvedValue({
+      status: "installed",
+      version: "26.930.31730",
+      build_version: "12947",
+      path: "/Applications/ChatGPT.app",
+      error: null,
+    });
     mocks.getToolVersions
       .mockReset()
       .mockImplementation(async (tools: string[]) =>
@@ -182,6 +190,78 @@ describe("AboutSection Codex CLI lifecycle", () => {
       ),
     );
     expect(mocks.runToolLifecycleAction).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches the ChatGPT app version across mounts and shares manual refresh", async () => {
+    const view = await renderAbout();
+    expect(card("ChatGPT").getByText("26.930.31730")).toBeInTheDocument();
+    expect(card("ChatGPT").getByText("12947")).toBeInTheDocument();
+    expect(
+      card("ChatGPT").queryByText("settings.latestVersion"),
+    ).not.toBeInTheDocument();
+    expect(
+      card("ChatGPT").queryByRole("button", { name: "settings.toolUpdate" }),
+    ).not.toBeInTheDocument();
+    expect(
+      card("ChatGPT").queryByRole("button", { name: "settings.toolInstall" }),
+    ).not.toBeInTheDocument();
+
+    view.unmount();
+    await renderAbout();
+    expect(mocks.getChatGptAppVersion).toHaveBeenCalledTimes(1);
+    mocks.getChatGptAppVersion.mockResolvedValueOnce({
+      status: "installed",
+      version: "26.1001.12345",
+      build_version: "13000",
+      path: "/Applications/ChatGPT.app",
+      error: null,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+    await waitFor(() =>
+      expect(card("ChatGPT").getByText("26.1001.12345")).toBeInTheDocument(),
+    );
+    expect(mocks.getChatGptAppVersion).toHaveBeenCalledTimes(2);
+    expect(mocks.getToolVersions).toHaveBeenCalledTimes(2);
+    expect(mocks.runToolLifecycleAction).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["not_installed", "common.notInstalled"],
+    ["unavailable", "settings.appVersionUnavailable"],
+    ["unsupported", "settings.appVersionUnsupported"],
+  ])(
+    "distinguishes ChatGPT status %s without offering a CLI install",
+    async (status, label) => {
+      mocks.getChatGptAppVersion.mockResolvedValue({
+        status,
+        version: null,
+        build_version: null,
+        path: null,
+        error: null,
+      });
+      await renderAbout();
+      expect(card("ChatGPT").getByText(label)).toBeInTheDocument();
+      expect(
+        card("ChatGPT").queryByRole("button", { name: "settings.toolInstall" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
+  it("keeps CLI checks available when ChatGPT metadata fails", async () => {
+    mocks.getChatGptAppVersion.mockRejectedValueOnce(
+      new Error("metadata check failed"),
+    );
+    await renderAbout();
+    expect(
+      card("ChatGPT").getByText("settings.appVersionUnavailable"),
+    ).toBeInTheDocument();
+    expect(
+      card("ChatGPT").queryByText("common.notInstalled"),
+    ).not.toBeInTheDocument();
+    expect(updateButton("Codex")).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "common.refresh" }),
+    ).toBeEnabled();
   });
   it.each(["install", "update"] as const)(
     "restores an ongoing %s after remount and receives its completion",

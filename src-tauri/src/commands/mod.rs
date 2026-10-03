@@ -2,6 +2,7 @@
 
 mod auth;
 mod balance;
+mod chatgpt_app;
 mod codex_oauth;
 mod coding_plan;
 mod config;
@@ -37,6 +38,7 @@ mod workspace;
 
 pub use auth::*;
 pub use balance::*;
+pub use chatgpt_app::*;
 pub use codex_oauth::*;
 pub use coding_plan::*;
 pub use config::*;

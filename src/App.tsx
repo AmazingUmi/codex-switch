@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { motion, AnimatePresence } from "framer-motion";
@@ -815,10 +816,22 @@ function App() {
           }}
         />
         <div className="ml-auto flex h-full min-w-0 items-center gap-2 sm:gap-3">
-          <div
-            className="glass-header flex h-full min-w-0 items-center px-3 sm:px-4 [&>div]:max-w-full [&>div]:min-w-0"
-            {...DRAG_REGION_ATTR}
-            style={{ ...DRAG_REGION_STYLE } as any}
+          <Button
+            type="button"
+            variant="outline"
+            className="h-full min-w-0 px-3 sm:px-4"
+            data-tauri-no-drag
+            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+            title="GitHub · Codex Switch"
+            onClick={() => {
+              void settingsApi
+                .openExternal("https://github.com/AmazingUmi/codex-switch")
+                .catch((error) => {
+                  toast.error(t("provider.openLinkFailed"), {
+                    description: extractErrorMessage(error),
+                  });
+                });
+            }}
           >
             <span
               className="inline-flex min-w-0 items-center gap-2 text-base font-semibold text-blue-500 dark:text-blue-400"
@@ -827,7 +840,7 @@ function App() {
               <CodexSwitchMark className="h-7 w-7 shrink-0" />
               <span className="truncate">Codex Switch</span>
             </span>
-          </div>
+          </Button>
         </div>
       </header>
 

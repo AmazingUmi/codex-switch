@@ -23,6 +23,14 @@ export interface WebDavSyncResult {
   status: string;
 }
 
+export interface ChatGptAppVersion {
+  status: "installed" | "not_installed" | "unavailable" | "unsupported";
+  version: string | null;
+  build_version: string | null;
+  path: string | null;
+  error: string | null;
+}
+
 export const settingsApi = {
   async get(): Promise<Settings> {
     return await invoke("get_settings");
@@ -214,6 +222,10 @@ export const settingsApi = {
 
   async getAutoLaunchStatus(): Promise<boolean> {
     return await invoke("get_auto_launch_status");
+  },
+
+  async getChatGptAppVersion(): Promise<ChatGptAppVersion> {
+    return await invoke("get_chatgpt_app_version");
   },
 
   async getToolVersions(

@@ -32,6 +32,7 @@ import { toast } from "sonner";
 import { getVersion } from "@tauri-apps/api/app";
 import { settingsApi } from "@/lib/api";
 import type {
+  ChatGptAppVersion,
   ToolInstallation,
   ToolInstallationReport,
 } from "@/lib/api/settings";
@@ -46,6 +47,7 @@ import { isUpdateAvailable } from "@/lib/version";
 import { ToolUpgradeConfirmDialog } from "./ToolUpgradeConfirmDialog";
 import { ToolInstallRow } from "./ToolInstallRow";
 import { ToolErrorMessage } from "./ToolErrorMessage";
+import { ChatGptAppVersionCard } from "./ChatGptAppVersionCard";
 
 interface AboutSectionProps {
   isPortable: boolean;
@@ -130,10 +132,12 @@ const TOOL_APP_IDS: Record<ToolName, AppId> = { codex: "codex" };
 const TOOL_VERSIONS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 分钟
 const EMPTY_TOOL_VERSIONS: ToolVersion[] = [];
 let toolVersionRequestSequence = 0;
+let chatGptAppRequestSequence = 0;
 const latestToolVersionRequests = new Map<string, number>();
 
 interface ToolManagementState {
   toolVersionsCache: { data: ToolVersion[]; at: number } | null;
+  chatGptAppCache: { data: ChatGptAppVersion; at: number } | null;
   busyTools: ReadonlyMap<ToolName, ToolLifecycleAction>;
   pendingUpgrades: readonly PendingUpgrade[];
   batchAction: ToolLifecycleAction | null;
@@ -143,6 +147,7 @@ interface ToolManagementState {
 // 让新挂载的页面立即恢复进度，并收到原任务的完成结果。
 let toolManagementState: ToolManagementState = {
   toolVersionsCache: null,
+  chatGptAppCache: null,
   busyTools: new Map(),
   pendingUpgrades: [],
   batchAction: null,
@@ -188,8 +193,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingVersion, setIsLoadingVersion] = useState(
     () => appVersionCache === null,
   );
-  const { toolVersionsCache, busyTools, pendingUpgrades, batchAction } =
-    useSyncExternalStore(subscribeToolManagement, getToolManagementState);
+  const {
+    toolVersionsCache,
+    chatGptAppCache,
+    busyTools,
+    pendingUpgrades,
+    batchAction,
+  } = useSyncExternalStore(subscribeToolManagement, getToolManagementState);
   const toolVersions = toolVersionsCache?.data ?? EMPTY_TOOL_VERSIONS;
   const pendingUpgrade = pendingUpgrades[0] ?? null;
   // 有缓存（哪怕已超期）就先展示旧值、初始不 loading；超期时由挂载副作用触发后台
@@ -197,6 +207,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingTools, setIsLoadingTools] = useState(
     () => toolVersionsCache === null,
   );
+  const [isLoadingChatGptApp, setIsLoadingChatGptApp] = useState(
+    () => chatGptAppCache === null,
+  );
+  const isLoadingEnvironment = isLoadingTools || isLoadingChatGptApp;
   const [showInstallCommands, setShowInstallCommands] = useState(false);
 
   const [wslShellByTool, setWslShellByTool] = useState<
@@ -338,6 +352,31 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     [wslShellByTool, refreshToolVersions],
   );
 
+  const loadChatGptAppVersion = useCallback(async (force = false) => {
+    const cache = toolManagementState.chatGptAppCache;
+    if (!force && cache && Date.now() - cache.at < TOOL_VERSIONS_CACHE_TTL_MS) {
+      setIsLoadingChatGptApp(false);
+      return;
+    }
+    const requestId = ++chatGptAppRequestSequence;
+    setIsLoadingChatGptApp(true);
+    let data: ChatGptAppVersion;
+    try {
+      data = await settingsApi.getChatGptAppVersion();
+    } catch (error) {
+      data = {
+        status: "unavailable",
+        version: null,
+        build_version: null,
+        path: null,
+        error: extractErrorMessage(error),
+      };
+    }
+    if (requestId !== chatGptAppRequestSequence) return;
+    updateToolManagementState({ chatGptAppCache: { data, at: Date.now() } });
+    setIsLoadingChatGptApp(false);
+  }, []);
+
   const handleToolShellChange = async (toolName: ToolName, value: string) => {
     const wslShell = value === "auto" ? null : value;
     const nextPref: WslShellPreference = {
@@ -389,6 +428,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
 
     void loadAppVersion();
     void loadAllToolVersions();
+    void loadChatGptAppVersion();
     return () => {
       active = false;
     };
@@ -864,15 +904,22 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               size="sm"
               variant="outline"
               className="h-7 gap-1.5 text-xs"
-              onClick={() => loadAllToolVersions({ force: true })}
-              disabled={isLoadingTools || isAnyBusy}
+              onClick={() => {
+                void loadAllToolVersions({ force: true });
+                void loadChatGptAppVersion(true);
+              }}
+              disabled={isLoadingEnvironment || isAnyBusy}
             >
               <RefreshCw
                 className={
-                  isLoadingTools ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"
+                  isLoadingEnvironment
+                    ? "h-3.5 w-3.5 animate-spin"
+                    : "h-3.5 w-3.5"
                 }
               />
-              {isLoadingTools ? t("common.refreshing") : t("common.refresh")}
+              {isLoadingEnvironment
+                ? t("common.refreshing")
+                : t("common.refresh")}
             </Button>
             <Button
               size="sm"
@@ -1112,6 +1159,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               </motion.div>
             );
           })}
+          <ChatGptAppVersionCard
+            report={chatGptAppCache?.data ?? null}
+            isLoading={isLoadingChatGptApp}
+          />
         </div>
       </div>
 

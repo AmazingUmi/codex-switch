@@ -1649,6 +1649,7 @@ pub fn run() {
             commands::delete_sessions,
             commands::launch_session_terminal,
             commands::get_tool_versions,
+            commands::get_chatgpt_app_version,
             commands::run_tool_lifecycle_action,
             commands::probe_tool_installations,
             // Provider terminal
