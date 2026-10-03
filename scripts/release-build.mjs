@@ -21,6 +21,11 @@ rmSync(join(root, "src-tauri", "target", target, "release", "bundle"), {
 });
 const env = {
   ...process.env,
+  // Tauri's DMG bundler checks the environment independently of CLI --ci:
+  // CI=true selects --skip-jenkins, avoiding Finder's cosmetic AppleScript.
+  // See tauri-cli-v2.8.1/crates/tauri-bundler/src/bundle/macos/dmg/mod.rs.
+  CI: "true",
+  TAURI_BUNDLER_DMG_IGNORE_CI: "false",
   MACOSX_DEPLOYMENT_TARGET: "12.0",
   APPLE_SIGNING_IDENTITY:
     signing === "adhoc" ? "-" : process.env.APPLE_SIGNING_IDENTITY,

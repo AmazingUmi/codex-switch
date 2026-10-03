@@ -27,7 +27,6 @@ jobs:
       contents: write
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
       MACOSX_DEPLOYMENT_TARGET: "12.0"
     steps:
       - name: Checkout exact release tag
@@ -59,10 +58,8 @@ jobs:
         run: node scripts/release-publish.mjs --check-only
 
       - name: Setup pinned pnpm
-        run: |
-          corepack enable
-          corepack install
-          pnpm --version
+        # Reads the exact packageManager version from package.json.
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
       - name: Cache pnpm store
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

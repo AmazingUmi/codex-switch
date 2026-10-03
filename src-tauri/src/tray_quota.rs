@@ -31,8 +31,29 @@ pub(crate) struct TrayQuotaWindowSnapshot {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TrayQuotaSnapshot {
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(
+            dead_code,
+            reason = "Read by the macOS menu-bar renderer and portable fixtures"
+        )
+    )]
     pub(crate) account_label: Option<String>,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(
+            dead_code,
+            reason = "Read by the macOS menu-bar renderer and portable fixtures"
+        )
+    )]
     pub(crate) five_hour: Option<TrayQuotaWindowSnapshot>,
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(test)),
+        expect(
+            dead_code,
+            reason = "Read by the macOS menu-bar renderer and portable fixtures"
+        )
+    )]
     pub(crate) seven_day: Option<TrayQuotaWindowSnapshot>,
     pub(crate) status: TrayQuotaStatus,
     /// Timestamp of the successful query, never a failed retry or reset time.

@@ -68,12 +68,7 @@ jobs:
           node-version-file: ".node-version"
 
       - name: Setup pnpm
-        env:
-          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
-        run: |
-          corepack enable
-          corepack install
-          pnpm --version
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
       - name: Get pnpm store directory
         id: pnpm-store

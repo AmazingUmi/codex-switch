@@ -1,6 +1,10 @@
 //! macOS menu-bar presentation. Quota identity and freshness live in tray_quota.
 
-use crate::settings::{AppSettings, TrayDisplayMode, TrayQuotaColorMode, TrayQuotaWindow};
+#[cfg(target_os = "macos")]
+use crate::settings::TrayDisplayMode;
+#[cfg(any(test, target_os = "macos"))]
+use crate::settings::{AppSettings, TrayQuotaColorMode, TrayQuotaWindow};
+#[cfg(any(test, target_os = "macos"))]
 use crate::tray_quota::{TrayQuotaSnapshot, TrayQuotaStatus, TrayQuotaWindowSnapshot};
 
 /// Preserve the meaningful boundaries: a positive remainder is never shown as 0%.
@@ -19,12 +23,14 @@ pub(crate) fn remaining_text(remaining: Option<f64>, stale: bool) -> String {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg(any(test, target_os = "macos"))]
 enum RingTone {
     System,
     Warning,
     Low,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn ring_tone(value: Option<f64>, stale: bool, settings: &AppSettings) -> RingTone {
     if stale || settings.tray_quota_color_mode == TrayQuotaColorMode::System {
         return RingTone::System;
@@ -37,6 +43,7 @@ fn ring_tone(value: Option<f64>, stale: bool, settings: &AppSettings) -> RingTon
 }
 
 /// 3x pixels become an 18pt native image; supersampling keeps the ring clean at 1x/2x.
+#[cfg(any(test, target_os = "macos"))]
 fn ring_rgba(value: Option<f64>, tone: RingTone) -> Vec<u8> {
     const SIZE: usize = 54;
     const SAMPLES: usize = 4;
@@ -96,6 +103,7 @@ fn ring_rgba(value: Option<f64>, tone: RingTone) -> Vec<u8> {
     pixels
 }
 
+#[cfg(any(test, target_os = "macos"))]
 struct Labels {
     menu_bar: &'static str,
     remaining: &'static str,
@@ -110,6 +118,7 @@ struct Labels {
     unsupported: &'static str,
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn labels(language: &str) -> Labels {
     match language {
         "en" => Labels {
@@ -167,6 +176,7 @@ fn labels(language: &str) -> Labels {
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn window_line(
     label: &str,
     window: Option<&TrayQuotaWindowSnapshot>,
@@ -190,6 +200,7 @@ fn window_line(
 
 /// Some plans only return a weekly quota. The setting is the preferred window,
 /// not a requirement that hides the account's other available quota on switch.
+#[cfg(any(test, target_os = "macos"))]
 fn selected_window(
     snapshot: &TrayQuotaSnapshot,
     preferred: TrayQuotaWindow,
@@ -214,6 +225,7 @@ fn selected_window(
     }
 }
 
+#[cfg(any(test, target_os = "macos"))]
 fn tooltip(snapshot: &TrayQuotaSnapshot, language: &str, preferred: TrayQuotaWindow) -> String {
     let text = labels(language);
     let mut lines = vec!["Codex Switch".to_owned()];

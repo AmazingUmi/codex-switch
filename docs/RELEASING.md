@@ -49,6 +49,8 @@ RELEASE_SIGNING_MODE=adhoc node scripts/release-stage.mjs
 
 The build uses the production identity `com.codexswitch.desktop`, the release profile and locked Cargo dependencies. It removes previous bundles under `src-tauri/target/aarch64-apple-darwin/release/bundle` before building, while retaining dependency caches. Verified assets are staged under `src-tauri/target/release-assets`. A local uncommitted build is marked `dirty` in its manifest and cannot be published by the publishing script. For a notarized local build supply the six credentials above and stage with `RELEASE_SIGNING_MODE=notarized`.
 
+The release command sets `CI=true` and prevents the DMG bundler's CI override, so local and Actions packaging skip Finder's cosmetic AppleScript. The DMG still includes the app and Applications link; packaging does not require granting Finder automation access.
+
 `pnpm build:preview` creates an isolated debug preview app; use the release command above for published DMGs. The release workflow does not create updater signatures or `latest.json`.
 
 Primary references: [Tauri GitHub distribution](https://v2.tauri.app/distribute/pipelines/github/) and [macOS signing and notarization](https://v2.tauri.app/distribute/sign/macos/).
