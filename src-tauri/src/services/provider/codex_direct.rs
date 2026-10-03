@@ -62,6 +62,7 @@ fn managed_account(provider: &Provider) -> Option<String> {
 
 /// Reject configurations that depend on a removed local converter or token injector.
 pub(crate) fn ensure_direct(provider: &Provider) -> Result<(), AppError> {
+    super::codex_accounts::ensure_api_provider(provider)?;
     let fail = |detail: &str| {
         AppError::localized(
             "provider.codex.native_responses_required",
@@ -184,6 +185,7 @@ pub(crate) fn ensure_direct(provider: &Provider) -> Result<(), AppError> {
 pub(crate) enum Target<'a> {
     /// 直连：这个供应商（`None`：没有直连供应商，只清掉关键字段）。
     Direct(Option<&'a Provider>),
+    Account(&'a str),
 }
 
 /// live 现在是谁写进去的：删它带进来的独有字段、认出要切走的托管账号、判断用户是不是
@@ -191,6 +193,7 @@ pub(crate) enum Target<'a> {
 #[derive(Clone, Copy)]
 pub(crate) enum Owner<'a> {
     Provider(&'a Provider),
+    Account(&'a str),
     /// 代理契约，`route` 是契约对应的路由供应商（找得到时）。
     Contract {
         contract: &'a Contract,
@@ -204,7 +207,7 @@ impl<'a> Owner<'a> {
         match self {
             Self::Provider(provider) => Some(provider),
             Self::Contract { route, .. } => *route,
-            Self::None => None,
+            Self::None | Self::Account(_) => None,
         }
     }
 }
@@ -221,10 +224,14 @@ pub(crate) struct Prepared {
 fn target_provider<'a>(target: &Target<'a>) -> Option<&'a Provider> {
     match target {
         Target::Direct(provider) => *provider,
+        Target::Account(_) => None,
     }
 }
 
 fn target_account(target: &Target<'_>) -> Option<String> {
+    if let Target::Account(id) = target {
+        return Some((*id).to_string());
+    }
     target_provider(target)
         .filter(|provider| is_official(provider))
         .and_then(managed_account)
@@ -248,11 +255,11 @@ pub(crate) fn prepare(
         )),
         None => None,
     };
-    let outgoing = match owner
-        .provider()
-        .and_then(managed_account)
-        .filter(|account| target_account.as_ref() != Some(account))
-    {
+    let owned_account = match owner {
+        Owner::Account(id) => Some((*id).to_string()),
+        _ => owner.provider().and_then(managed_account),
+    };
+    let outgoing = match owned_account.filter(|account| target_account.as_ref() != Some(account)) {
         Some(account) => {
             let guard = super::live::prepare_codex_managed_oauth_live_auth_switch_away(
                 manager.clone(),
@@ -319,7 +326,7 @@ pub(crate) fn outgoing_exclusive(owner: &Owner<'_>) -> Vec<(String, TomlValue)> 
                 Some((key.clone(), literal))
             })
             .collect(),
-        Owner::None => Vec::new(),
+        Owner::None | Owner::Account(_) => Vec::new(),
     }
 }
 
@@ -339,6 +346,10 @@ fn row_facts(db: &Database) -> Result<RowFacts, AppError> {
     };
     for provider in db.get_all_providers(app())?.values() {
         let auth = provider.settings_config.get("auth");
+        // OpenAI API keys are provider-owned credentials too.
+        if let Some(key) = auth.and_then(extract_codex_auth_api_key) {
+            facts.third_party_keys.push(key);
+        }
         if is_official(provider) {
             if managed_account(provider).is_none() {
                 if let Some(auth) =
@@ -429,6 +440,7 @@ pub(crate) struct Planned {
     leaving_official: Option<Value>,
     retired_keys: Vec<String>,
     official_logins: Vec<Value>,
+    cleanup_key: Option<String>,
 }
 
 impl Planned {
@@ -480,6 +492,17 @@ pub(crate) fn plan(
     let official = provider.is_some_and(is_official);
     let managed_login = prepared.target_login.as_ref().map(|(_, auth)| auth.clone());
     let (route, stamp, auth) = match (target, &projection) {
+        (Target::Account(_), _) => (
+            if crate::settings::unify_codex_session_history() {
+                RouteWrite::OfficialMirror
+            } else {
+                RouteWrite::Official
+            },
+            None,
+            managed_login
+                .map(AuthGoal::Managed)
+                .unwrap_or(AuthGoal::KeepNative),
+        ),
         (Target::Direct(None), _) | (_, None) => (RouteWrite::Default, None, AuthGoal::KeepNative),
         (Target::Direct(Some(provider)), Some(projection)) => {
             let auth = match &managed_login {
@@ -541,8 +564,25 @@ pub(crate) fn plan(
         catalog,
         auth,
         leaving_official,
-        retired_keys: facts.third_party_keys,
+        retired_keys: if matches!(target, Target::Direct(None)) {
+            owner
+                .provider()
+                .and_then(|provider| provider.settings_config.get("auth"))
+                .and_then(extract_codex_auth_api_key)
+                .into_iter()
+                .collect()
+        } else {
+            facts.third_party_keys
+        },
         official_logins: facts.official_logins,
+        cleanup_key: if matches!(target, Target::Direct(None)) {
+            owner
+                .provider()
+                .and_then(|provider| provider.settings_config.get("auth"))
+                .and_then(extract_codex_auth_api_key)
+        } else {
+            None
+        },
     })
 }
 
@@ -670,7 +710,8 @@ pub(crate) fn run_with_edits(
         AuthGoal::Official(row_auth) => AuthTarget::Official { row_auth },
         AuthGoal::Managed(auth) => AuthTarget::Managed { auth },
     };
-    let auth_plan = codex_login::plan(AuthInput {
+    let original_stash = stash.clone();
+    let mut auth_plan = codex_login::plan(AuthInput {
         live: live_auth.as_ref(),
         live_is_managed,
         third_party_keys: &planned.retired_keys,
@@ -678,6 +719,22 @@ pub(crate) fn run_with_edits(
         target,
         stash,
     });
+    if let Some(key) = &planned.cleanup_key {
+        let mut cleaned = auth_plan.stash.clone().unwrap_or(original_stash.clone());
+        cleaned
+            .logins
+            .retain(|_, auth| extract_codex_auth_api_key(auth).as_ref() != Some(key));
+        if cleaned
+            .last
+            .as_ref()
+            .is_some_and(|id| !cleaned.logins.contains_key(id))
+        {
+            cleaned.last = None;
+        }
+        if cleaned != original_stash {
+            auth_plan.stash = Some(cleaned);
+        }
+    }
     // 暂存坏了只当它是空的读；要往里存登录（`auth.json` 里的登录要被删掉或换掉）时照写
     // 会覆盖掉里面原有的登录，停下。
     if let (Some(err), Some(_)) = (&stash_unreadable, &auth_plan.stash) {
@@ -810,6 +867,13 @@ pub(crate) fn write_direct(
     target: Option<&Provider>,
     pending: PendingTarget,
 ) -> Result<OperationReport, AppError> {
+    let selected = crate::mode::current::codex_active_selection(db)?;
+    let owner = match selected.as_ref() {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id }) => {
+            Owner::Account(account_id)
+        }
+        _ => owner,
+    };
     let target = Target::Direct(target);
     let prepared = prepare(manager, &owner, &target)?;
     let planned = plan(db, &owner, &target, &prepared)?;

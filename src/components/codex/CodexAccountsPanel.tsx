@@ -3,72 +3,38 @@ import { useSettingsQuery } from "@/lib/query";
 import { getQuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 import { useTranslation } from "react-i18next";
 import { ArrowRightLeft, Loader2 } from "lucide-react";
-import type { Provider } from "@/types";
 import type { ManagedAuthAccount } from "@/lib/api/auth";
 import { CodexOAuthSection } from "@/components/providers/forms/CodexOAuthSection";
 import { Button } from "@/components/ui/button";
 import { HelpButton } from "@/components/ui/help-button";
-import { Label } from "@/components/ui/label";
-import { resolveCodexOfficialIdentity } from "@/utils/providerCapabilities";
 import { CurrentStatus } from "@/components/ui/current-status";
 import type { SubscriptionQuota } from "@/types/subscription";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  getCodexAccountProviders,
-  getCurrentCodexAccountId,
-} from "./accountProviders";
-
 export interface CodexAccountsPanelProps {
-  providers: Provider[];
-  /** Provider currently written to the native Codex configuration. */
-  currentProviderId: string;
-  /** Creates an account's missing binding and switches only after validation. */
-  onSwitchAccount: (
-    accountId: string,
-    providerId?: string,
-  ) => void | Promise<unknown>;
-  /** Retained for callers migrating from configuration management. */
-  onSwitchProvider?: (provider: Provider) => void | Promise<unknown>;
-  onCreateConfiguration?: (accountId: string) => void;
+  currentAccountId: string | null;
+  onSwitchAccount: (accountId: string) => void | Promise<unknown>;
   onAddAccount?: (startLogin: () => void) => void;
   isSwitching?: boolean;
-  isLoadingProviders?: boolean;
-  isProvidersError?: boolean;
-  /** Optional bulk operation below the account list. */
+  isLoadingSelection?: boolean;
+  isSelectionError?: boolean;
+  /** An interrupted native switch may be resolved by an explicit selection. */
+  canReconfirmSelection?: boolean;
   showLogoutAll?: boolean;
 }
 
 function AccountSwitchAction({
   account,
   quota,
-  selectedProviderId,
   onError,
-  onPendingChange,
   ...props
 }: CodexAccountsPanelProps & {
   account: ManagedAuthAccount;
   quota?: SubscriptionQuota;
-  selectedProviderId?: string;
   onError: (error: string | null) => void;
-  onPendingChange: (pending: boolean) => void;
 }) {
   const { t } = useTranslation();
   const [pending, setPending] = useState(false);
-  const configurations = getCodexAccountProviders(props.providers, account.id);
-  const selected = configurations.find(
-    (provider) => provider.id === selectedProviderId,
-  );
-  const isCurrent =
-    getCurrentCodexAccountId(props.providers, props.currentProviderId) ===
-    account.id;
   const isCurrentSelection =
-    isCurrent && (!selected || selected.id === props.currentProviderId);
+    !props.isSelectionError && props.currentAccountId === account.id;
   const isPending = pending || props.isSwitching;
   const cannotSwitch =
     !!account.reauth_required ||
@@ -78,15 +44,13 @@ function AccountSwitchAction({
 
   const switchAccount = async () => {
     setPending(true);
-    onPendingChange(true);
     onError(null);
     try {
-      await props.onSwitchAccount(account.id, selected?.id);
+      await props.onSwitchAccount(account.id);
     } catch (error) {
       onError(error instanceof Error ? error.message : String(error));
     } finally {
       setPending(false);
-      onPendingChange(false);
     }
   };
 
@@ -95,9 +59,9 @@ function AccountSwitchAction({
     : t("codexAccounts.switch", "切换到此账号");
   const disabledReason = isPending
     ? t("codexAccounts.switchPending", "正在切换账号…")
-    : props.isProvidersError
+    : props.isSelectionError && !props.canReconfirmSelection
       ? t("codexAccounts.connectionLoadFailed", "无法读取连接，请刷新后重试。")
-      : props.isLoadingProviders
+      : props.isLoadingSelection
         ? t("codexOauth.statusLoading", "正在加载...")
         : cannotSwitch
           ? t("codexAccounts.quotaExpiredHint", "请进入“编辑账号”重新登录。")
@@ -109,9 +73,6 @@ function AccountSwitchAction({
 
   return (
     <>
-      {isCurrent && (
-        <CurrentStatus label={t("codexAccounts.current", "当前使用")} />
-      )}
       {disabledReason && !isCurrentSelection && (
         <HelpButton
           label={t("codexAccounts.switchUnavailable", "为何无法切换")}
@@ -142,29 +103,22 @@ function AccountSwitchAction({
 export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
   const { t } = useTranslation();
   const { data: settings } = useSettingsQuery();
-  const [selectedProviders, setSelectedProviders] = useState<
-    Record<string, string>
-  >({});
-  const [draftProviders, setDraftProviders] = useState<Record<string, string>>(
-    {},
-  );
-  const [pendingAccounts, setPendingAccounts] = useState<
-    Record<string, boolean>
-  >({});
   const [switchErrors, setSwitchErrors] = useState<
     Record<string, string | null>
   >({});
-  const currentProvider = props.providers.find(
-    (provider) => provider.id === props.currentProviderId,
-  );
-  const currentIdentity = currentProvider
-    ? resolveCodexOfficialIdentity("codex", currentProvider)
-    : null;
   return (
     <section
       className="space-y-3"
       aria-label={t("codexAccounts.title", "ChatGPT 账号")}
     >
+      {props.canReconfirmSelection && (
+        <p role="status" className="text-xs text-amber-700 dark:text-amber-300">
+          {t(
+            "codexAccounts.selectionUncertainHint",
+            "当前连接尚未确认，请选择账号重新切换。",
+          )}
+        </p>
+      )}
       <CodexOAuthSection
         presentation="cards"
         batteryThresholds={getQuotaBatteryThresholds(settings)}
@@ -173,22 +127,11 @@ export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
         onAddAccount={props.onAddAccount}
         headerActions={
           <>
-            {currentProvider &&
-              currentIdentity !== "managed_account" &&
-              currentIdentity !== "native_login" && (
-                <span
-                  className="min-w-0 truncate text-xs text-muted-foreground"
-                  title={currentProvider.name}
-                  data-testid="current-api-connection"
-                >
-                  {currentProvider.name}
-                </span>
-              )}
             <HelpButton label={t("codexAccounts.accountHelpLabel", "账号说明")}>
               <p>
                 {t(
                   "codexAccounts.directSwitchHelp",
-                  "登录后的 ChatGPT 账号可以直接切换。默认账号仅供高级托管配置使用，与当前使用的账号无关。",
+                  "登录后的 ChatGPT 账号可以直接切换，并独立查询订阅额度。",
                 )}
               </p>
               <p>
@@ -200,23 +143,15 @@ export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
             </HelpButton>
           </>
         }
-        currentAccountId={getCurrentCodexAccountId(
-          props.providers,
-          props.currentProviderId,
-        )}
+        currentAccountId={
+          props.isSelectionError ? null : props.currentAccountId
+        }
         renderAccountHeaderActions={(account, quota) => (
           <AccountSwitchAction
             key={account.id}
             {...props}
             account={account}
             quota={quota}
-            selectedProviderId={selectedProviders[account.id]}
-            onPendingChange={(pending) =>
-              setPendingAccounts((previous) => ({
-                ...previous,
-                [account.id]: pending,
-              }))
-            }
             onError={(error) =>
               setSwitchErrors((previous) => ({
                 ...previous,
@@ -233,7 +168,7 @@ export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
                 {t("codexAccounts.switchFailedInline", "切换未完成。")} {error}
               </p>
             );
-          if (props.isProvidersError)
+          if (props.isSelectionError && !props.canReconfirmSelection)
             return (
               <p className="text-xs text-destructive">
                 {t(
@@ -243,68 +178,6 @@ export function CodexAccountsPanel(props: CodexAccountsPanelProps) {
               </p>
             );
           return null;
-        }}
-        onAccountEditOpened={(account) =>
-          setDraftProviders((previous) => ({
-            ...previous,
-            [account.id]: selectedProviders[account.id] ?? "",
-          }))
-        }
-        onAccountEditSaved={(account) =>
-          setSelectedProviders((previous) => ({
-            ...previous,
-            [account.id]: draftProviders[account.id] ?? "",
-          }))
-        }
-        renderAccountEditOptions={(account) => {
-          const configurations = getCodexAccountProviders(
-            props.providers,
-            account.id,
-          );
-          if (configurations.length <= 1) return null;
-          const selected = configurations.find(
-            (provider) => provider.id === draftProviders[account.id],
-          );
-          return (
-            <div className="space-y-1.5">
-              <Label htmlFor="codex-account-configuration">
-                {t("codexAccounts.advancedConfiguration", "高级连接")}
-              </Label>
-              <Select
-                value={selected?.id ?? "__automatic__"}
-                onValueChange={(value) =>
-                  setDraftProviders((previous) => ({
-                    ...previous,
-                    [account.id]: value === "__automatic__" ? "" : value,
-                  }))
-                }
-                disabled={
-                  pendingAccounts[account.id] ||
-                  props.isSwitching ||
-                  props.isLoadingProviders ||
-                  props.isProvidersError
-                }
-              >
-                <SelectTrigger
-                  id="codex-account-configuration"
-                  className="h-8 w-full min-w-0"
-                  aria-label={`${t("codexAccounts.configuration", "账号配置")}: ${account.login}`}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__automatic__">
-                    {t("codexAccounts.automaticConfiguration", "自动选择")}
-                  </SelectItem>
-                  {configurations.map((provider) => (
-                    <SelectItem key={provider.id} value={provider.id}>
-                      {provider.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          );
         }}
       />
     </section>

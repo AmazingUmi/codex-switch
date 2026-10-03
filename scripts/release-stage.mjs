@@ -211,10 +211,10 @@ writeFileSync(
 );
 const signingNote =
   signing === "adhoc"
-    ? "This testing build is ad-hoc signed and is **not Apple notarized**. macOS may block the first launch; after attempting to open it, use System Settings → Privacy & Security → Open Anyway only if you trust this release."
-    : "This build is signed with Developer ID Application, Apple notarized, and its app ticket has been verified.";
+    ? "ad-hoc 签名，未经 Apple 公证。首次打开被拦截时，在系统设置 → 隐私与安全性 → 仍要打开。"
+    : "已使用 Developer ID 签名并通过 Apple 公证。";
 writeFileSync(
   join(stage, "RELEASE_NOTES.md"),
-  `Codex Switch ${tag} is a macOS testing pre-release.\n\n- Apple Silicon (M1 and later); configured minimum macOS version: 12.0. Intel, Windows and Linux installation packages are not included in this release.\n- ${signingNote}\n- Download \`${assetName}\`, open it, and drag Codex Switch into Applications.\n- Updates use manual downloads from this repository's Releases page.\n- Verify downloads with \`shasum -a 256 -c SHA256SUMS\` alongside the DMG, LICENSE and RELEASE_MANIFEST.json files.\n- Based on [CC Switch](https://github.com/farion1231/cc-switch), distributed under the included MIT license.\n\nValidation limits: runtime testing on macOS 12, live OAuth/account switching, and light/dark Retina tray acceptance are NOT_RUN by this packaging workflow. The configured minimum version is not a claim that those checks passed.\n\nSource commit: \`${manifest.commit}\`.\n`,
+  `Codex Switch ${tag} · macOS 测试版\n\n- Apple Silicon（M1 及以后），构建目标 macOS 12+。\n- 下载 \`${assetName}\`，打开后拖入 Applications；更新需手动下载。\n- ${signingNote}\n\n首次启动会迁移本机已有的 CC Switch 数据。校验与来源记录见 SHA256SUMS、RELEASE_MANIFEST.json。\n\n打包流程未验证 macOS 12 实机、真实 OAuth 登录及 Retina 菜单栏外观。基于 [CC Switch](https://github.com/farion1231/cc-switch)，保留 MIT 许可。\n`,
 );
 console.log(`Verified and staged release assets in ${stage}.`);

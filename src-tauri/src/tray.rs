@@ -151,7 +151,7 @@ pub const TRAY_ID: &str = "codex-switch";
 // but never restore other harnesses from a legacy visibility preference.
 pub const TRAY_SECTIONS: [TrayAppSection; 1] = [TrayAppSection {
     app_type: AppType::Codex,
-    prefix: "codex_",
+    prefix: "codex_api_",
     empty_id: "codex_empty",
     header_label: "Codex",
     log_name: "Codex",
@@ -377,28 +377,6 @@ fn format_usage_suffix(
     None
 }
 
-fn current_usage_suffix(
-    cache: &UsageCache,
-    app_type: &AppType,
-    provider: &crate::provider::Provider,
-) -> Option<String> {
-    if *app_type == AppType::Codex
-        && (managed_codex_account_id(provider).is_some()
-            || (crate::codex_config::is_codex_official_provider(provider)
-                && provider_uses_official_subscription(provider)))
-    {
-        let settings = crate::settings::get_settings();
-        let language = settings
-            .language
-            .as_deref()
-            .map(map_locale_to_tray_language)
-            .unwrap_or_else(detect_system_tray_language);
-        return crate::tray_quota::menu_summary(provider, cache, language)
-            .map(|summary| format!(" · {summary}"));
-    }
-    format_usage_suffix(cache, app_type, provider, &provider.id)
-}
-
 /// 对供应商列表排序：sort_index → created_at → name
 fn sort_providers(
     providers: &indexmap::IndexMap<String, crate::provider::Provider>,
@@ -502,6 +480,32 @@ pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool
 
 /// 处理供应商托盘事件
 pub fn handle_provider_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool {
+    if let Some(account_id) = event_id.strip_prefix("codex_account_") {
+        let app = app.clone();
+        let account_id = account_id.to_string();
+        tauri::async_runtime::spawn_blocking(move || {
+            let Some(state) = app.try_state::<AppState>() else {
+                return;
+            };
+            match crate::services::ProviderService::switch_codex_account(state.inner(), &account_id)
+            {
+                Ok(result) => {
+                    refresh_tray_menu(&app);
+                    if let Err(error) = app.emit(
+                        "provider-switched",
+                        serde_json::json!({
+                            "appType": "codex", "providerId": "", "accountId": result.account_id,
+                            "activeSelection": {"kind": "account", "accountId": account_id},
+                        }),
+                    ) {
+                        log::warn!("Publishing tray account switch failed: {error}");
+                    }
+                }
+                Err(error) => log::error!("Switching tray account failed: {error}"),
+            }
+        });
+        return true;
+    }
     for section in TRAY_SECTIONS.iter() {
         if let Some(suffix) = event_id.strip_prefix(section.prefix) {
             // 处理供应商点击
@@ -575,73 +579,134 @@ pub fn create_tray_menu(
             .map_err(|e| AppError::Message(format!("创建打开主界面菜单失败: {e}")))?;
     menu_builder = menu_builder.item(&show_main_item).separator();
 
-    // 每个应用类型折叠为子菜单，避免供应商过多时菜单过长
-    for section in TRAY_SECTIONS.iter() {
-        let app_type_str = section.app_type.as_str();
-        let providers = app_state.db.get_all_providers(app_type_str)?;
-
-        // Mark the selected direct connection.
-        let current_id = crate::mode::current::provider_for(
-            &app_state.db,
-            &section.app_type,
-            crate::mode::current::Purpose::InUse,
-        )?
-        .unwrap_or_default();
-
-        if providers.is_empty() {
-            // 空供应商：显示禁用的菜单项
-            let label = format!("{} {}", section.header_label, tray_texts.no_providers_label);
-            let empty_item = MenuItem::with_id(app, section.empty_id, &label, false, None::<&str>)
-                .map_err(|e| {
-                    AppError::Message(format!("创建{}空提示失败: {e}", section.log_name))
-                })?;
-            menu_builder = menu_builder.item(&empty_item);
-        } else {
-            let current_provider = providers.get(&current_id);
-            let submenu_label = match current_provider {
-                Some(p) => {
-                    let suffix = current_usage_suffix(&app_state.usage_cache, &section.app_type, p)
-                        .unwrap_or_default();
-                    format!("{} · {}{}", section.header_label, p.name, suffix)
-                }
-                None => section.header_label.to_string(),
-            };
-            let submenu_id = format!("submenu_{}", app_type_str);
-
-            let mut submenu_builder = SubmenuBuilder::with_id(app, &submenu_id, &submenu_label);
-
-            for (id, provider) in sort_providers(&providers) {
-                let is_current = current_id == *id;
-                let is_official_blocked = section.app_type == AppType::Codex
-                    && crate::services::provider::codex_direct::ensure_direct(provider).is_err();
-                let label = if is_official_blocked {
-                    format!("{} \u{26D4}", &provider.name) // ⛔ emoji
-                } else {
-                    provider.name.clone()
-                };
-                let item = CheckMenuItem::with_id(
+    let providers = app_state.db.get_all_providers("codex")?;
+    let mut accounts = app_state.codex_oauth_manager.try_list_accounts();
+    accounts.sort_by(|a, b| a.login.cmp(&b.login).then_with(|| a.id.cmp(&b.id)));
+    let has_accounts = !accounts.is_empty();
+    let confirmed = crate::mode::current::confirmed_codex_selection(&app_state.db);
+    let selection_unavailable = confirmed.is_err();
+    let active = confirmed.ok().flatten();
+    let current_label = match active.as_ref() {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id }) => app_state
+            .codex_oauth_manager
+            .account_label(account_id)
+            .map(|label| {
+                format!(
+                    "{label} · {}",
+                    crate::tray_quota::account_menu_summary(
+                        account_id,
+                        &app_state.usage_cache,
+                        language
+                    )
+                )
+            }),
+        Some(crate::mode::current::CodexActiveSelection::Provider { provider_id }) => {
+            providers.get(provider_id).map(|p| {
+                format!(
+                    "{}{}",
+                    p.name,
+                    format_usage_suffix(&app_state.usage_cache, &AppType::Codex, p, provider_id)
+                        .unwrap_or_default()
+                )
+            })
+        }
+        None => None,
+    };
+    let section = &TRAY_SECTIONS[0];
+    let heading = current_label
+        .map(|label| format!("{} · {label}", section.header_label))
+        .unwrap_or_else(|| section.header_label.into());
+    let mut codex_menu = SubmenuBuilder::with_id(app, "submenu_codex", &heading);
+    let (accounts_label, providers_label, disconnected_label) = match language {
+        "en" => ("Subscription accounts", "API providers", "Disconnected"),
+        "ja" => ("サブスクリプションアカウント", "API プロバイダー", "未接続"),
+        "zh-TW" => ("訂閱帳號", "API 供應商", "未連線"),
+        _ => ("订阅账号", "API 供应商", "未连接"),
+    };
+    if !accounts.is_empty() {
+        codex_menu = codex_menu.item(
+            &MenuItem::with_id(
+                app,
+                "codex_accounts_heading",
+                accounts_label,
+                false,
+                None::<&str>,
+            )
+            .map_err(|e| AppError::Message(e.to_string()))?,
+        );
+        for account in accounts {
+            let selected = matches!(active.as_ref(), Some(crate::mode::current::CodexActiveSelection::Account { account_id }) if account_id == &account.id);
+            let label = app_state
+                .codex_oauth_manager
+                .account_label(&account.id)
+                .unwrap_or(account.login);
+            codex_menu = codex_menu.item(
+                &CheckMenuItem::with_id(
                     app,
-                    format!("{}{}", section.prefix, id),
-                    &label,
-                    !is_official_blocked, // disabled when blocked
-                    is_current,
+                    format!("codex_account_{}", account.id),
+                    label,
+                    !account.reauth_required,
+                    selected,
                     None::<&str>,
                 )
-                .map_err(|e| {
-                    AppError::Message(format!("创建{}菜单项失败: {e}", section.log_name))
-                })?;
-                submenu_builder = submenu_builder.item(&item);
-            }
-
-            let submenu = submenu_builder.build().map_err(|e| {
-                AppError::Message(format!("构建{}子菜单失败: {e}", section.log_name))
-            })?;
-            section_handles.insert(section.app_type.clone(), submenu.clone());
-            menu_builder = menu_builder.item(&submenu);
+                .map_err(|e| AppError::Message(e.to_string()))?,
+            );
         }
-
-        menu_builder = menu_builder.separator();
     }
+    if !providers.is_empty() {
+        if has_accounts {
+            codex_menu = codex_menu.separator();
+        }
+        codex_menu = codex_menu.item(
+            &MenuItem::with_id(
+                app,
+                "codex_providers_heading",
+                providers_label,
+                false,
+                None::<&str>,
+            )
+            .map_err(|e| AppError::Message(e.to_string()))?,
+        );
+        for (id, provider) in sort_providers(&providers) {
+            let selected = matches!(active.as_ref(), Some(crate::mode::current::CodexActiveSelection::Provider { provider_id }) if provider_id == id);
+            let enabled = crate::services::provider::codex_direct::ensure_direct(provider).is_ok();
+            codex_menu = codex_menu.item(
+                &CheckMenuItem::with_id(
+                    app,
+                    format!("codex_api_{id}"),
+                    &provider.name,
+                    enabled,
+                    selected,
+                    None::<&str>,
+                )
+                .map_err(|e| AppError::Message(e.to_string()))?,
+            );
+        }
+    }
+    if providers.is_empty() {
+        let label = format!("{providers_label} {}", tray_texts.no_providers_label);
+        codex_menu = codex_menu.item(
+            &MenuItem::with_id(app, section.empty_id, label, false, None::<&str>)
+                .map_err(|e| AppError::Message(e.to_string()))?,
+        );
+    }
+    if active.is_none() && !selection_unavailable {
+        codex_menu = codex_menu.item(
+            &MenuItem::with_id(
+                app,
+                "codex_disconnected",
+                disconnected_label,
+                false,
+                None::<&str>,
+            )
+            .map_err(|e| AppError::Message(e.to_string()))?,
+        );
+    }
+    let codex_menu = codex_menu
+        .build()
+        .map_err(|e| AppError::Message(e.to_string()))?;
+    section_handles.insert(AppType::Codex, codex_menu.clone());
+    menu_builder = menu_builder.item(&codex_menu).separator();
 
     // 项目 Profile 子菜单：项目列表全应用共享，按分组嵌套子菜单各自勾选/应用
     // （组内应用可见且存在项目时才显示该组）
@@ -753,29 +818,49 @@ fn update_tray_usage_labels(app: &tauri::AppHandle) {
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    for section in TRAY_SECTIONS.iter() {
-        let Some(submenu) = handles.get(&section.app_type) else {
-            continue;
-        };
-        let Ok(providers) = app_state.db.get_all_providers(section.app_type.as_str()) else {
-            continue;
-        };
-        let Ok(Some(current_id)) = crate::mode::current::provider_for(
-            &app_state.db,
-            &section.app_type,
-            crate::mode::current::Purpose::InUse,
-        ) else {
-            continue;
-        };
-        let Some(provider) = providers.get(&current_id) else {
-            continue;
-        };
-        let suffix = current_usage_suffix(&app_state.usage_cache, &section.app_type, provider)
-            .unwrap_or_default();
-        let new_label = format!("{} · {}{}", section.header_label, provider.name, suffix);
-        if let Err(e) = submenu.set_text(&new_label) {
-            log::debug!("[Tray] 更新{}子菜单标题失败: {e}", section.log_name);
-        }
+    let Some(submenu) = handles.get(&AppType::Codex) else {
+        return;
+    };
+    let settings = crate::settings::get_settings();
+    let language = settings
+        .language
+        .as_deref()
+        .unwrap_or_else(|| detect_system_tray_language());
+    let label = match crate::mode::current::confirmed_codex_selection(&app_state.db)
+        .ok()
+        .flatten()
+    {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id }) => app_state
+            .codex_oauth_manager
+            .account_label(&account_id)
+            .map(|label| {
+                format!(
+                    "Codex · {label} · {}",
+                    crate::tray_quota::account_menu_summary(
+                        &account_id,
+                        &app_state.usage_cache,
+                        language
+                    )
+                )
+            }),
+        Some(crate::mode::current::CodexActiveSelection::Provider { provider_id }) => app_state
+            .db
+            .get_provider_by_id(&provider_id, "codex")
+            .ok()
+            .flatten()
+            .map(|p| {
+                format!(
+                    "Codex · {}{}",
+                    p.name,
+                    format_usage_suffix(&app_state.usage_cache, &AppType::Codex, &p, &provider_id)
+                        .unwrap_or_default()
+                )
+            }),
+        None => None,
+    }
+    .unwrap_or_else(|| "Codex".into());
+    if let Err(error) = submenu.set_text(label) {
+        log::debug!("Updating Codex tray title failed: {error}");
     }
 }
 
@@ -906,7 +991,6 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
 /// 未保存开关时与卡片一致默认启用。
 pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
     use crate::commands::CopilotAuthState;
-    use futures::future::join_all;
 
     if crate::settings::get_settings().quota_refresh_interval_seconds == 0 {
         return;
@@ -929,90 +1013,46 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
         return;
     };
 
-    // Refresh exactly the Codex section shown by the product shell.
-    let mut usage_futures = Vec::new();
-
-    for section in TRAY_SECTIONS.iter() {
-        let app_type_str = section.app_type.as_str();
-        let log_name = section.log_name;
-
-        // 解析 effective current provider；未设置 / 出错都静默跳过，
-        // 与 create_tray_menu 的行为保持一致。
-        let current_id = match crate::mode::current::provider_for(
-            &app_state.db,
-            &section.app_type,
-            crate::mode::current::Purpose::InUse,
-        ) {
-            Ok(Some(id)) => id,
-            Ok(None) => continue,
-            Err(e) => {
-                log::warn!("[Tray] 读取{log_name}当前供应商失败: {e}");
-                continue;
+    let confirmed = crate::mode::current::confirmed_codex_selection(&app_state.db);
+    let active = confirmed.ok().flatten();
+    match active {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id }) => {
+            let oauth = app.state::<crate::commands::CodexOAuthState>();
+            if let Err(error) = crate::commands::get_codex_oauth_quota(
+                app.clone(),
+                app_state,
+                Some(account_id),
+                oauth,
+                Some(false),
+            )
+            .await
+            {
+                log::debug!("Refreshing tray account quota failed: {error}");
             }
-        };
-        // 只需当前 provider —— by-id 查询避免把整个 app 的 provider 列表加载
-        // 进内存（每次悬停 × 3 sections 的热路径）。
-        let current = match app_state.db.get_provider_by_id(&current_id, app_type_str) {
-            Ok(Some(p)) => p,
-            Ok(None) => continue,
-            Err(e) => {
-                log::warn!("[Tray] 读取{log_name}当前供应商失败: {e}");
-                continue;
-            }
-        };
-
-        if let Some(source) = tray_usage_source(&section.app_type, &current) {
-            let native_subscription = crate::codex_config::is_codex_official_provider(&current)
-                && provider_uses_official_subscription(&current);
-            let app_clone = app.clone();
-            let state = app.state::<AppState>();
-            let copilot_state = app.state::<CopilotAuthState>();
-            let xai_state = app.state::<crate::commands::XaiOAuthState>();
-            let provider_id = current_id.clone();
-            let app_str = app_type_str.to_string();
-            usage_futures.push(async move {
-                let result = match source {
-                    TrayUsageSource::ManagedCodex(account_id) => {
-                        let codex_state = app.state::<crate::commands::CodexOAuthState>();
-                        crate::commands::get_codex_oauth_quota(
-                            app_clone,
-                            state,
-                            Some(account_id),
-                            codex_state,
-                            Some(false),
-                        )
-                        .await
-                        .map(|_| ())
-                    }
-                    TrayUsageSource::Script if native_subscription => {
-                        crate::commands::get_subscription_quota(
-                            app_clone,
-                            state,
-                            app_str,
-                            Some(false),
-                        )
-                        .await
-                        .map(|_| ())
-                    }
-                    TrayUsageSource::Script => crate::commands::queryProviderUsage(
-                        app_clone,
-                        state,
-                        copilot_state,
-                        xai_state,
-                        provider_id.clone(),
-                        app_str,
-                    )
-                    .await
-                    .map(|_| ()),
-                };
-                if let Err(e) = result {
-                    log::debug!("[Tray] 刷新{log_name}供应商 {provider_id} 用量失败: {e}");
-                }
-            });
         }
+        Some(crate::mode::current::CodexActiveSelection::Provider { provider_id }) => {
+            let current = app_state
+                .db
+                .get_provider_by_id(&provider_id, "codex")
+                .ok()
+                .flatten();
+            if current.is_some_and(|p| p.has_usage_script_enabled()) {
+                if let Err(error) = crate::commands::queryProviderUsage(
+                    app.clone(),
+                    app_state,
+                    app.state::<CopilotAuthState>(),
+                    app.state::<crate::commands::XaiOAuthState>(),
+                    provider_id,
+                    "codex".into(),
+                )
+                .await
+                {
+                    log::debug!("Refreshing tray API balance failed: {error}");
+                }
+            }
+        }
+        None => {}
     }
-
-    join_all(usage_futures).await;
 }
 
 #[cfg(test)]
@@ -1234,7 +1274,7 @@ mod tests {
         assert_eq!(TRAY_SECTIONS.len(), 1);
         let section = &TRAY_SECTIONS[0];
         assert_eq!(section.app_type, AppType::Codex);
-        assert_eq!(section.prefix, "codex_");
+        assert_eq!(section.prefix, "codex_api_");
         assert_eq!(section.empty_id, "codex_empty");
         assert_eq!(section.header_label, "Codex");
         assert_eq!(

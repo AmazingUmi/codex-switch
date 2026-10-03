@@ -87,8 +87,7 @@ function setup(settings: Partial<Settings> = {}) {
     <I18nextProvider i18n={i18n}>
       <QueryClientProvider client={client}>
         <CodexAccountsPanel
-          providers={[]}
-          currentProviderId=""
+          currentAccountId={null}
           onSwitchAccount={onSwitchAccount}
         />
       </QueryClientProvider>

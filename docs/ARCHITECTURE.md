@@ -31,9 +31,11 @@ are removed; saved legacy records remain in the database and editor. The provide
 service validates direct compatibility before activation and rejects unsupported
 connections without rewriting their protocol.
 
-Authentication entry points live in `src-tauri/src/commands/codex_oauth.rs`;
+Authentication entry points live in `src-tauri/src/commands/auth.rs`;
 token rotation lives in `src-tauri/src/auth/codex_oauth.rs`. Account lifecycle locks,
-token rotation, account bindings and quota caches remain separate from the UI.
+token rotation and quota caches remain separate from the UI. Codex accounts are
+independent of API Provider records. Current selection is an account, an API
+Provider, or disconnected, committed with the recoverable native write operation.
 Configuration switching continues through `src-tauri/src/services/provider`,
 with ownership checks and atomic writes. Native API-key connections generate
 `model_catalog_json` when configured, including DeepSeek's official catalog
@@ -76,7 +78,9 @@ is retained; custom directory locations are preserved. See
 
 Application updates are disabled in the native backend. The frontend has no
 updater provider, badge or updater plugin dependency. Retained account and
-configuration commands remain available; local routing commands are removed. There is no release channel configured for this fork.
+configuration commands remain available; local routing commands are removed.
+This fork publishes macOS Apple Silicon pre-releases through GitHub Releases;
+updates use manual downloads.
 
 `scripts/build-codex-preview.mjs` pairs the renderer preview flag, native
 `codex-preview` feature and `tauri.preview.conf.json`. The native executable
@@ -100,7 +104,8 @@ Old upstream manuals, guides, release notes and phase reports have been replaced
 by current setup, configuration and architecture documentation. Git history
 retains those records. LICENSE and attribution remain.
 
-Saved provider records and user-created TOML are retained. Startup changes legacy
+Real API Provider records and user-created TOML are retained; obsolete Codex
+account bindings and account-shaped Provider rows are migrated away. Startup changes legacy
 takeover state and live configuration through the existing write/recovery engine;
 this is an explicit one-way migration, not a provider-protocol conversion. Tests
 use fixtures and do not certify live OAuth refresh, account switching, vendor API

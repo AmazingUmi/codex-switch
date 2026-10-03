@@ -39,6 +39,8 @@ pub struct ManagedAuthStatus {
     pub default_account_id: Option<String>,
     pub migration_error: Option<String>,
     pub accounts: Vec<ManagedAuthAccount>,
+    #[serde(rename = "activeSelection")]
+    pub active_selection: Option<crate::mode::current::CodexActiveSelection>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -327,6 +329,7 @@ pub async fn auth_list_accounts(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_get_status(
+    app_state: State<'_, AppState>,
     auth_provider: String,
     copilot_state: State<'_, CopilotAuthState>,
     codex_state: State<'_, CodexOAuthState>,
@@ -339,6 +342,7 @@ pub async fn auth_get_status(
             let status = auth_manager.get_status().await;
             let default_account_id = status.default_account_id.clone();
             Ok(ManagedAuthStatus {
+                active_selection: None,
                 provider: auth_provider.to_string(),
                 authenticated: status.authenticated,
                 default_account_id: default_account_id.clone(),
@@ -357,6 +361,12 @@ pub async fn auth_get_status(
             let status = auth_manager.get_status().await;
             let default_account_id = status.default_account_id.clone();
             Ok(ManagedAuthStatus {
+                active_selection: selection_for_accounts(
+                    crate::mode::current::confirmed_codex_selection(&app_state.db)
+                        .ok()
+                        .flatten(),
+                    &status.accounts,
+                ),
                 provider: auth_provider.to_string(),
                 authenticated: status.authenticated,
                 default_account_id: default_account_id.clone(),
@@ -374,6 +384,7 @@ pub async fn auth_get_status(
             let status = auth_manager.get_status().await;
             let default_account_id = status.default_account_id.clone();
             Ok(ManagedAuthStatus {
+                active_selection: None,
                 provider: auth_provider.to_string(),
                 authenticated: status.authenticated,
                 default_account_id: default_account_id.clone(),
@@ -412,7 +423,6 @@ pub async fn auth_update_account(
 pub async fn auth_switch_codex_account(
     app_handle: tauri::AppHandle,
     account_id: String,
-    provider_id: Option<String>,
 ) -> Result<crate::services::provider::CodexAccountSwitchResult, String> {
     use tauri::{Emitter, Manager};
     let switch_app = app_handle.clone();
@@ -420,19 +430,15 @@ pub async fn auth_switch_codex_account(
         let state = switch_app
             .try_state::<AppState>()
             .ok_or_else(|| "Application state is unavailable".to_string())?;
-        crate::services::ProviderService::switch_codex_account(
-            state.inner(),
-            &account_id,
-            provider_id.as_deref(),
-        )
-        .map_err(|error| error.to_string())
+        crate::services::ProviderService::switch_codex_account(state.inner(), &account_id)
+            .map_err(|error| error.to_string())
     })
     .await
     .map_err(|error| format!("Account switching task failed: {error}"))??;
     crate::tray::refresh_tray_menu(&app_handle);
     if let Err(error) = app_handle.emit(
         "provider-switched",
-        serde_json::json!({"appType": "codex", "providerId": result.provider_id}),
+        serde_json::json!({"appType": "codex", "providerId": "", "accountId": result.account_id, "activeSelection": {"kind":"account","accountId":result.account_id}}),
     ) {
         log::warn!("Failed to emit successful Codex account switch: {error}");
     }
@@ -484,12 +490,16 @@ pub(crate) async fn remove_codex_oauth_account_with_switch_lock(
         .switch_locks
         .lock_for_app(AppType::Codex.as_str())
         .await;
+    crate::mode::operation::settle(&app_state.db, "codex").map_err(|error| error.to_string())?;
+    app_state.usage_cache.invalidate_codex_oauth(account_id);
     app_state
         .codex_oauth_manager
-        .remove_account(account_id)
+        .remove_account_with_db(&app_state.db, account_id)
         .await
         .map_err(|error| error.to_string())?;
     app_state.usage_cache.invalidate_codex_oauth(account_id);
+    crate::services::provider::codex_accounts::clear_removed_selection(app_state, Some(account_id))
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -562,11 +572,46 @@ pub(crate) async fn logout_codex_oauth_with_switch_lock(
         .switch_locks
         .lock_for_app(AppType::Codex.as_str())
         .await;
+    crate::mode::operation::settle(&app_state.db, "codex").map_err(|error| error.to_string())?;
+    app_state.usage_cache.invalidate_all_codex_oauth();
     app_state
         .codex_oauth_manager
-        .clear_auth()
+        .clear_auth_with_db(&app_state.db)
         .await
         .map_err(|error| error.to_string())?;
     app_state.usage_cache.invalidate_all_codex_oauth();
+    crate::services::provider::codex_accounts::clear_removed_selection(app_state, None)
+        .map_err(|error| error.to_string())?;
     Ok(())
+}
+
+fn selection_for_accounts(
+    selection: Option<crate::mode::current::CodexActiveSelection>,
+    accounts: &[GitHubAccount],
+) -> Option<crate::mode::current::CodexActiveSelection> {
+    match &selection {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id })
+            if !accounts
+                .iter()
+                .any(|account| account.id == *account_id && !account.reauth_required) =>
+        {
+            None
+        }
+        _ => selection,
+    }
+}
+
+#[tauri::command]
+pub async fn get_codex_active_selection(
+    state: State<'_, AppState>,
+) -> Result<Option<crate::mode::current::CodexActiveSelection>, String> {
+    let _guard = state.switch_locks.lock_for_app("codex").await;
+    crate::mode::operation::settle(&state.db, "codex")
+        .map_err(|error| format!("codex_account_switch_uncertain: {error}"))?;
+    let selected = crate::mode::current::confirmed_codex_selection(&state.db)
+        .map_err(|error| error.to_string())?;
+    Ok(selection_for_accounts(
+        selected,
+        &state.codex_oauth_manager.list_accounts().await,
+    ))
 }

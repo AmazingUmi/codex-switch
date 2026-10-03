@@ -1,30 +1,18 @@
 import type { Provider } from "@/types";
-import { resolveManagedAccountId } from "@/lib/authBinding";
 import { resolveCodexOfficialIdentity } from "@/utils/providerCapabilities";
 
-/** Only configurations whose existing switch workflow writes this account. */
-export function getCodexAccountProviders(
-  providers: Provider[],
-  accountId: string,
-) {
-  return providers.filter(
-    (provider) =>
-      resolveCodexOfficialIdentity("codex", provider) === "managed_account" &&
-      resolveManagedAccountId(provider.meta, "codex_oauth")?.trim() ===
-        accountId,
+/** Legacy account rows are migrated natively; never render them as API providers. */
+export function isCodexAccountProvider(provider: Provider): boolean {
+  const auth = (provider.settingsConfig as Record<string, any>)?.auth;
+  // An actual API credential wins over old account metadata during migration.
+  if (typeof auth?.OPENAI_API_KEY === "string" && auth.OPENAI_API_KEY.trim())
+    return false;
+  const identity = resolveCodexOfficialIdentity("codex", provider);
+  return (
+    Boolean(provider.meta?.codexAccountManaged) ||
+    provider.meta?.providerType === "codex_oauth" ||
+    provider.meta?.authBinding?.authProvider === "codex_oauth" ||
+    identity === "managed_account" ||
+    identity === "native_login"
   );
-}
-
-export function getCurrentCodexAccountId(
-  providers: Provider[],
-  currentProviderId: string,
-): string | null {
-  const provider = providers.find((entry) => entry.id === currentProviderId);
-  if (
-    !provider ||
-    resolveCodexOfficialIdentity("codex", provider) !== "managed_account"
-  ) {
-    return null;
-  }
-  return resolveManagedAccountId(provider.meta, "codex_oauth")?.trim() || null;
 }

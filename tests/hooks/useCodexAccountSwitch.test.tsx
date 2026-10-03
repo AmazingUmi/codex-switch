@@ -83,19 +83,19 @@ describe("committed Codex account switches", () => {
     const { result, invalidate } = setup();
     let request!: Promise<unknown>;
     act(() => {
-      request = result.current.switchAccount("second", "advanced");
+      request = result.current.switchAccount("second");
       expect(result.current.switchAccount("third")).toBe(request);
     });
     await waitFor(() => expect(mocks.switchAccount).toHaveBeenCalledTimes(1));
     expect(mocks.switchAccount).toHaveBeenCalledTimes(1);
-    expect(mocks.switchAccount).toHaveBeenCalledWith("second", "advanced");
+    expect(mocks.switchAccount).toHaveBeenCalledWith("second");
     expect(invalidate).not.toHaveBeenCalled();
     await act(async () => {
-      resolve({ providerId: "advanced", warnings: [] });
+      resolve({ accountId: "second", warnings: [] });
       await request;
     });
     for (const key of [
-      ["providers", "codex"],
+      ["codex-active-selection"],
       ["managed-auth-status", "codex_oauth"],
     ]) {
       expect(invalidate).toHaveBeenCalledWith(
@@ -108,7 +108,7 @@ describe("committed Codex account switches", () => {
 
   it("reports a post-commit readback failure as a refresh problem", async () => {
     mocks.switchAccount.mockResolvedValue({
-      providerId: "second",
+      accountId: "second",
       warnings: [],
     });
     const { result, invalidate } = setup();
@@ -134,5 +134,31 @@ describe("committed Codex account switches", () => {
     expect(result.current.isCurrentUncertain).toBe(true);
     expect(mocks.error.mock.calls[0][0]).toContain("无法确认切换状态");
     expect(mocks.error.mock.calls[0][0]).not.toContain("保留原账号");
+  });
+  it("resolves uncertainty only after a newer successful native selection fetch, never an optimistic cache update", async () => {
+    mocks.switchAccount.mockRejectedValue(
+      new Error("codex_account_switch_uncertain: pending publication"),
+    );
+    const { result, client } = setup();
+    await act(async () => {
+      await expect(result.current.switchAccount("second")).rejects.toThrow(
+        "pending publication",
+      );
+    });
+    expect(result.current.isCurrentUncertain).toBe(true);
+    act(() => {
+      client.setQueryData(["codex-active-selection"], {
+        kind: "provider",
+        providerId: "optimistic",
+      });
+    });
+    expect(result.current.isCurrentUncertain).toBe(true);
+    await act(async () => {
+      await client.fetchQuery({
+        queryKey: ["codex-active-selection"],
+        queryFn: async () => ({ kind: "provider", providerId: "confirmed" }),
+      });
+    });
+    expect(result.current.isCurrentUncertain).toBe(false);
   });
 });

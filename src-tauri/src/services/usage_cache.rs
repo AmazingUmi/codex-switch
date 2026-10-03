@@ -148,6 +148,7 @@ pub struct UsageCache {
     native_codex: RwLock<HashMap<String, (String, QuotaCacheEntry)>>,
     quota_queries: RwLock<HashMap<String, Arc<tokio::sync::Mutex<SharedQuotaResult>>>>,
     script: RwLock<HashMap<(AppType, String), UsageResult>>,
+    script_generations: RwLock<HashMap<(AppType, String), u64>>,
 }
 
 impl UsageCache {
@@ -347,6 +348,39 @@ impl UsageCache {
         fresh
     }
 
+    pub(crate) fn script_generation(&self, app_type: &AppType, provider_id: &str) -> u64 {
+        *self
+            .script_generations
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry((app_type.clone(), provider_id.into()))
+            .or_default()
+    }
+
+    /// The generation lock covers publication so removal cannot race a cache write.
+    pub(crate) fn finish_script_query(
+        &self,
+        app_type: &AppType,
+        provider_id: &str,
+        generation: u64,
+        result: &UsageResult,
+    ) -> bool {
+        let key = (app_type.clone(), provider_id.to_owned());
+        let generations = self
+            .script_generations
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        if generations.get(&key).copied().unwrap_or_default() != generation {
+            return false;
+        }
+        self.script
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, result.clone());
+        true
+    }
+
+    #[cfg(test)]
     pub fn put_script(&self, app_type: AppType, provider_id: String, result: UsageResult) {
         if let Ok(mut w) = self.script.write() {
             w.insert((app_type, provider_id), result);
@@ -379,15 +413,18 @@ impl UsageCache {
     }
 
     pub fn invalidate_script(&self, app_type: &AppType, provider_id: &str) {
-        // 热路径会对每个禁用脚本的 provider 在托盘重建时调用一次：先走读锁
-        // `contains_key` 快速放行"本来就不在缓存里"的常见情况，避免无谓的写锁升级。
-        let key = (app_type.clone(), provider_id.to_string());
-        if !self.script.read().is_ok_and(|r| r.contains_key(&key)) {
-            return;
-        }
-        if let Ok(mut w) = self.script.write() {
-            w.remove(&key);
-        }
+        let key = (app_type.clone(), provider_id.to_owned());
+        // Advance even before the first snapshot: a still-pending query must be rejected.
+        let mut generations = self
+            .script_generations
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let generation = generations.entry(key.clone()).or_default();
+        *generation = generation.wrapping_add(1);
+        self.script
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&key);
     }
 
     pub fn invalidate_subscription(&self, app_type: &AppType) {
@@ -409,8 +446,18 @@ impl UsageCache {
         if let Ok(mut subscriptions) = self.subscription.write() {
             subscriptions.clear();
         }
-        if let Ok(mut scripts) = self.script.write() {
-            scripts.clear();
+        {
+            let mut generations = self
+                .script_generations
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
+            for generation in generations.values_mut() {
+                *generation = generation.wrapping_add(1);
+            }
+            self.script
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         }
         if let Ok(mut native) = self.native_codex.write() {
             native.clear();
@@ -581,6 +628,77 @@ mod tests {
         assert!(cache
             .with_script(&AppType::Codex, "pid", |r| r.success)
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn deleted_provider_rejects_pending_script_result_and_readded_identity_uses_new_generation(
+    ) {
+        let cache = std::sync::Arc::new(UsageCache::new());
+        let removed_generation = cache.script_generation(&AppType::Codex, "removed");
+        let other_generation = cache.script_generation(&AppType::Codex, "other");
+        let (release, pending) = tokio::sync::oneshot::channel();
+        let in_flight_cache = cache.clone();
+        let in_flight = tokio::spawn(async move {
+            pending.await.unwrap();
+            in_flight_cache.finish_script_query(
+                &AppType::Codex,
+                "removed",
+                removed_generation,
+                &fake_result(),
+            )
+        });
+        cache.invalidate_script(&AppType::Codex, "removed");
+        assert!(cache.finish_script_query(
+            &AppType::Codex,
+            "other",
+            other_generation,
+            &fake_result()
+        ));
+        release.send(()).unwrap();
+        assert!(
+            !in_flight.await.unwrap(),
+            "a deleted provider cannot publish or emit its old result"
+        );
+        assert!(cache
+            .with_script(&AppType::Codex, "removed", |r| r.success)
+            .is_none());
+        assert!(cache
+            .with_script(&AppType::Codex, "other", |r| r.success)
+            .unwrap());
+        let readded_generation = cache.script_generation(&AppType::Codex, "removed");
+        assert_ne!(readded_generation, removed_generation);
+        assert!(cache.finish_script_query(
+            &AppType::Codex,
+            "removed",
+            readded_generation,
+            &fake_result()
+        ));
+        assert!(!cache.finish_script_query(
+            &AppType::Codex,
+            "removed",
+            removed_generation,
+            &fake_result()
+        ));
+    }
+
+    #[test]
+    fn restore_invalidates_pending_script_queries_but_valid_refreshes_keep_working() {
+        let cache = UsageCache::new();
+        let generation = cache.script_generation(&AppType::Codex, "provider");
+        assert!(cache.finish_script_query(&AppType::Codex, "provider", generation, &fake_result()));
+        assert!(cache.finish_script_query(&AppType::Codex, "provider", generation, &fake_result()));
+        cache.invalidate_all();
+        assert!(!cache.finish_script_query(
+            &AppType::Codex,
+            "provider",
+            generation,
+            &fake_result()
+        ));
+        assert!(cache
+            .with_script(&AppType::Codex, "provider", |r| r.success)
+            .is_none());
+        let refreshed = cache.script_generation(&AppType::Codex, "provider");
+        assert!(cache.finish_script_query(&AppType::Codex, "provider", refreshed, &fake_result()));
     }
 
     #[test]

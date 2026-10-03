@@ -412,6 +412,26 @@ pub struct CodexOAuthManager {
 }
 
 impl CodexOAuthManager {
+    pub(crate) fn account_label(&self, account_id: &str) -> Option<String> {
+        let accounts = self.accounts.try_read().ok()?;
+        let account = accounts.get(account_id)?;
+        Some(
+            account
+                .presentation
+                .display_name
+                .clone()
+                .or_else(|| account.email.clone())
+                .unwrap_or_else(|| account_id.to_string()),
+        )
+    }
+
+    pub(crate) fn try_list_accounts(&self) -> Vec<GitHubAccount> {
+        self.accounts
+            .try_read()
+            .map(|accounts| accounts.values().map(GitHubAccount::from).collect())
+            .unwrap_or_default()
+    }
+
     pub fn new(data_dir: PathBuf) -> Self {
         let storage_path = data_dir.join("codex_oauth_auth.json");
 
@@ -1463,59 +1483,9 @@ impl CodexOAuthManager {
     }
 
     pub async fn remove_account(&self, account_id: &str) -> Result<(), CodexOAuthError> {
-        log::info!("[CodexOAuth] 移除账号: {account_id}");
-        // Wait for all in-flight refresh/adopt operations before deleting. New
-        // token work is blocked until the account, cache, lock and disk state
-        // have been removed as one lifecycle transition.
-        let _lifecycle = self.lifecycle_lock.write().await;
-
-        let managed_id_token = {
-            let accounts = self.accounts.read().await;
-            accounts
-                .get(account_id)
-                .ok_or_else(|| CodexOAuthError::AccountNotFound(account_id.to_string()))?
-                .id_token
-                .clone()
-        };
-
-        // Explicit Auth Center removal means credentials for this managed
-        // account must leave the machine. Content matching intentionally also
-        // claims a native `codex login` of the same account; that is the same
-        // account-scoped credential the user just chose to remove.
-        crate::codex_config::prepare_codex_live_auth_for_managed_account_removal(
-            account_id,
-            managed_id_token.as_deref(),
-        )
-        .map_err(|error| CodexOAuthError::TokenFetchFailed(error.to_string()))?;
-        crate::codex_config::clear_codex_live_auth_for_managed_account(account_id)
+        let db = crate::database::Database::memory()
             .map_err(|error| CodexOAuthError::IoError(error.to_string()))?;
-
-        {
-            // 在 accounts 写锁内原子清除该账号的 token 缓存（accounts -> access_tokens
-            // 顺序），确保不存在「账号已删但缓存仍在」的窗口。
-            let mut accounts = self.accounts.write().await;
-            accounts.remove(account_id);
-            self.access_tokens.write().await.remove(account_id);
-        }
-        {
-            let mut locks = self.refresh_locks.write().await;
-            locks.remove(account_id);
-        }
-        self.target_login_generations
-            .write()
-            .await
-            .remove(account_id);
-
-        {
-            let accounts = self.accounts.read().await;
-            let mut default = self.default_account_id.write().await;
-            if default.as_deref() == Some(account_id) {
-                *default = Self::fallback_default_account_id(&accounts);
-            }
-        }
-
-        self.save_to_disk().await?;
-        Ok(())
+        self.remove_account_with_db(&db, account_id).await
     }
 
     pub async fn set_default_account(&self, account_id: &str) -> Result<(), CodexOAuthError> {
@@ -1537,64 +1507,9 @@ impl CodexOAuthManager {
     }
 
     pub async fn clear_auth(&self) -> Result<(), CodexOAuthError> {
-        log::info!("[CodexOAuth] 清除所有认证");
-
-        // Acquire lifecycle before storage. Refresh follows lifecycle(read) ->
-        // account mutex -> storage, so this fixed order cannot deadlock and the
-        // write guard guarantees no refresh can recreate live/disk state after
-        // the clear has committed.
-        let _lifecycle = self.lifecycle_lock.write().await;
-
-        let accounts_to_clear = self
-            .accounts
-            .read()
-            .await
-            .iter()
-            .map(|(account_id, account)| (account_id.clone(), account.id_token.clone()))
-            .collect::<Vec<_>>();
-        for (account_id, id_token) in &accounts_to_clear {
-            crate::codex_config::prepare_codex_live_auth_for_managed_account_removal(
-                account_id,
-                id_token.as_deref(),
-            )
-            .map_err(|error| CodexOAuthError::TokenFetchFailed(error.to_string()))?;
-        }
-        for (account_id, _) in &accounts_to_clear {
-            crate::codex_config::clear_codex_live_auth_for_managed_account(account_id)
-                .map_err(|error| CodexOAuthError::IoError(error.to_string()))?;
-        }
-
-        // 与 save_to_disk 共用持久化锁：确保「清内存 + 删文件」相对于并发保存原子，
-        // 不会被一个持有旧快照的 save 复活已清除的账号。
-        let _persist = self.storage_lock.lock().await;
-
-        {
-            // 在 accounts 写锁内原子清除 accounts 与 token 缓存（accounts ->
-            // access_tokens 顺序），杜绝「账号已清但缓存仍在」及并发 refresh 回填。
-            let mut accounts = self.accounts.write().await;
-            accounts.clear();
-            self.access_tokens.write().await.clear();
-        }
-        {
-            let mut default = self.default_account_id.write().await;
-            *default = None;
-        }
-        {
-            let mut locks = self.refresh_locks.write().await;
-            locks.clear();
-        }
-        self.target_login_generations.write().await.clear();
-        {
-            let mut pending = self.pending_device_codes.write().await;
-            self.login_epoch.fetch_add(1, Ordering::AcqRel);
-            pending.clear();
-        }
-
-        if self.storage_path.exists() {
-            std::fs::remove_file(&self.storage_path)?;
-        }
-
-        Ok(())
+        let db = crate::database::Database::memory()
+            .map_err(|error| CodexOAuthError::IoError(error.to_string()))?;
+        self.clear_auth_with_db(&db).await
     }
 
     pub async fn is_authenticated(&self) -> bool {
@@ -3659,3 +3574,5 @@ mod tests {
         assert_eq!(extract_refresh_error_code("not json"), None);
     }
 }
+
+include!("codex_account_removal.rs");

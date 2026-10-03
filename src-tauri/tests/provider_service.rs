@@ -602,16 +602,16 @@ wire_api = "responses"
     );
 
     ProviderService::switch(&state, AppType::Codex, "official-provider")
-        .expect("switch back to official");
+        .expect_err("legacy OAuth Provider is not an activation target");
     let restored_auth: serde_json::Value =
         read_json_file(&codex_switch_lib::get_codex_auth_path()).expect("read restored auth");
     assert_eq!(restored_auth, oauth_auth);
     let restored_config = std::fs::read_to_string(codex_switch_lib::get_codex_config_path())
         .expect("read native official config");
     let parsed: toml::Value = toml::from_str(&restored_config).expect("parse official config");
-    assert!(parsed.get("model_provider").is_none());
+    assert_eq!(parsed["model_provider"].as_str(), Some("custom"));
     assert!(!restored_config.contains("PROXY_MANAGED"));
-    assert!(!restored_config.contains("https://api.deepseek.com/v1"));
+    assert_eq!(restored_config, config_after_switch);
 }
 
 #[test]
@@ -1195,7 +1195,7 @@ requires_openai_auth = true
     let state = create_test_state_with_config(&initial_config).expect("create test state");
 
     ProviderService::switch(&state, AppType::Codex, "codex-official")
-        .expect("switch to official provider should succeed without API key");
+        .expect_err("an OAuth-only Provider must be rejected without changing native auth");
 
     let auth_value: serde_json::Value =
         read_json_file(&codex_switch_lib::get_codex_auth_path()).expect("read auth.json");
@@ -1285,8 +1285,8 @@ requires_openai_auth = true
 
     let state = create_test_state_with_config(&initial_config).expect("create test state");
 
-    ProviderService::switch(&state, AppType::Codex, "official-provider")
-        .expect("switch to official provider should succeed");
+    ProviderService::delete(&state, AppType::Codex, "third-party")
+        .expect("deleting current API Provider clears its own native credentials");
 
     assert!(
         !codex_switch_lib::get_codex_auth_path().exists(),
@@ -1298,16 +1298,10 @@ requires_openai_auth = true
         .db
         .get_all_providers(AppType::Codex.as_str())
         .expect("read providers after switch");
-    assert_eq!(
-        providers
-            .get("third-party")
-            .expect("third-party provider exists")
-            .settings_config
-            .pointer("/auth/OPENAI_API_KEY")
-            .and_then(|v| v.as_str()),
-        Some("old-db-key"),
-        "the outgoing row is never rewritten from live"
-    );
+    assert!(!providers.contains_key("third-party"));
+    assert!(ProviderService::current(&state, AppType::Codex)
+        .unwrap()
+        .is_empty());
 
     let live_config = std::fs::read_to_string(codex_switch_lib::get_codex_config_path())
         .expect("read config.toml");
@@ -1353,7 +1347,7 @@ fn provider_service_reswitch_current_official_keeps_live_auth() {
     let state = create_test_state_with_config(&initial_config).expect("create test state");
 
     ProviderService::switch(&state, AppType::Codex, "official-provider")
-        .expect("re-switch to current official provider should succeed");
+        .expect_err("legacy OAuth Provider activation must be rejected");
 
     let auth_value: serde_json::Value =
         read_json_file(&codex_switch_lib::get_codex_auth_path()).expect("auth.json must survive");
@@ -1386,92 +1380,6 @@ fn read_codex_live_settings_tolerates_missing_auth_when_config_file_exists() {
         .expect("config file present but empty must be readable");
     assert_eq!(live.get("auth"), Some(&json!({})));
     assert_eq!(live.get("config").and_then(|v| v.as_str()), Some(""));
-}
-
-#[test]
-fn reapply_codex_official_live_rewrites_only_the_session_routing() {
-    let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
-    reset_test_fs();
-    let _home = ensure_test_home();
-
-    let live_auth = json!({
-        "auth_mode": "chatgpt",
-        "OPENAI_API_KEY": null,
-        "tokens": { "access_token": "official-oauth-token", "account_id": "acct" }
-    });
-    // live 里已有用户的 MCP 和其他设置：开关只改选路，其余字节不碰。
-    let user_part =
-        "approval_policy = \"on-request\"\n\n[mcp_servers.echo-server]\ncommand = \"echo\"\n";
-    write_codex_live_atomic(&live_auth, Some(user_part)).expect("seed official live");
-
-    let mut initial_config = MultiAppConfig::default();
-    {
-        let manager = initial_config
-            .get_manager_mut(&AppType::Codex)
-            .expect("codex manager");
-        let mut official = Provider::with_id(
-            "official-provider".to_string(),
-            "Official".to_string(),
-            json!({ "auth": {}, "config": "" }),
-            None,
-        );
-        official.category = Some("official".to_string());
-        manager
-            .providers
-            .insert("official-provider".to_string(), official);
-    }
-    let state = create_test_state_with_config(&initial_config).expect("create test state");
-    ProviderService::switch(&state, AppType::Codex, "official-provider")
-        .expect("switch to official provider");
-
-    // 坏掉的 ~/.claude.json 和 Codex 无关，不能挡住开关，也不能被碰。
-    let claude_json = codex_switch_lib::get_claude_mcp_path();
-    std::fs::write(&claude_json, "{ not valid json").expect("seed broken claude json");
-
-    let set_unify = |on: bool| {
-        codex_switch_lib::update_settings(codex_switch_lib::AppSettings {
-            unify_codex_session_history: on,
-            ..Default::default()
-        })
-        .expect("update settings");
-    };
-    let read_live = || {
-        std::fs::read_to_string(codex_switch_lib::get_codex_config_path())
-            .expect("read config.toml")
-    };
-
-    set_unify(true);
-    assert!(codex_switch_lib::reapply_current_codex_official_live(&state).expect("reapply"));
-    let unified = read_live();
-    let doc: toml::Value = toml::from_str(&unified).expect("parse");
-    assert_eq!(doc["model_provider"].as_str(), Some("custom"), "{unified}");
-    assert_eq!(
-        doc["model_providers"]["custom"]["requires_openai_auth"].as_bool(),
-        Some(true),
-        "the unified bucket is the official mirror: {unified}"
-    );
-    assert!(
-        unified.contains("[mcp_servers.echo-server]") && unified.contains("approval_policy"),
-        "{unified}"
-    );
-
-    set_unify(false);
-    assert!(codex_switch_lib::reapply_current_codex_official_live(&state).expect("reapply"));
-    let direct = read_live();
-    let doc: toml::Value = toml::from_str(&direct).expect("parse");
-    assert!(doc.get("model_provider").is_none(), "{direct}");
-    assert!(direct.contains("[mcp_servers.echo-server]"), "{direct}");
-
-    assert_eq!(
-        std::fs::read_to_string(&claude_json).expect("read claude json"),
-        "{ not valid json"
-    );
-    assert_eq!(
-        read_json_file::<serde_json::Value>(&codex_switch_lib::get_codex_auth_path())
-            .expect("read auth.json"),
-        live_auth,
-        "the official login is never touched"
-    );
 }
 
 /// 切换供应商与 reapply 是同一类场景：live 整体重写后只需重投影本应用
@@ -1684,19 +1592,19 @@ fn provider_service_switch_codex_official_accounts_write_auth_json() {
     let state = create_test_state_with_config(&initial_config).expect("create test state");
 
     ProviderService::switch(&state, AppType::Codex, "official-b")
-        .expect("switch to official account B should write auth.json");
+        .expect_err("embedded OAuth accounts cannot be activated as Providers");
     let auth_b: serde_json::Value =
         read_json_file(&codex_switch_lib::get_codex_auth_path()).expect("read auth B");
     assert_eq!(
         auth_b
             .pointer("/tokens/access_token")
             .and_then(|v| v.as_str()),
-        Some("official-b-token"),
-        "switching official accounts must replace auth.json with the selected account"
+        Some("official-a-live-token"),
+        "rejected legacy account provider must preserve native credentials"
     );
 
     ProviderService::switch(&state, AppType::Codex, "official-a")
-        .expect("switch back to official account A should use backfilled live auth");
+        .expect_err("legacy account provider remains rejected on retry");
     let auth_a: serde_json::Value =
         read_json_file(&codex_switch_lib::get_codex_auth_path()).expect("read auth A");
     assert_eq!(

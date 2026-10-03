@@ -5,9 +5,12 @@ import { toast } from "sonner";
 import { authApi, settingsApi } from "@/lib/api";
 import {
   CODEX_OAUTH_DUPLICATE_ACCOUNT_ERROR,
+  getCodexActiveSelection,
   type ManagedAuthAccount,
+  type CodexActiveSelection,
 } from "@/lib/api/auth";
 import { copyText } from "@/lib/clipboard";
+import type { ProvidersQueryData } from "@/lib/query/queries";
 import type { SubscriptionQuota } from "@/types/subscription";
 import type {
   ManagedAuthProvider,
@@ -260,31 +263,144 @@ export function useManagedAuth(
     },
   });
 
+  const clearAccountQuota = async (accountId?: string) => {
+    if (authProvider !== "codex_oauth") return;
+    await queryClient.cancelQueries({ queryKey });
+    await queryClient.cancelQueries({ queryKey: ["providers", "codex"] });
+    await queryClient.cancelQueries({ queryKey: ["codex-active-selection"] });
+    queryClient.setQueryData<CodexActiveSelection>(
+      ["codex-active-selection"],
+      (selection) => {
+        if (
+          selection?.kind !== "account" ||
+          (accountId && selection.accountId !== accountId)
+        )
+          return selection;
+        return null;
+      },
+    );
+    queryClient.setQueryData<ProvidersQueryData>(
+      ["providers", "codex"],
+      (previous) => {
+        if (
+          previous?.activeSelection?.kind !== "account" ||
+          (accountId && previous.activeSelection.accountId !== accountId)
+        )
+          return previous;
+        return { ...previous, activeSelection: null, currentProviderId: "" };
+      },
+    );
+    await clearOwnedAccountQuota(accountId);
+  };
+
+  const clearOwnedAccountQuota = async (accountId?: string) => {
+    const quotaKey = accountId
+      ? ["codex_oauth", "quota", accountId]
+      : ["codex_oauth", "quota"];
+    await queryClient.cancelQueries({ queryKey: quotaKey });
+    queryClient.removeQueries({ queryKey: quotaKey });
+    // Legacy native-login quota is no longer owned by any API provider.
+    await queryClient.cancelQueries({
+      queryKey: ["subscription", "quota", "codex"],
+    });
+    queryClient.removeQueries({ queryKey: ["subscription", "quota", "codex"] });
+  };
+
+  const reconcileAccountRemovalError = async (accountId?: string) => {
+    if (authProvider !== "codex_oauth") return;
+    const previousAccounts =
+      queryClient.getQueryData<ManagedAuthStatus>(queryKey)?.accounts ?? [];
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey }),
+      queryClient.cancelQueries({ queryKey: ["codex-active-selection"] }),
+    ]);
+    const [statusRead] = await Promise.allSettled([
+      queryClient.fetchQuery({
+        queryKey,
+        queryFn: () => authApi.authGetStatus(authProvider),
+        staleTime: 0,
+        retry: false,
+      }),
+      queryClient.fetchQuery({
+        queryKey: ["codex-active-selection"],
+        queryFn: getCodexActiveSelection,
+        staleTime: 0,
+        retry: false,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["providers", "codex"],
+        refetchType: "none",
+      }),
+    ]);
+    if (statusRead.status !== "fulfilled") return;
+    const retained = statusRead.value.accounts;
+    if (accountId) {
+      if (!retained.some((account) => account.id === accountId))
+        await clearOwnedAccountQuota(accountId);
+    } else if (!retained.length) {
+      await clearOwnedAccountQuota();
+    } else {
+      for (const account of previousAccounts) {
+        if (!retained.some((entry) => entry.id === account.id))
+          await clearOwnedAccountQuota(account.id);
+      }
+    }
+  };
+
   const logoutMutation = useMutation({
     mutationFn: () => authApi.authLogout(authProvider),
     onSuccess: async () => {
       setPollingState("idle");
       setDeviceCode(null);
       setError(null);
+      await queryClient.cancelQueries({ queryKey });
       queryClient.setQueryData(queryKey, {
+        activeSelection: null,
         provider: authProvider,
         authenticated: false,
         default_account_id: null,
         accounts: [],
       });
+      await clearAccountQuota();
       await queryClient.invalidateQueries({ queryKey });
+      if (authProvider === "codex_oauth") {
+        await queryClient.invalidateQueries({
+          queryKey: ["codex-active-selection"],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["providers", "codex"],
+        });
+      }
     },
     onError: async (e) => {
       console.error("[ManagedAuth] Failed to logout:", e);
       setError(e instanceof Error ? e.message : String(e));
-      await refetchStatus();
+      if (authProvider === "codex_oauth") await reconcileAccountRemovalError();
+      else await refetchStatus();
     },
   });
 
   const removeAccountMutation = useMutation({
     mutationFn: (accountId: string) =>
       authApi.authRemoveAccount(authProvider, accountId),
-    onSuccess: async () => {
+    onSuccess: async (_, accountId) => {
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<ManagedAuthStatus>(queryKey, (previous) =>
+        previous
+          ? {
+              ...previous,
+              accounts: previous.accounts.filter(
+                (account) => account.id !== accountId,
+              ),
+              activeSelection:
+                previous.activeSelection?.kind === "account" &&
+                previous.activeSelection.accountId === accountId
+                  ? null
+                  : previous.activeSelection,
+            }
+          : previous,
+      );
+      await clearAccountQuota(accountId);
       setPollingState("idle");
       setDeviceCode(null);
       setError(null);
@@ -295,10 +411,19 @@ export function useManagedAuth(
       );
       await refetchStatus();
       await queryClient.invalidateQueries({ queryKey });
+      if (authProvider === "codex_oauth") {
+        await queryClient.invalidateQueries({
+          queryKey: ["codex-active-selection"],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["providers", "codex"],
+        });
+      }
     },
-    onError: (e) => {
+    onError: async (e, accountId) => {
       console.error("[ManagedAuth] Failed to remove account:", e);
       setError(e instanceof Error ? e.message : String(e));
+      await reconcileAccountRemovalError(accountId);
     },
   });
 

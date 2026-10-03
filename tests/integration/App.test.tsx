@@ -16,6 +16,7 @@ import * as authApi from "@/lib/api/auth";
 import {
   resetProviderState,
   setCurrentProviderId,
+  setCodexActiveSelection,
   setProviders,
   setSettings,
 } from "../msw/state";
@@ -50,22 +51,20 @@ vi.mock("sonner", () => ({
 
 vi.mock("@/components/codex/CodexAccountsPanel", () => ({
   CodexAccountsPanel: ({
-    providers,
-    currentProviderId,
+    currentAccountId,
     onSwitchAccount,
     isSwitching,
-    onAddAccount,
+    isSelectionError,
+    canReconfirmSelection,
   }: any) => (
     <div data-testid="accounts-panel">
-      <output>{JSON.stringify(providers)}</output>
-      <output data-testid="account-current-provider">
-        {currentProviderId}
+      <output data-testid="account-current-account">{currentAccountId}</output>
+      <output data-testid="can-reconfirm-selection">
+        {String(canReconfirmSelection)}
       </output>
-      <button onClick={() => onAddAccount(startAccountLoginMock)}>
-        add-account-or-connection
-      </button>
+      <button onClick={startAccountLoginMock}>add-subscription-account</button>
       <button
-        disabled={isSwitching}
+        disabled={isSwitching || (isSelectionError && !canReconfirmSelection)}
         onClick={() => {
           void onSwitchAccount("acct-selected").catch(() => {});
         }}
@@ -295,7 +294,7 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel").textContent).toContain(
+      expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
       ),
     );
@@ -312,8 +311,7 @@ describe("App integration with MSW", () => {
     fireEvent.click(screen.getByText("close-usage"));
 
     expect(screen.queryByText("create")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("add-account-or-connection"));
-    fireEvent.click(screen.getByRole("button", { name: /API Key 连接/ }));
+    fireEvent.click(screen.getByRole("button", { name: "添加 API Key" }));
     expect(screen.getByTestId("add-provider-dialog")).toBeInTheDocument();
     fireEvent.click(screen.getByText("confirm-add"));
     await waitFor(() =>
@@ -353,7 +351,7 @@ describe("App integration with MSW", () => {
     const { container } = renderApp(App);
 
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel").textContent).toContain(
+      expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
       ),
     );
@@ -386,7 +384,7 @@ describe("App integration with MSW", () => {
     renderApp(App);
 
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel").textContent).toContain(
+      expect(screen.getByTestId("provider-list").textContent).toContain(
         "codex-1",
       ),
     );
@@ -429,7 +427,7 @@ describe("App integration with MSW", () => {
       const { default: App } = await import("@/App");
       const { unmount } = renderApp(App);
       await waitFor(() =>
-        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
           "codex-1",
         ),
       );
@@ -443,7 +441,7 @@ describe("App integration with MSW", () => {
         });
       });
       expect(getProviders).not.toHaveBeenCalled();
-      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+      expect(screen.getByTestId("current-provider")).toHaveTextContent(
         "codex-1",
       );
 
@@ -452,9 +450,9 @@ describe("App integration with MSW", () => {
         providerId: "codex-2",
       });
       await waitFor(() =>
-        expect(
-          screen.getByTestId("account-current-provider"),
-        ).toHaveTextContent("codex-2"),
+        expect(screen.getByTestId("current-provider")).toHaveTextContent(
+          "codex-2",
+        ),
       );
       expect(getProviders).toHaveBeenCalledWith("codex");
 
@@ -478,7 +476,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App, client);
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
     );
     invalidate.mockClear();
 
@@ -498,7 +496,7 @@ describe("App integration with MSW", () => {
       const { default: App } = await import("@/App");
       renderApp(App, client);
       await waitFor(() =>
-        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
           "codex-1",
         ),
       );
@@ -514,7 +512,7 @@ describe("App integration with MSW", () => {
 
       emitTauriEvent("universal-provider-synced", {});
       await waitFor(() =>
-        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
           "Synced configuration",
         ),
       );
@@ -533,7 +531,7 @@ describe("App integration with MSW", () => {
       const { default: App } = await import("@/App");
       renderApp(App);
       await waitFor(() =>
-        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
           "codex-1",
         ),
       );
@@ -566,55 +564,52 @@ describe("App integration with MSW", () => {
     }
   });
 
-  it("keeps current connection deletion disabled in the editor and clears a cancelled confirmation on close", async () => {
+  it("removes the current API Provider without choosing a fallback", async () => {
     const deleteProvider = vi.spyOn(providersApi, "delete");
     try {
       const { default: App } = await import("@/App");
       renderApp(App);
       await waitFor(() =>
-        expect(screen.getByTestId("provider-list")).toHaveTextContent(
+        expect(screen.getByTestId("current-provider")).toHaveTextContent(
           "codex-1",
         ),
       );
       fireEvent.click(screen.getByText("edit"));
-      expect(screen.getByText("delete-connection")).toBeDisabled();
-      expect(screen.getByTestId("delete-disabled-reason")).toHaveTextContent(
-        "当前使用的连接无法删除，请先切换到其他连接。",
-      );
+      expect(screen.getByText("delete-connection")).toBeEnabled();
       fireEvent.click(screen.getByText("delete-connection"));
-      expect(
-        screen.queryByTestId("editor-delete-confirmation"),
-      ).not.toBeInTheDocument();
-      fireEvent.click(screen.getByText("close-edit"));
-      fireEvent.click(screen.getByText("edit-other-connection"));
-      fireEvent.click(screen.getByText("delete-connection"));
-      expect(
-        screen.getByTestId("editor-delete-confirmation"),
-      ).toBeInTheDocument();
       fireEvent.click(screen.getByText("close-edit"));
       expect(screen.queryByTestId("confirm-dialog")).not.toBeInTheDocument();
       expect(deleteProvider).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByText("edit"));
+      fireEvent.click(screen.getByText("delete-connection"));
+      fireEvent.click(screen.getByText("confirm-editor-delete"));
+      await waitFor(() =>
+        expect(screen.getByTestId("provider-list")).not.toHaveTextContent(
+          "codex-1",
+        ),
+      );
+      expect(deleteProvider).toHaveBeenCalledWith("codex-1", "codex");
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-2");
+      expect(screen.getByTestId("current-provider")).toBeEmptyDOMElement();
+      expect(
+        screen.getByTestId("account-current-account"),
+      ).toBeEmptyDOMElement();
     } finally {
       deleteProvider.mockRestore();
     }
   });
 
-  it("duplicates Codex bindings and settings while preserving configuration order", async () => {
+  it("duplicates API configuration and settings while preserving configuration order", async () => {
     const original: Provider = {
       id: "bound",
-      name: "Bound account",
+      name: "API connection",
       category: "custom",
       sortIndex: 0,
       settingsConfig: {
         config: 'model = "codex-test"',
-        auth: { profile: "test" },
+        auth: { OPENAI_API_KEY: "test-provider-key" },
       },
       meta: {
-        authBinding: {
-          source: "managed_account",
-          authProvider: "codex_oauth",
-          accountId: "acct-fixture",
-        },
         codexFastMode: true,
       },
     };
@@ -629,14 +624,14 @@ describe("App integration with MSW", () => {
       const { default: App } = await import("@/App");
       renderApp(App);
       await waitFor(() =>
-        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
           original.name,
         ),
       );
       fireEvent.click(await screen.findByText("duplicate"));
       await waitFor(() =>
         expect(screen.getByTestId("provider-list")).toHaveTextContent(
-          "Bound account copy",
+          "API connection copy",
         ),
       );
       expect(sort).toHaveBeenCalledWith(
@@ -645,7 +640,7 @@ describe("App integration with MSW", () => {
       );
       expect(add).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: "Bound account copy",
+          name: "API connection copy",
           settingsConfig: original.settingsConfig,
           meta: original.meta,
           sortIndex: 1,
@@ -661,7 +656,7 @@ describe("App integration with MSW", () => {
       expect(saved.later.sortIndex).toBe(2);
       expect(
         Object.values<Provider>(saved).find(
-          (p) => p.name === "Bound account copy",
+          (p) => p.name === "API connection copy",
         )?.id,
       ).not.toBe(original.id);
     } finally {
@@ -675,7 +670,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App, client);
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
     );
     const updatedUsage = { success: true, data: [{ remaining: 42 }] };
     emitTauriEvent("usage-cache-updated", {
@@ -699,18 +694,18 @@ describe("App integration with MSW", () => {
       const { default: App } = await import("@/App");
       renderApp(App);
       await waitFor(() =>
-        expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
+        expect(screen.getByTestId("provider-list")).toHaveTextContent(
           "codex-1",
         ),
       );
       expect(localStorage.getItem("codex-switch-last-app")).toBe("codex");
       expect(screen.queryByTestId("app-switcher")).not.toBeInTheDocument();
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1");
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
       emitTauriEvent("provider-switched", {
         appType: "claude",
         providerId: "claude-2",
       });
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1");
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1");
     },
   );
 
@@ -733,7 +728,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent("codex-1"),
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
     );
     expect(localStorage.getItem("codex-switch-last-view")).toBe("providers");
     expect(screen.queryByTitle("skills.manage")).not.toBeInTheDocument();
@@ -794,21 +789,15 @@ describe("App integration with MSW", () => {
     expect(await screen.findByTestId("provider-list")).toHaveTextContent(
       "codex-1",
     );
-    fireEvent.click(screen.getByText("add-account-or-connection"));
-    fireEvent.click(screen.getByRole("button", { name: /API Key 连接/ }));
+    fireEvent.click(screen.getByRole("button", { name: "添加 API Key" }));
     expect(screen.getByTestId("initial-codex-account")).toBeEmptyDOMElement();
     expect(screen.getByTestId("api-key-only")).toHaveTextContent("true");
   });
 
-  it("starts ChatGPT login from the unified chooser without opening an API Key form", async () => {
+  it("starts subscription login from its own Add button without an API form", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
-    fireEvent.click(await screen.findByText("add-account-or-connection"));
-    expect(
-      screen.getByRole("dialog", { name: "添加账号或连接" }),
-    ).toBeVisible();
-    expect(startAccountLoginMock).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /ChatGPT 登录/ }));
+    fireEvent.click(await screen.findByText("add-subscription-account"));
     expect(startAccountLoginMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
@@ -826,14 +815,13 @@ describe("App integration with MSW", () => {
     expect(startAccountLoginMock).not.toHaveBeenCalled();
   });
 
-  it("opens and saves an API Key connection from the unified chooser without logging in", async () => {
+  it("opens and saves an API Provider without logging in or activating it", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
       expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
     );
-    fireEvent.click(screen.getByText("add-account-or-connection"));
-    fireEvent.click(screen.getByRole("button", { name: /API Key 连接/ }));
+    fireEvent.click(screen.getByRole("button", { name: "添加 API Key" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.getByTestId("api-key-only")).toHaveTextContent("true");
     expect(screen.getByTestId("initial-codex-account")).toBeEmptyDOMElement();
@@ -844,32 +832,34 @@ describe("App integration with MSW", () => {
       ),
     );
     expect(startAccountLoginMock).not.toHaveBeenCalled();
-    expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
-      "codex-1",
-    );
+    expect(screen.getByTestId("current-provider")).toHaveTextContent("codex-1");
   });
 
-  it("cancels the unified chooser without starting login or creating a connection", async () => {
+  it("cancels API creation without login or a new Provider", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
-    fireEvent.click(await screen.findByText("add-account-or-connection"));
-    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(startAccountLoginMock).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("codex-1"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "添加 API Key" }));
+    fireEvent.click(screen.getByText("close-add"));
     expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
+    expect(startAccountLoginMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("provider-list")).not.toHaveTextContent(
+      "New codex Provider",
+    );
   });
 
   it("keeps connection guidance available through its heading help button", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await screen.findByTestId("accounts-panel");
-    const description =
-      "在这里管理 API Key 连接和已保存的高级配置。ChatGPT 订阅额度显示在对应账号卡片中。";
+    const description = "在这里添加和管理 API Key 连接，查看 API 余额。";
     expect(screen.queryByText(description)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "连接配置用途" }));
     expect(await screen.findByText(description)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "add-account-or-connection" }),
+      screen.getByRole("button", { name: "add-subscription-account" }),
     ).toBeInTheDocument();
   });
 
@@ -909,35 +899,144 @@ describe("App integration with MSW", () => {
     expect(screen.queryByTestId("settings-tab")).not.toBeInTheDocument();
   });
 
-  it("switches an existing account without opening a connection form and updates current from readback", async () => {
-    setCurrentProviderId("codex", "codex-2");
+  it("activates an independent account without creating a Provider and clears Provider current", async () => {
     const switchSpy = vi
       .spyOn(authApi, "authSwitchCodexAccount")
-      .mockImplementation(async () => {
-        setCurrentProviderId("codex", "codex-1");
-        return { providerId: "codex-1", warnings: [] };
+      .mockImplementation(async (accountId) => {
+        setCodexActiveSelection({ kind: "account", accountId });
+        return { accountId, warnings: [] };
       });
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
-        "codex-2",
-      ),
-    );
-    fireEvent.click(screen.getByText("switch-account"));
-    await waitFor(() =>
-      expect(switchSpy).toHaveBeenCalledWith("acct-selected", undefined),
-    );
-    await waitFor(() =>
-      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+      expect(screen.getByTestId("current-provider")).toHaveTextContent(
         "codex-1",
       ),
+    );
+    const providersBefore = screen.getByTestId("provider-list").textContent;
+    fireEvent.click(screen.getByText("switch-account"));
+    await waitFor(() =>
+      expect(switchSpy).toHaveBeenCalledWith("acct-selected"),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("account-current-account")).toHaveTextContent(
+        "acct-selected",
+      ),
+    );
+    expect(screen.getByTestId("current-provider")).toBeEmptyDOMElement();
+    expect(screen.getByTestId("provider-list").textContent).toBe(
+      providersBefore,
     );
     expect(screen.queryByTestId("add-provider-dialog")).not.toBeInTheDocument();
     switchSpy.mockRestore();
   });
 
-  it("switches a saved connection directly from the homepage and updates the current account", async () => {
+  it("hides both current markers after an uncertain account switch from an API Provider until an external native readback confirms the API Provider", async () => {
+    const switchSpy = vi
+      .spyOn(authApi, "authSwitchCodexAccount")
+      .mockRejectedValueOnce(
+        new Error("codex_account_switch_uncertain: interrupted publication"),
+      )
+      .mockImplementationOnce(async (accountId) => {
+        setCodexActiveSelection({ kind: "account", accountId });
+        return { accountId, warnings: [] };
+      });
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(App);
+      await waitFor(() =>
+        expect(screen.getByTestId("current-provider")).toHaveTextContent(
+          "codex-1",
+        ),
+      );
+      fireEvent.click(screen.getByText("switch-account"));
+      await waitFor(() => expect(toastErrorMock).toHaveBeenCalled());
+      await waitFor(() =>
+        expect(screen.getByTestId("current-provider")).toBeEmptyDOMElement(),
+      );
+      expect(
+        screen.getByTestId("account-current-account"),
+      ).toBeEmptyDOMElement();
+      setCodexActiveSelection({ kind: "provider", providerId: "codex-2" });
+      act(() =>
+        emitTauriEvent("provider-switched", {
+          appType: "codex",
+          providerId: "codex-2",
+        }),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("current-provider")).toHaveTextContent(
+          "codex-2",
+        ),
+      );
+      expect(
+        screen.getByTestId("account-current-account"),
+      ).toBeEmptyDOMElement();
+    } finally {
+      switchSpy.mockRestore();
+    }
+  });
+
+  it("recovers persisted native uncertainty with only subscription accounts and no API Provider", async () => {
+    setProviders("codex", {});
+    let uncertain = true;
+    const selectionSpy = vi
+      .spyOn(authApi, "getCodexActiveSelection")
+      .mockImplementation(async () => {
+        if (uncertain)
+          throw new Error(
+            "codex_account_switch_uncertain: publication needs explicit selection",
+          );
+        return { kind: "account", accountId: "acct-selected" };
+      });
+    const switchSpy = vi
+      .spyOn(authApi, "authSwitchCodexAccount")
+      .mockImplementation(async (accountId) => {
+        uncertain = false;
+        setCodexActiveSelection({ kind: "account", accountId });
+        return { accountId, warnings: [] };
+      });
+    try {
+      const { default: App } = await import("@/App");
+      renderApp(
+        App,
+        new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("can-reconfirm-selection")).toHaveTextContent(
+          "true",
+        ),
+      );
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("{}");
+      expect(screen.getByTestId("current-provider")).toBeEmptyDOMElement();
+      expect(
+        screen.getByTestId("account-current-account"),
+      ).toBeEmptyDOMElement();
+      const switchButton = screen.getByRole("button", {
+        name: "switch-account",
+      });
+      expect(switchButton).toBeEnabled();
+      fireEvent.click(switchButton);
+      await waitFor(() =>
+        expect(switchSpy).toHaveBeenCalledWith("acct-selected"),
+      );
+      await waitFor(() =>
+        expect(screen.getByTestId("account-current-account")).toHaveTextContent(
+          "acct-selected",
+        ),
+      );
+      expect(screen.getByTestId("can-reconfirm-selection")).toHaveTextContent(
+        "false",
+      );
+      expect(screen.getByTestId("current-provider")).toBeEmptyDOMElement();
+    } finally {
+      selectionSpy.mockRestore();
+      switchSpy.mockRestore();
+    }
+  });
+
+  it("switches from a subscription account to an API Provider with one current selection", async () => {
+    setCodexActiveSelection({ kind: "account", accountId: "acct-prior" });
     const switchConnection = vi.spyOn(providersApi, "switch");
     try {
       const { default: App } = await import("@/App");
@@ -947,18 +1046,24 @@ describe("App integration with MSW", () => {
           "codex-2",
         ),
       );
+      expect(screen.getByTestId("account-current-account")).toHaveTextContent(
+        "acct-prior",
+      );
       fireEvent.click(screen.getByText("switch-other-connection"));
       await waitFor(() =>
-        expect(switchConnection).toHaveBeenCalledWith("codex-2", "codex"),
+        expect(switchConnection).toHaveBeenCalledWith("codex-1", "codex"),
       );
       await waitFor(() =>
-        expect(
-          screen.getByTestId("account-current-provider"),
-        ).toHaveTextContent("codex-2"),
+        expect(screen.getByTestId("current-provider")).toHaveTextContent(
+          "codex-1",
+        ),
       );
       expect(screen.getByTestId("current-provider")).toHaveTextContent(
-        "codex-2",
+        "codex-1",
       );
+      expect(
+        screen.getByTestId("account-current-account"),
+      ).toBeEmptyDOMElement();
       expect(startAccountLoginMock).not.toHaveBeenCalled();
       expect(
         screen.queryByTestId("add-provider-dialog"),
@@ -976,7 +1081,7 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+      expect(screen.getByTestId("current-provider")).toHaveTextContent(
         "codex-2",
       ),
     );
@@ -986,13 +1091,11 @@ describe("App integration with MSW", () => {
         expect.stringContaining("login expired"),
       ),
     );
-    expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
-      "codex-2",
-    );
+    expect(screen.getByTestId("current-provider")).toHaveTextContent("codex-2");
     switchSpy.mockRestore();
   });
 
-  it("keeps automatically generated account connections out of advanced configuration lists", async () => {
+  it("filters legacy account-shaped Provider rows from API configuration lists", async () => {
     setProviders("codex", {
       internal: {
         id: "internal",
@@ -1009,23 +1112,22 @@ describe("App integration with MSW", () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("accounts-panel")).toHaveTextContent(
-        "internal",
-      ),
+      expect(screen.getByTestId("provider-list")).toHaveTextContent("advanced"),
     );
     expect(screen.getByTestId("provider-list")).toHaveTextContent("advanced");
     expect(screen.getByTestId("provider-list")).not.toHaveTextContent(
       "internal",
     );
   });
-  it("uses the native configured provider as the current account", async () => {
+  it("keeps API Provider current separate from subscription accounts", async () => {
     const { default: App } = await import("@/App");
     renderApp(App);
     await waitFor(() =>
-      expect(screen.getByTestId("account-current-provider")).toHaveTextContent(
+      expect(screen.getByTestId("current-provider")).toHaveTextContent(
         "codex-1",
       ),
     );
+    expect(screen.getByTestId("account-current-account")).toBeEmptyDOMElement();
   });
   it("supports keyboard navigation across accounts, usage and settings", async () => {
     setSettings({ firstRunNoticeConfirmed: true });

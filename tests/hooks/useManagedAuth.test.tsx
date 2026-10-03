@@ -15,10 +15,17 @@ const apiMocks = vi.hoisted(() => ({
   authPollForAccount: vi.fn(),
   authCancelLogin: vi.fn(),
   authRemoveAccount: vi.fn(),
+  authLogout: vi.fn(),
   authUpdateAccount: vi.fn(),
+  getCodexActiveSelection: vi.fn(),
 }));
 const toastMocks = vi.hoisted(() => ({
   success: vi.fn(),
+}));
+
+vi.mock("@/lib/api/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/auth")>()),
+  getCodexActiveSelection: apiMocks.getCodexActiveSelection,
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -28,6 +35,7 @@ vi.mock("@/lib/api", () => ({
     authPollForAccount: (...args: unknown[]) =>
       apiMocks.authPollForAccount(...args),
     authCancelLogin: (...args: unknown[]) => apiMocks.authCancelLogin(...args),
+    authLogout: (...args: unknown[]) => apiMocks.authLogout(...args),
     authRemoveAccount: (...args: unknown[]) =>
       apiMocks.authRemoveAccount(...args),
     authUpdateAccount: (...args: unknown[]) =>
@@ -89,7 +97,11 @@ describe("useManagedAuth", () => {
     apiMocks.authPollForAccount.mockReset().mockResolvedValue(null);
     apiMocks.authCancelLogin.mockReset().mockResolvedValue(true);
     apiMocks.authRemoveAccount.mockReset().mockResolvedValue(undefined);
+    apiMocks.authLogout.mockReset().mockResolvedValue(undefined);
     apiMocks.authUpdateAccount.mockReset();
+    apiMocks.getCodexActiveSelection
+      .mockReset()
+      .mockResolvedValue({ kind: "account", accountId: "acct-1" });
   });
 
   it("updates shared account data only after metadata is persisted and preserves authentication state", async () => {
@@ -490,4 +502,168 @@ describe("useManagedAuth", () => {
       expect(toastMocks.success).toHaveBeenCalledWith("账号已移除"),
     );
   });
+  it("cancels a removed account’s quota before clearing it so a late response cannot revive it", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["codex-active-selection"], {
+      kind: "account",
+      accountId: "acct-1",
+    });
+    const removedKey = ["codex_oauth", "quota", "acct-1"];
+    const keptKey = ["codex_oauth", "quota", "acct-2"];
+    client.setQueryData(removedKey, { success: true, remaining: 40 });
+    client.setQueryData(keptKey, { success: true, remaining: 80 });
+    client.setQueryData(["providers", "codex"], {
+      providers: {},
+      currentProviderId: "",
+      activeSelection: { kind: "account", accountId: "acct-1" },
+    });
+    let finish!: (value: unknown) => void;
+    const pending = client
+      .fetchQuery({
+        queryKey: removedKey,
+        queryFn: () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      })
+      .catch(() => {});
+    const { result } = renderHook(() => useManagedAuth("codex_oauth"), {
+      wrapper: createWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+    apiMocks.authGetStatus.mockResolvedValue({
+      provider: "codex_oauth",
+      authenticated: true,
+      default_account_id: "acct-2",
+      accounts: [],
+    });
+    act(() => result.current.removeAccount("acct-1"));
+    await waitFor(() =>
+      expect(client.getQueryData(removedKey)).toBeUndefined(),
+    );
+    await act(async () => {
+      finish({ success: true, remaining: 100 });
+      await pending;
+    });
+    expect(client.getQueryData(removedKey)).toBeUndefined();
+    expect(client.getQueryData(keptKey)).toEqual({
+      success: true,
+      remaining: 80,
+    });
+    expect(client.getQueryData(["codex-active-selection"])).toBeNull();
+    expect(client.getQueryData(["providers", "codex"])).toMatchObject({
+      activeSelection: null,
+    });
+  });
+
+  it("clears all account quota on logout while retaining an active API provider", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    client.setQueryData(["codex_oauth", "quota", "acct-1"], { success: true });
+    client.setQueryData(["codex_oauth", "quota", "acct-2"], { success: true });
+    client.setQueryData(["providers", "codex"], {
+      providers: {},
+      currentProviderId: "api",
+      activeSelection: { kind: "provider", providerId: "api" },
+    });
+    const { result } = renderHook(() => useManagedAuth("codex_oauth"), {
+      wrapper: createWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+    apiMocks.authGetStatus.mockResolvedValue({
+      provider: "codex_oauth",
+      authenticated: false,
+      default_account_id: null,
+      accounts: [],
+    });
+    act(() => result.current.logout());
+    await waitFor(() =>
+      expect(
+        client.getQueriesData({ queryKey: ["codex_oauth", "quota"] }),
+      ).toHaveLength(0),
+    );
+    expect(client.getQueryData(["providers", "codex"])).toMatchObject({
+      activeSelection: { kind: "provider", providerId: "api" },
+    });
+  });
+
+  it("retains quota and current account when native removal fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const key = ["codex_oauth", "quota", "acct-1"];
+    client.setQueryData(key, { success: true, remaining: 40 });
+    apiMocks.authRemoveAccount.mockRejectedValue(
+      new Error("credential store is unavailable"),
+    );
+    const { result } = renderHook(() => useManagedAuth("codex_oauth"), {
+      wrapper: createWrapper(client),
+    });
+    await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+    act(() => result.current.removeAccount("acct-1"));
+    await waitFor(() =>
+      expect(result.current.error).toContain("credential store"),
+    );
+    await waitFor(() =>
+      expect(apiMocks.getCodexActiveSelection).toHaveBeenCalledOnce(),
+    );
+    expect(client.getQueryData(key)).toEqual({ success: true, remaining: 40 });
+    expect(result.current.accounts).toHaveLength(1);
+    expect(client.getQueryData(["codex-active-selection"])).toEqual({
+      kind: "account",
+      accountId: "acct-1",
+    });
+  });
+  it.each(["remove", "logout"] as const)(
+    "reconciles %s errors after native account-store publication without replacing selector uncertainty with optimistic disconnection",
+    async (action) => {
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const key = ["codex_oauth", "quota", "acct-1"];
+      client.setQueryData(key, { success: true, remaining: 40 });
+      client.setQueryData(["codex-active-selection"], {
+        kind: "account",
+        accountId: "acct-1",
+      });
+      const { result } = renderHook(() => useManagedAuth("codex_oauth"), {
+        wrapper: createWrapper(client),
+      });
+      await waitFor(() => expect(result.current.isStatusSuccess).toBe(true));
+      apiMocks.authGetStatus.mockResolvedValue({
+        provider: "codex_oauth",
+        authenticated: false,
+        default_account_id: null,
+        accounts: [],
+      });
+      apiMocks.getCodexActiveSelection.mockRejectedValue(
+        new Error("codex_account_switch_uncertain: cleanup blocked"),
+      );
+      apiMocks.authRemoveAccount.mockRejectedValue(
+        new Error("account removed, native cleanup blocked"),
+      );
+      apiMocks.authLogout.mockRejectedValue(
+        new Error("account removed, native cleanup blocked"),
+      );
+      act(() =>
+        action === "remove"
+          ? result.current.removeAccount("acct-1")
+          : result.current.logout(),
+      );
+      await waitFor(() => expect(client.getQueryData(key)).toBeUndefined());
+      expect(result.current.accounts).toHaveLength(0);
+      expect(client.getQueryState(["codex-active-selection"])?.status).toBe(
+        "error",
+      );
+      expect(
+        client.getQueryState(["codex-active-selection"])?.error,
+      ).toMatchObject({
+        message: expect.stringContaining("codex_account_switch_uncertain"),
+      });
+      expect(result.current.error).toContain("cleanup blocked");
+    },
+  );
 });

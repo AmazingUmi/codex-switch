@@ -1,6 +1,6 @@
 {
   "name": "codex-switch",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Account management and usage monitoring for OpenAI Codex and ChatGPT Codex",
   "type": "module",
   "scripts": {

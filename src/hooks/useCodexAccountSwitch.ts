@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -10,21 +10,45 @@ export function useCodexAccountSwitch() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const inFlight = useRef<Promise<unknown> | null>(null);
-  const [isCurrentUncertain, setCurrentUncertain] = useState(false);
+  const confirmedSelectionRevision = useRef(
+    queryClient.getQueryState(["codex-active-selection"])?.dataUpdateCount ?? 0,
+  );
+  const subscribeToReadback = useCallback(
+    (notify: () => void) =>
+      queryClient.getQueryCache().subscribe((event) => {
+        if (
+          event.type === "updated" &&
+          event.query.queryKey.length === 1 &&
+          event.query.queryKey[0] === "codex-active-selection" &&
+          event.action.type === "success" &&
+          !event.action.manual
+        ) {
+          confirmedSelectionRevision.current =
+            event.query.state.dataUpdateCount;
+          notify();
+        }
+      }),
+    [queryClient],
+  );
+  const selectionRevision = useSyncExternalStore(
+    subscribeToReadback,
+    () => confirmedSelectionRevision.current,
+    () => 0,
+  );
+  const [uncertainSince, setUncertainSince] = useState<number | null>(null);
+  // Only a newer successful native readback can resolve an uncertain publication.
+  // Optimistic cache updates and the initial cached selection cannot clear it.
+  const isCurrentUncertain =
+    uncertainSince !== null && selectionRevision <= uncertainSince;
   const mutation = useMutation({
-    mutationFn: ({
-      accountId,
-      providerId,
-    }: {
-      accountId: string;
-      providerId?: string;
-    }) => authSwitchCodexAccount(accountId, providerId),
+    mutationFn: ({ accountId }: { accountId: string }) =>
+      authSwitchCodexAccount(accountId),
     onSuccess: async (result) => {
       // The command has already committed. A failed readback is a refresh
       // problem; it must never be reported as a failed account switch.
       const reads = await Promise.allSettled([
         queryClient.invalidateQueries(
-          { queryKey: ["providers", "codex"] },
+          { queryKey: ["codex-active-selection"] },
           { throwOnError: true },
         ),
         queryClient.invalidateQueries(
@@ -32,8 +56,9 @@ export function useCodexAccountSwitch() {
           { throwOnError: true },
         ),
       ]);
+      void queryClient.invalidateQueries({ queryKey: ["providers", "codex"] });
       const readFailed = reads.some((read) => read.status === "rejected");
-      setCurrentUncertain(readFailed);
+      setUncertainSince(readFailed ? confirmedSelectionRevision.current : null);
       if (readFailed) {
         toast.warning(
           t(
@@ -79,7 +104,7 @@ export function useCodexAccountSwitch() {
     onError: (error) => {
       const detail = extractErrorMessage(error) || t("common.unknown");
       const uncertain = detail.includes("codex_account_switch_uncertain");
-      if (uncertain) setCurrentUncertain(true);
+      if (uncertain) setUncertainSince(confirmedSelectionRevision.current);
       toast.error(
         t(
           uncertain
@@ -98,13 +123,10 @@ export function useCodexAccountSwitch() {
     },
   });
 
-  const switchAccount = (
-    accountId: string,
-    providerId?: string,
-  ): Promise<unknown> => {
+  const switchAccount = (accountId: string): Promise<unknown> => {
     // The ref closes the gap before React renders the disabled buttons.
     if (inFlight.current) return inFlight.current;
-    const request = mutation.mutateAsync({ accountId, providerId });
+    const request = mutation.mutateAsync({ accountId });
     inFlight.current = request;
     void request
       .finally(() => {

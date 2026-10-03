@@ -187,7 +187,7 @@ pub(crate) fn plan(input: AuthInput<'_>) -> AuthPlan {
             // 保留登录关闭时第三方路由旁边不留任何 auth.json（写 `{}` 不等于登出）。
             (managed || residue || (!preserve && input.live.is_some())).then_some(None)
         }
-        AuthTarget::KeepNative => (managed || placeholder).then_some(None),
+        AuthTarget::KeepNative => (managed || residue).then_some(None),
         AuthTarget::Managed { auth } => {
             if let Some(live) = native {
                 stash.put(live);

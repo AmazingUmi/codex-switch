@@ -22,6 +22,11 @@ function credentialRevision(id: string, baseUrl: string, apiKey: string) {
   return revision;
 }
 
+/** Forget credential revisions when a provider is removed. */
+export function forgetApiBalanceCredentials(providerId: string) {
+  revisions.delete(providerId);
+}
+
 export function useApiBalance(provider: Provider) {
   const queryClient = useQueryClient();
   const { baseUrl, apiKey } = resolveApiBalanceCredentials(provider);

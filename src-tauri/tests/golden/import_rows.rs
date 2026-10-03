@@ -128,7 +128,7 @@ fn first_run_claude_rows() {
 }
 
 #[test]
-fn first_run_codex_rows() {
+fn explicit_codex_api_import_rows() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
     write_home_file(".codex/auth.json", r#"{"OPENAI_API_KEY":"sk-live"}"#);

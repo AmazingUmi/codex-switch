@@ -341,11 +341,8 @@ pub fn ensure_claude_desktop_official_provider(state: State<'_, AppState>) -> Re
 }
 
 #[tauri::command]
-pub fn ensure_codex_official_provider(state: State<'_, AppState>) -> Result<bool, String> {
-    state
-        .db
-        .ensure_official_seed_by_id(crate::database::CODEX_OFFICIAL_PROVIDER_ID, AppType::Codex)
-        .map_err(|e| e.to_string())
+pub fn ensure_codex_official_provider(_state: State<'_, AppState>) -> Result<bool, String> {
+    Err("Subscription accounts are managed independently of API providers".into())
 }
 
 #[tauri::command]
@@ -509,6 +506,17 @@ pub async fn queryProviderUsage(
     app: String,
 ) -> Result<crate::provider::UsageResult, String> {
     let app_type = AppType::from_str(&app).map_err(|e| e.to_string())?;
+    let generation = state.usage_cache.script_generation(&app_type, &providerId);
+    if app_type == AppType::Codex {
+        let provider = state
+            .db
+            .get_provider_by_id(&providerId, app_type.as_str())
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "API provider no longer exists".to_string())?;
+        crate::services::provider::codex_accounts::ensure_api_provider(&provider)
+            .map_err(|error| error.to_string())?;
+    }
+
     // inner 可能以两种形式失败：
     //   1) 返回 Ok(UsageResult { success: false, .. }) —— 确定性失败（401、脚本
     //      报错、未知供应商等）。写进 UsageCache 并刷新托盘，让
@@ -526,6 +534,12 @@ pub async fn queryProviderUsage(
     )
     .await;
     if let Ok(snapshot) = &inner {
+        if !state
+            .usage_cache
+            .finish_script_query(&app_type, &providerId, generation, snapshot)
+        {
+            return Err("Provider changed during balance refresh".into());
+        }
         let payload = serde_json::json!({
             "kind": "script",
             "appType": app_type.as_str(),
@@ -535,9 +549,6 @@ pub async fn queryProviderUsage(
         if let Err(e) = app_handle.emit("usage-cache-updated", payload) {
             log::error!("emit usage-cache-updated (script) 失败: {e}");
         }
-        state
-            .usage_cache
-            .put_script(app_type, providerId, snapshot.clone());
         crate::tray::schedule_tray_refresh(&app_handle);
     }
     inner

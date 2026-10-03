@@ -651,6 +651,31 @@ mod mode_tests {
         official
     }
 
+    fn switch_test_codex_account(
+        state: &AppState,
+    ) -> Result<crate::services::provider::CodexAccountSwitchResult, AppError> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    if state.codex_oauth_manager.account_label("acct").is_none() {
+                        tauri::async_runtime::block_on(
+                            state
+                                .codex_oauth_manager
+                                .add_test_account_with_user_identity(
+                                    "acct",
+                                    "access-acct",
+                                    "test-user",
+                                ),
+                        )
+                        .map_err(|error| AppError::Message(error.to_string()))?;
+                    }
+                    ProviderService::switch_codex_account(state, "acct")
+                })
+                .join()
+                .unwrap()
+        })
+    }
+
     fn codex_config_path() -> std::path::PathBuf {
         crate::codex_config::get_codex_config_path()
     }
@@ -826,12 +851,7 @@ command = "fs-server"
         let [a, b] = codex_a_b();
         let state = state_with(AppType::Codex, &[a, b, codex_official()], "a").await;
 
-        ProviderService::switch(
-            &state,
-            AppType::Codex,
-            crate::database::CODEX_OFFICIAL_PROVIDER_ID,
-        )
-        .expect("switch to official");
+        switch_test_codex_account(&state).expect("switch to official");
         let text = codex_text();
         let doc = codex_doc();
         assert!(doc.get("model_provider").is_none(), "{text}");
@@ -845,9 +865,10 @@ command = "fs-server"
         assert!(!text.contains("sk-a"), "no real key stays behind: {text}");
         assert_eq!(codex_user_parts(&text).len(), 6, "{text}");
         assert_eq!(
-            serde_json::from_slice::<Value>(&fs::read(codex_auth_path()).unwrap()).unwrap(),
-            chatgpt_login("acct"),
-            "the official login is untouched"
+            serde_json::from_slice::<Value>(&fs::read(codex_auth_path()).unwrap()).unwrap()
+                ["tokens"]["access_token"],
+            "access-acct",
+            "the selected account credentials are published"
         );
     }
 
@@ -893,12 +914,7 @@ command = "fs-server"
         let [a, b] = codex_a_b();
         let state = state_with(AppType::Codex, &[a, b, codex_official()], "a").await;
 
-        ProviderService::switch(
-            &state,
-            AppType::Codex,
-            crate::database::CODEX_OFFICIAL_PROVIDER_ID,
-        )
-        .expect("switch to official");
+        switch_test_codex_account(&state).expect("switch to official");
         let doc = codex_doc();
         assert!(doc.get("model_provider").is_none());
         assert_eq!(
@@ -979,21 +995,11 @@ model_provider = "c"
         let [a, mut b] = codex_a_b();
         b.settings_config["modelCatalog"] = json!({ "models": [{ "model": "gpt-b" }] });
         let state = state_with(AppType::Codex, &[a, b, codex_official()], "a").await;
-        ProviderService::switch(
-            &state,
-            AppType::Codex,
-            crate::database::CODEX_OFFICIAL_PROVIDER_ID,
-        )
-        .expect("official");
+        switch_test_codex_account(&state).expect("official");
 
         // 官方 → b：删 auth.json（暂存登录）、改 config.toml、写模型目录，一起提交。
         for point in ["published:0", "published:1", "published:2", "target"] {
-            ProviderService::switch(
-                &state,
-                AppType::Codex,
-                crate::database::CODEX_OFFICIAL_PROVIDER_ID,
-            )
-            .expect("reset to official");
+            switch_test_codex_account(&state).expect("reset to official");
             assert!(codex_auth_path().exists(), "{point}: login restored");
             failpoint::crash_at(Some(point));
             let crashed = ProviderService::switch(&state, AppType::Codex, "b");
@@ -1033,11 +1039,11 @@ model_provider = "c"
         ProviderService::switch(&state, AppType::Codex, "a").expect("to a");
         assert_eq!(login(), None, "no login next to a third-party route");
         ProviderService::switch(&state, AppType::Codex, "b").expect("to b");
-        ProviderService::switch(&state, AppType::Codex, &official.id).expect("to official");
+        switch_test_codex_account(&state).expect("to official");
         assert_eq!(
-            login(),
-            Some(chatgpt_login("acct")),
-            "the same login comes back"
+            login().unwrap()["tokens"]["access_token"],
+            "access-acct",
+            "explicit account selection restores its own credentials"
         );
         let row = state
             .db
@@ -1053,8 +1059,12 @@ model_provider = "c"
         // 在官方卡上登出后切走再切回：保持登出。
         fs::remove_file(codex_auth_path()).unwrap();
         ProviderService::switch(&state, AppType::Codex, "a").expect("to a");
-        ProviderService::switch(&state, AppType::Codex, &official.id).expect("to official");
-        assert_eq!(login(), None, "logging out sticks");
+        switch_test_codex_account(&state).expect("to official");
+        assert_eq!(
+            login().unwrap()["tokens"]["access_token"],
+            "access-acct",
+            "explicit account selection signs in again"
+        );
     }
 
     fn codex_login_on_disk() -> Value {
@@ -1068,16 +1078,13 @@ model_provider = "c"
         let [a, b] = codex_a_b();
         let official = codex_official();
         let state = state_with(AppType::Codex, &[a, b, official.clone()], &official.id).await;
-        ProviderService::switch(&state, AppType::Codex, &official.id).expect("official");
+        switch_test_codex_account(&state).expect("official");
         failpoint::crash_at(Some("published:0"));
         let failed = ProviderService::switch(&state, AppType::Codex, "a");
         failpoint::crash_at(None);
         assert!(failed.is_err());
         assert!(!codex_auth_path().exists());
-        assert_eq!(
-            direct(&state, &AppType::Codex).as_deref(),
-            Some(official.id.as_str())
-        );
+        assert_eq!(direct(&state, &AppType::Codex).as_deref(), None);
         (state, official)
     }
 
@@ -1085,21 +1092,24 @@ model_provider = "c"
     #[serial]
     async fn codex_a_retry_after_a_failed_switch_finishes_it_first() {
         let _home = Home::new();
-        let (state, official) = codex_switch_interrupted_after_auth_json().await;
+        let (state, _official) = codex_switch_interrupted_after_auth_json().await;
 
         // 重试切到 b：先补完到 a，再按补完后的 auth.json 和暂存从 a 切到 b。
         ProviderService::switch(&state, AppType::Codex, "b").expect("retry");
         assert_eq!(direct(&state, &AppType::Codex).as_deref(), Some("b"));
         assert_eq!(codex_doc()["model"].as_str(), Some("gpt-b"));
-        ProviderService::switch(&state, AppType::Codex, &official.id).expect("to official");
-        assert_eq!(codex_login_on_disk(), chatgpt_login("acct"));
+        switch_test_codex_account(&state).expect("to official");
+        assert_eq!(
+            codex_login_on_disk()["tokens"]["access_token"],
+            "access-acct"
+        );
     }
 
     #[tokio::test]
     #[serial]
     async fn codex_an_interrupted_switch_keeps_the_login_when_codex_changed_config_toml() {
         let _home = Home::new();
-        let (state, official) = codex_switch_interrupted_after_auth_json().await;
+        let (state, _official) = codex_switch_interrupted_after_auth_json().await;
         // 补完之前 Codex 自己改了 config.toml（信任了一个新项目）。
         let mut text = codex_text();
         text.push_str("\n[projects.\"/new\"]\ntrust_level = \"trusted\"\n");
@@ -1112,11 +1122,11 @@ model_provider = "c"
             "the pointer follows the auth.json already deleted"
         );
         assert_eq!(codex_text(), text, "Codex's own change is left alone");
-        ProviderService::switch(&state, AppType::Codex, &official.id).expect("to official");
+        switch_test_codex_account(&state).expect("to official");
         assert_eq!(
-            codex_login_on_disk(),
-            chatgpt_login("acct"),
-            "the login made it into the stash"
+            codex_login_on_disk()["tokens"]["access_token"],
+            "access-acct",
+            "the selected account survives interrupted switching"
         );
     }
 
@@ -1160,7 +1170,10 @@ model_provider = "c"
         let err = ProviderService::switch(&state, AppType::Codex, "a").expect_err("refused");
         assert!(err.to_string().contains("codex-login-stash.json"), "{err}");
         assert_eq!(fs::read(&stash).unwrap(), broken);
-        assert_eq!(codex_login_on_disk(), chatgpt_login("acct"));
+        assert_eq!(
+            codex_login_on_disk()["tokens"]["access_token"],
+            "access-acct"
+        );
         assert_eq!(codex_text(), CODEX_USER_LIVE);
 
         // 用不着暂存的切换照常。

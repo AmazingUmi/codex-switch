@@ -3,6 +3,7 @@
 
 use tauri::Manager;
 
+#[cfg(test)]
 use crate::app_config::AppType;
 use crate::services::subscription::{QuotaTier, TIER_FIVE_HOUR, TIER_SEVEN_DAY};
 use crate::services::usage_cache::{QuotaCacheEntry, QuotaSnapshotStatus};
@@ -19,7 +20,6 @@ pub(crate) enum TrayQuotaStatus {
     Stale,
     Unavailable,
     Expired,
-    Disabled,
     Unsupported,
 }
 
@@ -72,83 +72,71 @@ impl TrayQuotaSnapshot {
     }
 }
 
-/// Resolve the committed provider for every read. Managed accounts only read
-/// their explicit binding; neither the OAuth default nor CLI cache is a fallback.
+/// Resolve the committed account identity without any provider binding or default fallback.
 pub(crate) fn snapshot(app: &tauri::AppHandle) -> TrayQuotaSnapshot {
     let Some(state) = app.try_state::<AppState>() else {
         return TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, None);
     };
-    let provider = crate::mode::current::provider_for(
-        &state.db,
-        &AppType::Codex,
-        crate::mode::current::Purpose::InUse,
-    )
-    .ok()
-    .flatten()
-    .and_then(|id| state.db.get_provider_by_id(&id, "codex").ok().flatten());
-    let Some(provider) = provider else {
-        return TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, None);
-    };
-    let label = Some(provider.name.clone());
-    match source_entry(&provider, &state.usage_cache) {
-        Ok(entry) => project_with_interval(
-            entry.as_ref(),
-            label,
-            now_millis(),
-            crate::settings::get_settings().quota_refresh_interval_seconds,
-        ),
-        Err(status) => TrayQuotaSnapshot::empty(status, label),
-    }
-}
-
-fn source_entry(
-    provider: &crate::provider::Provider,
-    cache: &crate::services::usage_cache::UsageCache,
-) -> Result<Option<QuotaCacheEntry>, TrayQuotaStatus> {
-    let managed = crate::tray::managed_codex_account_id(provider);
-    if let Some(id) = managed {
-        if crate::tray::tray_usage_source(&AppType::Codex, provider).is_none() {
-            return Err(TrayQuotaStatus::Disabled);
+    let selection = crate::mode::current::confirmed_codex_selection(&state.db)
+        .ok()
+        .flatten();
+    let label = match selection.as_ref() {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id }) => {
+            state.codex_oauth_manager.account_label(account_id)
         }
-        return Ok(cache.codex_oauth_entry(&id));
-    }
-    if !crate::codex_config::is_codex_official_provider(provider) {
-        return Err(TrayQuotaStatus::Unsupported);
-    }
-    let usage_script = provider
-        .meta
-        .as_ref()
-        .and_then(|meta| meta.usage_script.as_ref());
-    if usage_script.is_some_and(|script| !script.enabled) {
-        return Err(TrayQuotaStatus::Disabled);
-    }
-    if !crate::tray::provider_uses_official_subscription(provider) {
-        return Err(TrayQuotaStatus::Unsupported);
-    }
-    let Some(scope) = crate::services::subscription::native_codex_file_scope() else {
-        return Err(TrayQuotaStatus::Unavailable);
+        Some(crate::mode::current::CodexActiveSelection::Provider { provider_id }) => state
+            .db
+            .get_provider_by_id(provider_id, "codex")
+            .ok()
+            .flatten()
+            .map(|p| p.name),
+        None => None,
     };
-    Ok(cache.native_codex_entry(&provider.id, &scope))
+    selection_snapshot(
+        selection.as_ref(),
+        label,
+        &state.usage_cache,
+        now_millis(),
+        crate::settings::get_settings().quota_refresh_interval_seconds,
+    )
 }
 
-/// The native menu uses the same identity/freshness decision as the ring.
-/// Keep the existing monthly window available without relabeling it as weekly.
-pub(crate) fn menu_summary(
-    provider: &crate::provider::Provider,
+fn selection_snapshot(
+    selection: Option<&crate::mode::current::CodexActiveSelection>,
+    label: Option<String>,
+    cache: &crate::services::usage_cache::UsageCache,
+    now: i64,
+    interval: u32,
+) -> TrayQuotaSnapshot {
+    match selection {
+        Some(crate::mode::current::CodexActiveSelection::Account { account_id })
+            if label.is_some() =>
+        {
+            project_with_interval(
+                cache.codex_oauth_entry(account_id).as_ref(),
+                label,
+                now,
+                interval,
+            )
+        }
+        Some(crate::mode::current::CodexActiveSelection::Provider { .. }) => {
+            TrayQuotaSnapshot::empty(TrayQuotaStatus::Unsupported, label)
+        }
+        _ => TrayQuotaSnapshot::empty(TrayQuotaStatus::Unavailable, None),
+    }
+}
+
+pub(crate) fn account_menu_summary(
+    account_id: &str,
     cache: &crate::services::usage_cache::UsageCache,
     language: &str,
-) -> Option<String> {
-    let entry = match source_entry(provider, cache) {
-        Err(TrayQuotaStatus::Unsupported | TrayQuotaStatus::Disabled) => return None,
-        Ok(entry) => entry,
-        Err(_) => None,
-    };
-    Some(remaining_menu_text(
-        entry.as_ref(),
+) -> String {
+    remaining_menu_text(
+        cache.codex_oauth_entry(account_id).as_ref(),
         language,
         now_millis(),
         crate::settings::get_settings().quota_refresh_interval_seconds,
-    ))
+    )
 }
 
 fn remaining_menu_text(
@@ -224,11 +212,6 @@ fn window(tiers: &[QuotaTier], name: &str, seconds: i64) -> Option<TrayQuotaWind
         remaining: 100.0 - tier.utilization,
         resets_at: tier.resets_at.clone(),
     })
-}
-
-#[cfg(test)]
-fn project(entry: Option<&QuotaCacheEntry>, label: Option<String>, now: i64) -> TrayQuotaSnapshot {
-    project_with_interval(entry, label, now, 60)
 }
 
 fn project_with_interval(
@@ -319,45 +302,25 @@ async fn refresh_current(app: &tauri::AppHandle, requested: bool) {
     let Some(state) = app.try_state::<AppState>() else {
         return;
     };
-    let current = crate::mode::current::provider_for(
-        &state.db,
-        &AppType::Codex,
-        crate::mode::current::Purpose::InUse,
-    )
-    .ok()
-    .flatten()
-    .and_then(|id| state.db.get_provider_by_id(&id, "codex").ok().flatten());
-    let Some(current) = current else {
+    let Some(crate::mode::current::CodexActiveSelection::Account { account_id }) =
+        crate::mode::current::confirmed_codex_selection(&state.db)
+            .ok()
+            .flatten()
+    else {
         return;
     };
-    let result = match crate::tray::tray_usage_source(&AppType::Codex, &current) {
-        Some(crate::tray::TrayUsageSource::ManagedCodex(account_id)) => {
-            let Some(oauth) = app.try_state::<crate::commands::CodexOAuthState>() else {
-                return;
-            };
-            crate::commands::get_codex_oauth_quota(
-                app.clone(),
-                state,
-                Some(account_id),
-                oauth,
-                Some(false),
-            )
-            .await
-            .map(|_| ())
-        }
-        Some(crate::tray::TrayUsageSource::Script)
-            if crate::codex_config::is_codex_official_provider(&current)
-                && crate::tray::provider_uses_official_subscription(&current) =>
-        {
-            if crate::services::subscription::native_codex_file_scope().is_none() {
-                return;
-            }
-            crate::commands::get_subscription_quota(app.clone(), state, "codex".into(), Some(false))
-                .await
-                .map(|_| ())
-        }
-        _ => return,
+    let Some(oauth) = app.try_state::<crate::commands::CodexOAuthState>() else {
+        return;
     };
+    let result = crate::commands::get_codex_oauth_quota(
+        app.clone(),
+        state,
+        Some(account_id),
+        oauth,
+        Some(false),
+    )
+    .await
+    .map(|_| ());
     if let Err(error) = result {
         log::debug!("[TrayQuota] quota refresh failed: {error}");
     }
@@ -397,7 +360,15 @@ mod tests {
     }
 
     fn read(cache: &UsageCache, id: &str, now: i64) -> TrayQuotaSnapshot {
-        project(cache.codex_oauth_entry(id).as_ref(), Some(id.into()), now)
+        selection_snapshot(
+            Some(&crate::mode::current::CodexActiveSelection::Account {
+                account_id: id.into(),
+            }),
+            Some(id.into()),
+            cache,
+            now,
+            60,
+        )
     }
 
     #[test]
@@ -475,6 +446,50 @@ mod tests {
                 .tiers[0]
                 .utilization,
             99.0
+        );
+    }
+
+    #[test]
+    fn api_selection_disconnected_and_deleted_identity_never_show_account_quota() {
+        use crate::mode::current::CodexActiveSelection;
+        let cache = UsageCache::new();
+        cache.put_codex_oauth("same-id".into(), quota(25.0, NOW));
+        let api = CodexActiveSelection::Provider {
+            provider_id: "same-id".into(),
+        };
+        let account = CodexActiveSelection::Account {
+            account_id: "same-id".into(),
+        };
+        let provider_view = selection_snapshot(Some(&api), Some("API".into()), &cache, NOW, 60);
+        assert_eq!(provider_view.status, TrayQuotaStatus::Unsupported);
+        assert!(provider_view.five_hour.is_none());
+        let deleted_view = selection_snapshot(Some(&account), None, &cache, NOW, 60);
+        assert_eq!(deleted_view.status, TrayQuotaStatus::Unavailable);
+        assert!(deleted_view.five_hour.is_none());
+        let disconnected = selection_snapshot(None, None, &cache, NOW, 60);
+        assert_eq!(disconnected.status, TrayQuotaStatus::Unavailable);
+        assert!(disconnected.five_hour.is_none());
+        assert_eq!(
+            read(&cache, "same-id", NOW).five_hour.unwrap().remaining,
+            75.0
+        );
+    }
+
+    #[test]
+    fn removed_account_quota_cannot_return_from_in_flight_query() {
+        let cache = UsageCache::new();
+        let generation = cache.codex_oauth_generation("removed");
+        assert!(cache.finish_codex_oauth_query("removed", generation, &Ok(quota(25.0, NOW))));
+        cache.put_codex_oauth("other".into(), quota(90.0, NOW));
+        cache.invalidate_codex_oauth("removed");
+        assert!(!cache.finish_codex_oauth_query("removed", generation, &Ok(quota(1.0, NOW + 1))));
+        let removed = read(&cache, "removed", NOW + 1);
+        assert_eq!(removed.status, TrayQuotaStatus::Unavailable);
+        assert!(removed.five_hour.is_none());
+        assert!(removed.updated_at.is_none());
+        assert_eq!(
+            read(&cache, "other", NOW + 1).five_hour.unwrap().remaining,
+            10.0
         );
     }
 

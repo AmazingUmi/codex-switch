@@ -25,6 +25,7 @@ import {
 } from "@/lib/api";
 import { checkEnvConflicts } from "@/lib/api/env";
 import { useProviderActions } from "@/hooks/useProviderActions";
+import { useCodexActiveSelectionQuery } from "@/lib/query/queries";
 import { useCodexAccountSwitch } from "@/hooks/useCodexAccountSwitch";
 import type { ProviderEditorSave } from "@/lib/api/providers";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
@@ -44,7 +45,6 @@ import { CodexSwitchMark } from "@/components/branding/CodexSwitchMark";
 import { CodexAccountsPanel } from "@/components/codex/CodexAccountsPanel";
 import { CodexNavigation } from "@/components/codex/CodexNavigation";
 import { ApiKeyConnectionsSection } from "@/components/codex/ApiKeyConnectionsSection";
-import { AddCodexConnectionDialog } from "@/components/codex/AddCodexConnectionDialog";
 import { AddProviderDialog } from "@/components/providers/AddProviderDialog";
 import { EditProviderDialog } from "@/components/providers/EditProviderDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -120,8 +120,6 @@ function App() {
   }, [setCurrentView]);
   useNativeSettingsNavigation(openSettings);
   const [isAddOpen, setIsAddOpen] = useState(false);
-  const [isAddChoiceOpen, setIsAddChoiceOpen] = useState(false);
-  const startAccountLoginRef = useRef<(() => void) | null>(null);
   const [homeTab, setHomeTab] = useState<"accounts" | "usage">("accounts");
   const {
     switchAccount,
@@ -197,7 +195,18 @@ function App() {
     refetch,
   } = useProvidersQuery(activeApp);
   const providers = useMemo(() => data?.providers ?? {}, [data]);
-  const currentProviderId = data?.currentProviderId ?? "";
+  const {
+    data: activeSelection,
+    isLoading: isSelectionLoading,
+    isError: hasSelectionError,
+    error: selectionError,
+  } = useCodexActiveSelectionQuery();
+  const currentProviderId =
+    !isCurrentUncertain &&
+    !hasSelectionError &&
+    activeSelection?.kind === "provider"
+      ? activeSelection.providerId
+      : "";
   const {
     addProvider,
     updateProvider,
@@ -215,6 +224,12 @@ function App() {
           async (event: ProviderSwitchEvent) => {
             if (!isProductApp(event.appType)) return;
             if (event.appType === activeApp) {
+              await queryClient.invalidateQueries({
+                queryKey: ["codex-active-selection"],
+              });
+              await queryClient.invalidateQueries({
+                queryKey: ["managed-auth-status", "codex_oauth"],
+              });
               await refetch();
             }
           },
@@ -611,13 +626,11 @@ function App() {
 
   const configurationContent = (
     <ApiKeyConnectionsSection
-      providers={Object.fromEntries(
-        Object.entries(providers).filter(
-          ([, provider]) => !provider.meta?.codexAccountManaged,
-        ),
-      )}
+      providers={providers}
       currentProviderId={currentProviderId}
       isLoading={isLoading}
+      isError={hasProvidersError}
+      onRetry={() => void refetch()}
       onSwitch={switchProvider}
       onEdit={setEditingProvider}
       onDelete={(provider) => setConfirmAction({ provider })}
@@ -629,17 +642,22 @@ function App() {
   );
 
   const accountPanelProps = {
-    providers: Object.values(providers),
-    currentProviderId: isCurrentUncertain ? "" : currentProviderId,
+    currentAccountId:
+      !isCurrentUncertain &&
+      !hasSelectionError &&
+      activeSelection?.kind === "account"
+        ? activeSelection.accountId
+        : null,
     isSwitching: isAccountSwitching,
-    isLoadingProviders: isLoading,
-    isProvidersError: hasProvidersError,
+    isLoadingSelection: isSelectionLoading,
+    isSelectionError: hasSelectionError,
+    canReconfirmSelection:
+      hasSelectionError &&
+      extractErrorMessage(selectionError).includes(
+        "codex_account_switch_uncertain",
+      ),
     onSwitchAccount: switchAccount,
     showLogoutAll: true,
-    onAddAccount: (startLogin: () => void) => {
-      startAccountLoginRef.current = startLogin;
-      setIsAddChoiceOpen(true);
-    },
   };
 
   const renderContent = () => {
@@ -851,18 +869,6 @@ function App() {
         {renderContent()}
       </main>
 
-      <AddCodexConnectionDialog
-        open={isAddChoiceOpen}
-        onOpenChange={setIsAddChoiceOpen}
-        onLogin={() => {
-          setIsAddChoiceOpen(false);
-          startAccountLoginRef.current?.();
-        }}
-        onAddApiKey={() => {
-          setIsAddChoiceOpen(false);
-          setIsAddOpen(true);
-        }}
-      />
       <AddProviderDialog
         open={isAddOpen}
         onOpenChange={setIsAddOpen}
@@ -885,23 +891,12 @@ function App() {
           }
         }}
         onSubmit={handleEditProvider}
-        onDelete={(provider) => {
-          if (provider.id !== currentProviderId) setConfirmAction({ provider });
-        }}
-        deleteDisabledReason={
-          editingProvider?.id === currentProviderId
-            ? t(
-                "provider.deleteCurrentDisabled",
-                "当前使用的连接无法删除，请先切换到其他连接。",
-              )
-            : undefined
-        }
+        onDelete={(provider) => setConfirmAction({ provider })}
         deleteConfirmation={
           confirmAction && confirmAction.provider.id === editingProvider?.id
             ? {
                 message: confirmActionMessage,
                 onConfirm: async () => {
-                  if (confirmAction.provider.id === currentProviderId) return;
                   await handleConfirmAction();
                   setEditingProvider(null);
                 },

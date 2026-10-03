@@ -11,8 +11,8 @@ The first release channel is a macOS Pre-release in `AmazingUmi/codex-switch`: A
    ```sh
    git switch main
    git pull --ff-only origin main
-   git tag -a v0.0.2 -m 'Codex Switch v0.0.2'
-   git push origin v0.0.2
+   git tag -a v0.0.3 -m 'Codex Switch v0.0.3'
+   git push origin v0.0.3
    ```
 
 4. The **macOS Pre-release** workflow builds a production release DMG and creates a **draft Pre-release** with the DMG, `LICENSE`, `RELEASE_MANIFEST.json` and `SHA256SUMS`. Its Actions artifact also includes generated release notes. Download and inspect the DMG, test launching/installing it, and check account switching, OAuth and quota display before publishing the draft.

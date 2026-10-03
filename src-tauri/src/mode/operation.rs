@@ -275,9 +275,18 @@ pub fn recover(
     }
     failpoint::hit("recover:target")?;
     commit_target(&pending.target)?;
-    // 发布过的临时文件已经换进去了；剩下的（被外部改过、内容不对）不再有用。
+    // Publish uncertainty and clear the journal together: a crash must never expose
+    // a confirmed selection after only some credential files were recovered.
+    state::update(store, |live| {
+        let entry = live.apps.entry(guard.app().into()).or_default();
+        if guard.app() == "codex" && !skipped.is_empty() {
+            entry
+                .extra
+                .insert("selectionUncertain".into(), serde_json::Value::Bool(true));
+        }
+        entry.pending = None;
+    })?;
     discard_pending_files(&pending);
-    state::set_pending(store, guard.app(), None)?;
     if skipped.is_empty() {
         log::info!("[{}] 已补完上次未完成的操作 {}", guard.app(), pending.op);
         return Ok(Some(RecoveryOutcome::RolledForward));
@@ -416,10 +425,39 @@ pub fn commit_target(
         crate::settings::set_current_provider(&app_type, Some(id))?;
         db.set_current_provider(app, id)?;
     }
+    if app == "codex" {
+        if let Some(id) = target
+            .extra
+            .get("deletedProvider")
+            .and_then(serde_json::Value::as_str)
+        {
+            db.delete_provider(app, id)?;
+        }
+    }
     // 模式和写入记录在同一次状态文件写入里落定。
-    if target.state.is_some() || target.written.is_some() {
+    if target.state.is_some()
+        || target.written.is_some()
+        || !target.extra.is_empty()
+        || (app == "codex" && (target.pointer.is_some() || target.clear_pointer))
+    {
         state::update(store, |live| {
             let entry = live.apps.entry(app.to_string()).or_default();
+            if app == "codex" && (target.pointer.is_some() || target.clear_pointer) {
+                let selected = target
+                    .pointer
+                    .as_ref()
+                    .filter(|_| !target.clear_pointer)
+                    .map(|id| super::current::CodexActiveSelection::Provider {
+                        provider_id: id.clone(),
+                    });
+                entry.extra.insert(
+                    "activeSelection".into(),
+                    serde_json::to_value(selected).expect("selection serializes"),
+                );
+                entry.extra.remove("selectionUncertain");
+            }
+            entry.extra.extend(target.extra.clone());
+            entry.extra.remove("deletedProvider");
             if let Some(mode) = &target.state {
                 entry.set_mode_state(mode.clone());
             }
@@ -1002,6 +1040,24 @@ mod tests {
         assert_eq!(fx.read(&fx.a), json!({"user": 1, "key": "new"}));
         assert_eq!(fx.read(&fx.b), json!({"key": "old"}));
         assert_eq!(*pointer.borrow(), Some("B".into()));
+    }
+
+    #[test]
+    fn partial_codex_recovery_atomically_marks_selection_uncertain() {
+        let mut fx = Fixture::new();
+        fx.app = "codex".into();
+        let pointer = RefCell::new(None);
+        failpoint::crash_at(Some("published:0"));
+        switch(&fx, &pointer).expect_err("crash");
+        fs::write(&fx.b, "{\"key\": \"external\"}").unwrap();
+        assert!(matches!(
+            recover_now(&fx, &pointer),
+            Some(RecoveryOutcome::RolledForwardExcept { .. })
+        ));
+        let live = state::load(&fx.store).unwrap();
+        let app = live.apps.get("codex").unwrap();
+        assert!(app.pending.is_none());
+        assert_eq!(app.extra.get("selectionUncertain"), Some(&json!(true)));
     }
 
     #[test]

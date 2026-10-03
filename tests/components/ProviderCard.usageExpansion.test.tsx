@@ -1,6 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { ProviderCard } from "@/components/providers/ProviderCard";
 import type { TemplateType } from "@/config/constants";
@@ -72,7 +71,9 @@ describe("ProviderCard cached usage expansion", () => {
   it("keeps official subscription quota inline despite cached script tiers", () => {
     renderCard({ official: true, templateType: "official_subscription" });
 
-    expect(screen.getByText("official-subscription-quota")).toBeInTheDocument();
+    expect(
+      screen.queryByText("official-subscription-quota"),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("expanded-plan-details")).not.toBeInTheDocument();
     expect(screen.queryByTitle("收起")).not.toBeInTheDocument();
     expect(screen.queryByTitle("展开")).not.toBeInTheDocument();
@@ -91,13 +92,10 @@ describe("ProviderCard cached usage expansion", () => {
     expect(screen.queryByTitle("展开")).not.toBeInTheDocument();
   });
 
-  it("still expands ordinary multi-plan usage and allows collapsing it", async () => {
-    const user = userEvent.setup();
+  it("does not display cached subscription tiers on an API connection", () => {
     renderCard();
-
-    expect(screen.getByText("expanded-plan-details")).toBeInTheDocument();
-    await user.click(screen.getByTitle("收起"));
     expect(screen.queryByText("expanded-plan-details")).not.toBeInTheDocument();
-    expect(screen.getByTitle("展开")).toBeInTheDocument();
+    expect(screen.queryByTitle("收起")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("展开")).not.toBeInTheDocument();
   });
 });

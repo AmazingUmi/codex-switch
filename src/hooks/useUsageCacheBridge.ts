@@ -1,4 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
+import type { ManagedAuthStatus } from "@/lib/api/auth";
+import type { ProvidersQueryData } from "@/lib/query/queries";
 import type { AppId } from "@/lib/api/types";
 import type { UsageResult } from "@/types";
 import type { SubscriptionQuota } from "@/types/subscription";
@@ -34,6 +36,14 @@ export function useUsageCacheBridge() {
 
   useTauriEvent<UsageCacheUpdatedPayload>("usage-cache-updated", (payload) => {
     if (payload.kind === "codexOauth") {
+      // An event may have been queued before credentials were removed. Account
+      // membership outlives the quota query, so it also guards an empty cache.
+      const status = queryClient.getQueryData<ManagedAuthStatus>([
+        "managed-auth-status",
+        "codex_oauth",
+      ]);
+      if (!status?.accounts.some((account) => account.id === payload.accountId))
+        return;
       queryClient.setQueryData<SubscriptionQuota>(
         ["codex_oauth", "quota", payload.accountId],
         (previous) => {
@@ -52,11 +62,19 @@ export function useUsageCacheBridge() {
         },
       );
     } else if (payload.kind === "script") {
+      if (payload.appType === "codex") {
+        const providers = queryClient.getQueryData<ProvidersQueryData>([
+          "providers",
+          "codex",
+        ]);
+        if (!providers?.providers[payload.providerId]) return;
+      }
       queryClient.setQueryData<UsageResult>(
         usageKeys.script(payload.providerId, payload.appType),
         payload.data,
       );
     } else if (payload.kind === "subscription") {
+      if (payload.appType === "codex") return;
       queryClient.setQueryData<SubscriptionQuota>(
         subscriptionKeys.quota(payload.appType),
         payload.data,

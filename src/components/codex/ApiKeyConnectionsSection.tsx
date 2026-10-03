@@ -15,6 +15,8 @@ export interface ApiKeyConnectionsSectionProps {
   providers: Record<string, Provider>;
   currentProviderId: string;
   isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: () => void;
   onSwitch: (provider: Provider) => void;
   onEdit: (provider: Provider) => void;
   onDelete: (provider: Provider) => void;
@@ -26,6 +28,8 @@ export interface ApiKeyConnectionsSectionProps {
 
 export function ApiKeyConnectionsSection({
   onAddApiKey,
+  isError,
+  onRetry,
   ...listProps
 }: ApiKeyConnectionsSectionProps) {
   const { t } = useTranslation();
@@ -69,7 +73,7 @@ export function ApiKeyConnectionsSection({
               <p>
                 {t(
                   "codexAccounts.configurationsDescription",
-                  "在这里管理 API Key 连接和已保存的高级配置。ChatGPT 订阅额度显示在对应账号卡片中。",
+                  "在这里添加和管理 API Key 连接，查看 API 余额。",
                 )}
               </p>
               <Button
@@ -116,7 +120,29 @@ export function ApiKeyConnectionsSection({
         appId="codex"
         emptyState={
           <div className="flex min-h-[88px] items-center justify-center rounded-lg border border-dashed border-border px-4 text-sm text-muted-foreground">
-            {t("codexAccounts.noApiKeys", "暂无 API Key")}
+            {isError ? (
+              <div
+                className="flex flex-wrap items-center justify-center gap-2"
+                role="alert"
+              >
+                <span>
+                  {t(
+                    "codexAccounts.connectionLoadFailed",
+                    "无法读取连接，请刷新后重试。",
+                  )}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onRetry}
+                >
+                  {t("common.retry", "重试")}
+                </Button>
+              </div>
+            ) : (
+              t("codexAccounts.noApiKeys", "暂无 API Key")
+            )}
           </div>
         }
       />

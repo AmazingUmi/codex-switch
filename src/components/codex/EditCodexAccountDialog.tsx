@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Briefcase,
@@ -66,7 +66,6 @@ export function EditCodexAccountDialog({
   onReauthenticate,
   onSetDefault,
   onRemove,
-  accountOptions,
 }: {
   account: ManagedAuthAccount;
   onClose: () => void;
@@ -78,7 +77,6 @@ export function EditCodexAccountDialog({
   onReauthenticate?: () => void;
   onSetDefault?: () => void;
   onRemove?: () => void;
-  accountOptions?: ReactNode;
   onSave: (
     accountId: string,
     appearance: CodexAccountAppearance,
@@ -215,15 +213,6 @@ export function EditCodexAccountDialog({
                 className="h-9 w-12 cursor-pointer rounded-md border bg-background p-1 disabled:opacity-50"
               />
             </div>
-            {accountOptions && (
-              <fieldset
-                disabled={
-                  saving || isRemoving || isSettingDefault || isReauthenticating
-                }
-              >
-                {accountOptions}
-              </fieldset>
-            )}
             <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-4">
               {onReauthenticate && (
                 <Button
@@ -287,7 +276,7 @@ export function EditCodexAccountDialog({
                 <p>
                   {t(
                     "codexAccounts.directSwitchHelp",
-                    "登录后的 ChatGPT 账号可以直接切换。默认账号仅供高级托管配置使用，与当前使用的账号无关。",
+                    "登录后的 ChatGPT 账号可以直接切换，并独立查询订阅额度。",
                   )}
                 </p>
                 <p>

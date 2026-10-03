@@ -1,5 +1,4 @@
 import { FullScreenPanel } from "@/components/common/FullScreenPanel";
-import { AuthSettingsPanel } from "@/components/providers/AuthSettingsPanel";
 import { useLiveEditConflict } from "@/components/providers/LiveEditConflictDialog";
 import {
   ProviderForm,
@@ -7,7 +6,7 @@ import {
 } from "@/components/providers/forms/ProviderForm";
 import { toastEditorViewFailed } from "@/components/providers/forms/hooks/useDraftEditorProjection";
 import { Button } from "@/components/ui/button";
-import { providersApi, type AppId, type ManagedAuthProvider } from "@/lib/api";
+import { providersApi, type AppId } from "@/lib/api";
 import type {
   EditorConflictPolicy,
   ProviderEditorSave,
@@ -61,11 +60,6 @@ function CodexEditProviderDialog({
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
   const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
   const deleteInFlight = useRef(false);
-  const [authSettingsTarget, setAuthSettingsTarget] =
-    useState<ManagedAuthProvider | null>(null);
-  useEffect(() => {
-    setAuthSettingsTarget(null);
-  }, [appId, open, provider?.id]);
   const formReadyToken = useMemo(
     () => Symbol("provider-form-ready"),
     [appId, open, provider?.id],
@@ -97,7 +91,6 @@ function CodexEditProviderDialog({
   const [editorView, setEditorView] = useState<ProviderEditorView | null>(null);
   const { submitWithConflictRetry, conflictDialog } = useLiveEditConflict();
   const closeDialog = useCallback(() => {
-    setAuthSettingsTarget(null);
     onOpenChange(false);
   }, [onOpenChange]);
   const handlePanelClose = useCallback(() => {
@@ -106,12 +99,8 @@ function CodexEditProviderDialog({
       deleteConfirmation.onCancel();
       return;
     }
-    if (authSettingsTarget) {
-      setAuthSettingsTarget(null);
-      return;
-    }
     closeDialog();
-  }, [authSettingsTarget, closeDialog, deleteConfirmation]);
+  }, [closeDialog, deleteConfirmation]);
   const handleConfirmDelete = async () => {
     if (
       !deleteConfirmation ||
@@ -351,7 +340,6 @@ function CodexEditProviderDialog({
           submitLabel={t("common.save")}
           onSubmit={handleSubmit}
           onCancel={closeDialog}
-          onManageAuthAccounts={setAuthSettingsTarget}
           onSubmittingChange={setIsFormSubmitting}
           onSubmitReadyChange={handleSubmitReadyChange}
           initialData={initialData}
@@ -361,10 +349,6 @@ function CodexEditProviderDialog({
         />
       )}
       {conflictDialog}
-      <AuthSettingsPanel
-        target={authSettingsTarget}
-        onClose={() => setAuthSettingsTarget(null)}
-      />
     </FullScreenPanel>
   );
 }

@@ -882,22 +882,13 @@ mod ensure_official_seed_tests {
     }
 
     #[test]
-    fn ensure_recreates_codex_official_seed_after_deletion() {
+    fn codex_account_seed_cannot_be_recreated() {
         let db = Database::memory().expect("memory db");
         db.init_default_official_providers().expect("seed");
-        db.delete_provider(AppType::Codex.as_str(), CODEX_OFFICIAL_PROVIDER_ID)
-            .expect("delete Codex official");
-
-        let inserted = db
+        assert!(db.get_all_providers("codex").unwrap().is_empty());
+        assert!(db
             .ensure_official_seed_by_id(CODEX_OFFICIAL_PROVIDER_ID, AppType::Codex)
-            .expect("ensure Codex official");
-        assert!(inserted);
-        let provider = db
-            .get_provider_by_id(CODEX_OFFICIAL_PROVIDER_ID, AppType::Codex.as_str())
-            .expect("query")
-            .expect("Codex official restored");
-        assert_eq!(provider.category.as_deref(), Some("official"));
-        assert_eq!(provider.settings_config["auth"], serde_json::json!({}));
+            .is_err());
     }
 
     #[test]
