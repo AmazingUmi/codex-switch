@@ -2,6 +2,50 @@
 
 Read [README.md](../README.md) for setup and preview packaging.
 
+## Branches and pull requests
+
+`main` is the integration branch. Start each task from the latest `origin/main`
+and use a short-lived `codex/<task>` branch:
+
+```sh
+git switch main
+git pull --ff-only origin main
+git switch -c codex/my-task
+```
+
+Push the task branch to `origin`, open a PR targeting `main`, and squash merge
+after `CI Required` passes and review conversations are resolved. `main`
+requires an up-to-date PR, including for administrators; another person's
+approval is optional. Force pushes and deletion of `main` are disabled. GitHub
+automatically deletes merged task branches. Existing merge history is retained.
+
+`CI Required` verifies changed-area detection and all relevant frontend, backend
+and Windows/WSL2 jobs. A job may be skipped only when its area was unchanged in
+a PR; pushes to `main` must pass every job.
+
+Configure each local clone to push to this fork and keep pulls predictable:
+
+```sh
+git config --local remote.pushDefault origin
+git config --local push.default simple
+git config --local pull.ff only
+git config --local fetch.prune true
+```
+
+After merging, return to `main`, pull, and remove the local task branch after
+confirming its PR was merged and there is no unmerged work. Squash merges do not
+preserve task commit ancestry, so `git branch --merged` alone cannot identify all
+completed branches. `git fetch --prune origin` removes stale remote-tracking refs.
+
+Keep `upstream` as a reference source. Evaluate upstream fixes on a new task
+branch and cherry-pick selected commits with `git cherry-pick -x`; validate them
+against this fork's product and authentication boundaries. Preserve
+`upstream-baseline-2026-09-30` as the original fork point.
+
+Publish versions with `v*` tags on checked commits in `main`, following
+[Releasing](RELEASING.md). Keep public tags fixed. Add `release/*` branches only
+when multiple released versions need concurrent maintenance.
+
 ## Source boundaries
 
 - `src/App.tsx` composes Codex Home and Settings. `src/config/productShell.ts`

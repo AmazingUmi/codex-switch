@@ -251,3 +251,47 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
+
+  required:
+    name: CI Required
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    needs: [changes, frontend, backend, backend-windows-wsl2]
+    permissions: {}
+    steps:
+      - name: Verify required job results
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          FRONTEND_CHANGED: ${{ needs.changes.outputs.frontend }}
+          BACKEND_CHANGED: ${{ needs.changes.outputs.backend }}
+          FRONTEND_RESULT: ${{ needs.frontend.result }}
+          BACKEND_RESULT: ${{ needs.backend.result }}
+          WSL_RESULT: ${{ needs.backend-windows-wsl2.result }}
+        run: |
+          require_result() {
+            if [[ "$2" != "$3" ]]; then
+              echo "::error::$1 finished with $2; expected $3"
+              exit 1
+            fi
+          }
+
+          require_result "Changed-area detection" "$CHANGES_RESULT" success
+          case "$FRONTEND_CHANGED/$BACKEND_CHANGED" in
+            true/true|true/false|false/true|false/false) ;;
+            *) echo "::error::Missing or invalid changed-area outputs"; exit 1 ;;
+          esac
+
+          frontend_expected=skipped
+          backend_expected=skipped
+          if [[ "$EVENT_NAME" != pull_request || "$FRONTEND_CHANGED" == true ]]; then
+            frontend_expected=success
+          fi
+          if [[ "$EVENT_NAME" != pull_request || "$BACKEND_CHANGED" == true ]]; then
+            backend_expected=success
+          fi
+
+          require_result Frontend "$FRONTEND_RESULT" "$frontend_expected"
+          require_result Backend "$BACKEND_RESULT" "$backend_expected"
+          require_result "Windows + WSL2" "$WSL_RESULT" "$backend_expected"
