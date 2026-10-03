@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "CC Switch",
-    "description": "All-in-One Assistant for Claude Code, Codex & Gemini CLI"
+    "title": "Codex Switch",
+    "description": "Account management and usage monitoring for OpenAI Codex and ChatGPT Codex"
   },
   "common": {
     "add": "Add",
@@ -46,9 +46,9 @@
     "collapse": "Collapse"
   },
   "firstRunNotice": {
-    "title": "Welcome to CC Switch",
-    "bodyDefault": "CC Switch lets you switch between multiple Claude Code / Codex / Gemini CLI providers with a single click. If you already had these tools configured, CC Switch has saved your existing setup as a provider named “default” so none of your previous configuration is lost.",
-    "bodyOfficial": "An “Official” preset is also included in the list — click it any time you want to switch back to the official default. CC Switch automatically backs up your current config to “default” before switching, so you can move back and forth freely. That's how CC Switch works 😊",
+    "title": "Welcome to Codex Switch",
+    "bodyDefault": "Manage your ChatGPT accounts, switch the current Codex account, and monitor each account’s quota. Existing Codex configuration is retained by the current provider workflow.",
+    "bodyOfficial": "Add or reauthenticate ChatGPT accounts in Settings → Auth. The default OAuth account and the currently active Codex account are managed separately.",
     "confirm": "Got it"
   },
   "apiKeyInput": {
@@ -88,6 +88,8 @@
     "windowClose": "Close window"
   },
   "provider": {
+    "switchConnection": "Switch to this connection",
+    "deleteCurrentDisabled": "The current connection cannot be deleted. Switch to another connection first.",
     "connectivityCheck": "Connectivity check",
     "tabProvider": "Provider",
     "tabUniversal": "Universal",
@@ -100,11 +102,7 @@
     "currentlyUsing": "Currently Using",
     "enable": "Enable",
     "inUse": "In Use",
-    "needsRouting": "Needs Routing",
-    "directProvider": "Direct",
-    "directProviderHint": "Leaving routing mode switches back to this provider",
     "noRoutingSupport": "No Routing Support",
-    "blockedByProxyHint": "Can't switch to an official provider while proxy takeover is active",
     "editProvider": "Edit Provider",
     "editProviderHint": "Configuration will be applied to the current provider immediately after update.",
     "deleteProvider": "Delete Provider",
@@ -143,7 +141,7 @@
     "terminalOpened": "Terminal opened",
     "terminalOpenFailed": "Failed to open terminal",
     "name": "Provider Name",
-    "namePlaceholder": "e.g., Claude Official",
+    "namePlaceholder": "e.g., OpenAI Official",
     "websiteUrl": "Website URL",
     "notes": "Notes",
     "notesPlaceholder": "e.g., Company dedicated account",
@@ -170,7 +168,8 @@
       "message": "After the editor opened, the settings below were changed by another program (such as Claude Code). Overwrite them with your edits, or keep the external changes? Your other edits are saved either way.",
       "keepTheirs": "Keep external changes",
       "keepMine": "Overwrite with my edits"
-    }
+    },
+    "unsupportedDirect": "Unsupported direct connection"
   },
   "claudeCode": {
     "needsRouting": "Needs Routing",
@@ -201,7 +200,7 @@
     "modeProxy": "Requires routing",
     "modelMappingToggle": "Needs model mapping",
     "modelMappingOffHint": "Direct mode works only when the provider accepts Claude Desktop's three role IDs (claude-sonnet-* / claude-opus-* / claude-haiku-*); for any other model name (including legacy IDs like claude-3-5-sonnet-…), select Model Mapping.",
-    "modelMappingOnHint": "Claude Desktop only accepts the three role IDs claude-sonnet-* / claude-opus-* / claude-haiku-*. In Model Mapping mode, CC Switch maps these roles to your provider's actual models and keeps local routing running while in use.",
+    "modelMappingOnHint": "Claude Desktop only accepts the three role IDs claude-sonnet-* / claude-opus-* / claude-haiku-*. In Model Mapping mode, Codex Switch maps these roles to your provider's actual models and keeps local routing running while in use.",
     "routeMapTitle": "Model mapping",
     "routeMapHint": "Fill in the actual request model for each of the Sonnet, Opus, and Haiku tiers. Use the menu display name for branded models such as DeepSeek or Kimi. Any tier left blank inherits the Sonnet tier's model (or the first tier you filled in), so the Haiku that sub-agents call is always available.",
     "routeModelLabel": "Model role",
@@ -240,11 +239,10 @@
     "providerSaved": "Provider configuration saved",
     "providerDeleted": "Provider deleted successfully",
     "switchSuccess": "Switch successful!",
-    "codexRestartRequired": "Switched successfully. Restart the client to apply changes.",
+    "codexRestartRequired": "Account switched. Reopen a running Codex client if it still shows the previous account.",
     "geminiRestartRequired": "Switched successfully. Restart Gemini CLI to apply changes.",
     "grokBuildRestartRequired": "Switched successfully. Restart Grok Build to apply changes.",
     "claudeDesktopRestartRequired": "Switched successfully. Restart Claude Desktop to apply changes.",
-    "claudeDesktopProxyRestartRequired": "Switched successfully. Keep CC Switch running and restart Claude Desktop to apply changes.",
     "addToConfigSuccess": "Added to config",
     "removeFromConfigSuccess": "Removed from config",
     "removeFromConfigFailed": "Could not remove provider",
@@ -265,14 +263,6 @@
     "deleteFailed": "Failed to delete provider: {{error}}",
     "settingsSaved": "Settings saved",
     "settingsSaveFailed": "Failed to save settings: {{error}}",
-    "proxyRequiredForSwitch": "This provider {{reason}}, requires the routing service to work properly. Start routing first.",
-    "proxyReasonCopilot": "uses GitHub Copilot as a Claude provider",
-    "proxyReasonOpenAIChat": "uses OpenAI Chat API format",
-    "proxyReasonOpenAIResponses": "uses OpenAI Responses API format",
-    "proxyReasonAnthropicMessages": "uses Anthropic Messages API format",
-    "proxyReasonFullUrl": "has full URL connection mode enabled",
-    "proxyReasonManagedOAuth": "uses managed OAuth login (token injected by local routing)",
-    "proxyReasonRoutingRequired": "requires local routing to process requests",
     "openAIFormatHint": "This provider uses OpenAI-compatible format and requires the routing service to be enabled",
     "copilotProxyHint": "GitHub Copilot as a Claude provider always requires local routing; routing automatically selects Chat Completions or Responses based on the current model.",
     "openLinkFailed": "Failed to open link",
@@ -284,38 +274,14 @@
     "backfillWarning": "Switched successfully, but failed to save changes back to the previous provider",
     "codexAuthCleanupFailed": "Switched successfully, but auth.json could not be removed — the official login credentials are still on disk; delete auth.json from the Codex config directory to remove them",
     "windowControlFailed": "Window control failed: {{error}}",
-    "officialBlockedByProxy": "Cannot switch to official provider while local routing is active. Using routing with official APIs may cause account bans.",
-    "proxyOfficialWarning": "Current provider {{name}} is official. Consider switching to a third-party provider before using local routing.",
-    "proxyReasonClaudeDesktop": "Using Claude Desktop local routing mode"
+    "directConnectionRequired": "Only native Codex Responses connections and OpenAI official accounts can be activated. Edit this saved configuration before enabling it."
   },
   "confirm": {
     "deleteProvider": "Delete Provider",
     "deleteProviderMessage": "Are you sure you want to delete provider \"{{name}}\"? This action cannot be undone.",
     "removeProvider": "Remove Provider",
-    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in CC Switch. You can re-add it at any time.",
+    "removeProviderMessage": "Are you sure you want to remove provider \"{{name}}\" from the configuration?\n\nAfter removal, this provider will no longer be active, but the configuration data will be retained in Codex Switch. You can re-add it at any time.",
     "piDefaultProviderWarning": "Pi's global default currently points to this provider. If you continue, Pi will try another available model; use /model to choose one or /login to sign in to another provider.",
-    "proxy": {
-      "title": "Enable Local Routing",
-      "message": "Local routing is an advanced feature. Please make sure you understand how it works before enabling.\n\nWe recommend consulting the relevant documentation or your provider for proper configuration.",
-      "confirm": "I understand, enable"
-    },
-    "failover": {
-      "title": "Enable Failover",
-      "message": "Failover is an advanced feature. Please make sure you understand how it works before enabling.\n\nWe recommend configuring provider priorities in the failover queue first.",
-      "confirm": "I understand, enable"
-    },
-    "unifyCodexHistory": {
-      "title": "Unified Codex session history",
-      "message": "When enabled, the official subscription and third-party providers share one session history list. Note: resuming an old session across providers may fail because its encrypted_content reasoning cannot be decrypted by another backend.\n\nYou can also migrate your existing official session history into the shared list (originals are backed up to ~/.cc-switch/backups first and can be restored when you turn this off).",
-      "migrateExisting": "Also migrate existing official session history",
-      "confirm": "I understand, enable"
-    },
-    "unifyCodexHistoryOff": {
-      "title": "Turn off unified session history",
-      "message": "After turning this off, the official subscription and third-party providers return to separate history lists. Sessions created while it was on cannot be attributed to a provider, so they stay in the third-party history and the official subscription will not see them.",
-      "restoreBackup": "Restore the official sessions migrated at enable time back to the official history (exact restore from backup)",
-      "confirm": "Turn off"
-    },
     "usage": {
       "title": "Configure Usage Query",
       "message": "Usage query requires a custom script or API parameters. Please make sure you have obtained the necessary information from your provider.\n\nIf unsure how to configure, please consult your provider's documentation first.",
@@ -328,15 +294,15 @@
     }
   },
   "settings": {
+    "previewManualBuild": "Preview · manual builds",
+    "previewDataNotice": "Preview accounts and configuration remain isolated. Token usage reads the selected local session logs without changing them; statistics are stored in the preview database.",
     "title": "Settings",
     "general": "General",
     "tabGeneral": "General",
-    "tabAuth": "Auth",
     "tabAdvanced": "Advanced",
-    "tabProxy": "Routing",
     "authCenter": {
       "title": "OAuth Authentication Center",
-      "description": "Use your other subscriptions in Claude Code — please be mindful of compliance risks.",
+      "description": "Manage ChatGPT accounts for Codex CLI and Codex Desktop.",
       "beta": "Beta",
       "copilotDescription": "Manage GitHub Copilot accounts",
       "codexOauthDescription": "Manage ChatGPT accounts",
@@ -345,37 +311,15 @@
     "advanced": {
       "configDir": {
         "title": "Configuration Directory",
-        "description": "Manage storage paths for Claude, Codex and Gemini configurations"
-      },
-      "proxy": {
-        "title": "Local Routing",
-        "description": "Control routing service toggle, view status and port info",
-        "enableFeature": "Show Routing Toggle on Main Page",
-        "enableFeatureDescription": "When enabled, the routing and failover toggles will appear at the top of the main page",
-        "enableFailoverToggle": "Show Failover Toggle on Main Page",
-        "enableFailoverToggleDescription": "When enabled, the failover toggle will appear independently at the top of the main page",
-        "running": "Running",
-        "stopped": "Stopped"
-      },
-      "failover": {
-        "title": "Auto Failover",
-        "description": "Configure failover queue and circuit breaker strategy"
+        "description": "Manage storage paths for Codex configurations"
       },
       "pricing": {
         "title": "Cost Pricing",
         "description": "Manage token pricing rules for each model"
       },
-      "globalProxy": {
-        "title": "Global Outbound Proxy",
-        "description": "Configure proxy for CC Switch to access external APIs"
-      },
-      "data": {
-        "title": "Data Management",
-        "description": "Import and export local configuration data"
-      },
       "backup": {
         "title": "Backup & Restore",
-        "description": "Manage automatic backups, view and restore database snapshots"
+        "description": "Manage database backups, restore snapshots, and import or export SQL backups"
       },
       "cloudSync": {
         "title": "Cloud Sync",
@@ -410,7 +354,7 @@
         "title": "Application Diagnostic Logs",
         "description": "Control the output level for application diagnostic logs",
         "enabled": "Enable Diagnostic Logs",
-        "enabledDescription": "Controls cc-switch.log; request usage records and crash.log are unaffected",
+        "enabledDescription": "Controls codex-switch.log; request usage records and crash.log are unaffected",
         "level": "Log Level",
         "levelDescription": "Set the minimum log level to output",
         "levels": {
@@ -431,14 +375,39 @@
       }
     },
     "language": "Language",
-    "languageHint": "Preview interface language immediately after switching, takes effect permanently after saving.",
+    "languageHint": "Language changes are saved automatically.",
     "theme": "Theme",
+    "quotaBattery": {
+      "title": "Quota battery",
+      "warning": "Warning threshold",
+      "low": "Low quota threshold",
+      "help": "Drag the red handle below the battery to set low quota, and the amber handle above it to set the warning threshold. Red, amber and green bands show remaining quota ranges with soft boundaries. Arrow keys adjust by 1%, Shift+Arrow or Page Up/Down by 5%, and Home/End move to the allowed bounds. Release to save automatically.",
+      "invalid": "Enter percentages from 0 to 100, with the low threshold below the warning threshold.",
+      "lowShort": "Low quota",
+      "warningShort": "Warning",
+      "availableShort": "Available"
+    },
+    "tray": {
+      "title": "Menu bar",
+      "display": "Menu bar display",
+      "icon": "App icon",
+      "quotaRing": "Ring + remaining percentage",
+      "window": "Quota window",
+      "fiveHour": "5 hours",
+      "sevenDay": "Week",
+      "color": "Ring color",
+      "system": "System",
+      "quota": "Quota",
+      "hint": "Shows the current account’s remaining quota.",
+      "help": "Show the app icon, a compact remaining quota ring with percentage, or the ring alone. Choose the 5-hour or weekly window. If that window is unavailable, the other available window is shown. Hover for the displayed window, both quotas, account and update time. System colors follow the menu bar; quota colors use the warning thresholds. Unknown quota is shown as —. Changes save automatically.",
+      "quotaRingOnly": "Ring only"
+    },
     "themeHint": "Choose the appearance theme for the app, takes effect immediately.",
     "themeLight": "Light",
     "themeDark": "Dark",
     "themeSystem": "System",
     "importExport": "SQL Import/Export",
-    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by CC Switch).",
+    "importExportHint": "Import or export database SQL backups for migration or restore (import supports only backups exported by Codex Switch).",
     "exportConfig": "Export SQL Backup",
     "selectConfigFile": "Select SQL File",
     "noFileSelected": "No configuration file selected.",
@@ -528,7 +497,7 @@
         "synologyHint": "Install and enable the WebDAV Server package in Synology Package Center first.",
         "custom": "Custom"
       },
-      "remoteRootDefault": "Default: cc-switch-sync",
+      "remoteRootDefault": "Default: codex-switch-sync",
       "profileDefault": "Default: default",
       "saveAndTestSuccess": "Config saved, connection OK",
       "saveAndTestFailed": "Config saved, but connection test failed: {{error}}",
@@ -593,7 +562,7 @@
       "region": "Region",
       "regionPlaceholder": "e.g. us-east-1",
       "bucket": "Bucket",
-      "bucketPlaceholder": "e.g. my-cc-switch-bucket",
+      "bucketPlaceholder": "e.g. my-codex-switch-bucket",
       "accessKeyId": "Access Key ID",
       "accessKeyIdPlaceholder": "e.g. AKIA...",
       "secretAccessKey": "Secret Access Key",
@@ -602,7 +571,7 @@
       "endpointHint": "Required for most S3-compatible services",
       "endpointPlaceholder": "e.g. https://s3-compatible.example.com",
       "remoteRoot": "Remote Root Directory",
-      "remoteRootDefault": "Default: cc-switch-sync",
+      "remoteRootDefault": "Default: codex-switch-sync",
       "profile": "Sync Profile Name",
       "profileDefault": "Default: default",
       "autoSync": "Auto Sync",
@@ -674,29 +643,22 @@
     "languageOptionEnglish": "English",
     "languageOptionJapanese": "日本語",
     "windowBehavior": "Window Behavior",
+    "toggleOff": "Off",
+    "toggleOn": "On",
     "windowBehaviorHint": "Configure window minimize and Claude plugin integration policies.",
     "launchOnStartup": "Launch on Startup",
-    "launchOnStartupDescription": "Automatically run CC Switch when system starts",
+    "launchOnStartupDescription": "Automatically run Codex Switch when system starts",
     "silentStartup": "Silent Startup",
     "silentStartupDescription": "Start in background mode without showing main window",
     "autoLaunchFailed": "Failed to set auto-launch",
     "minimizeToTray": "Minimize to tray on close",
-    "minimizeToTrayDescription": "When checked, clicking the close button will hide to system tray, otherwise the app will exit directly.",
+    "minimizeToTrayDescription": "When on, the close button hides the app to the system tray. When off, it quits the app.",
     "useAppWindowControls": "Enable app-level window controls",
     "useAppWindowControlsDescription": "Use built-in minimize, maximize/restore, and close buttons in the app header.",
     "enableClaudePluginIntegration": "Apply to Claude Code extension",
     "enableClaudePluginIntegrationDescription": "When enabled, the VS Code Claude Code extension provider will switch with this app",
     "skipClaudeOnboarding": "Skip Claude Code first-run confirmation",
     "skipClaudeOnboardingDescription": "When enabled, Claude Code will skip the first-run confirmation",
-    "codexAuth": "Codex App Enhancements",
-    "preserveCodexOfficialAuthOnSwitch": "Keep official login for direct switches",
-    "preserveCodexOfficialAuthOnSwitchDescription": "Controls third-party switches when local routing is off. Takeover routing always preserves the Codex official login.",
-    "unifyCodexSessionHistory": "Unified Codex session history",
-    "unifyCodexSessionHistoryDescription": "When enabled, the official subscription runs under the shared \"custom\" provider id so official and third-party sessions appear in one history list, optionally migrating existing official sessions in (backed up first). When turning it off, the migrated sessions can be restored from backup. Note: resuming an old session across providers may fail because its encrypted_content reasoning can only be decrypted by the backend that created it.",
-    "unifyCodexHistoryRestoreCompleted": "Official session history restored from backup ({{files}} session files, {{rows}} index rows)",
-    "unifyCodexHistoryRestoreFailed": "Failed to restore official session history, please try again",
-    "unifyCodexHistoryRestoreNothing": "No restorable migration backup for the current Codex directory",
-    "unifyCodexHistoryRestoreSkippedToggleOn": "Unified session history was re-enabled; restore skipped",
     "appVisibility": {
       "title": "Homepage Display",
       "description": "Choose which apps to show on the homepage",
@@ -709,10 +671,10 @@
     },
     "skillStorage": {
       "title": "Skill Storage Location",
-      "description": "Choose where CC Switch stores the master copies of your skills",
-      "ccSwitch": "CC Switch",
+      "description": "Choose where Codex Switch stores the master copies of your skills",
+      "codexSwitch": "Codex Switch",
       "unified": "~/.agents/skills",
-      "ccSwitchHint": "Skills are stored in ~/.cc-switch/skills/ and synced to each app via symlink or copy.",
+      "codexSwitchHint": "Skills are stored in ~/.codex-switch/skills/ and synced to each app via symlink or copy.",
       "unifiedHint": "Skills are stored in ~/.agents/skills/, the Agent Skills open standard. Compatible tools (Claude Code, Codex, Gemini CLI, etc.) discover skills here natively.",
       "confirmTitle": "Migrate Skill Storage",
       "confirmMessage": "{{count}} skill(s) will be moved to the new location. Continue?",
@@ -759,9 +721,9 @@
     },
     "configDirectoryOverride": "Configuration Directory Override (Advanced)",
     "configDirectoryDescription": "When using Claude Code or Codex in environments like WSL, you can manually specify the configuration directory to the one in WSL to keep provider data consistent with the main environment.",
-    "appConfigDir": "CC Switch Configuration Directory",
-    "appConfigDirDescription": "Customize the storage location for CC Switch configuration (point to cloud sync folder to enable config sync)",
-    "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.cc-switch",
+    "appConfigDir": "Codex Switch Configuration Directory",
+    "appConfigDirDescription": "Choose where Codex Switch stores its app data.",
+    "browsePlaceholderApp": "e.g., C:\\Users\\Administrator\\.codex-switch",
     "claudeConfigDir": "Claude Code Configuration Directory",
     "claudeConfigDirDescription": "Override Claude configuration directory (settings.json). Custom directories store .claude.json (MCP) inside the directory; the default ~/.claude directory keeps Claude Code's split ~/.claude.json path.",
     "codexConfigDir": "Codex Configuration Directory",
@@ -793,7 +755,7 @@
     "updating": "Updating...",
     "checking": "Checking...",
     "upToDate": "Up to Date",
-    "aboutHint": "View version information and update status.",
+    "aboutHint": "Version information and Codex CLI installation.",
     "portableMode": "Portable mode: updates require manual download.",
     "updateAvailable": "New version available: {{version}}",
     "updateBadge": "Update available",
@@ -805,10 +767,16 @@
     "viewCurrentReleaseNotes": "View current version release notes",
     "officialWebsite": "Official Website",
     "github": "GitHub",
-    "starPrompt": "If CC Switch has helped you, please star us on GitHub — it means a lot to us",
+    "starPrompt": "If Codex Switch has helped you, please star us on GitHub — it means a lot to us",
     "manualInstallCommands": "Manual Install Commands",
-    "oneClickInstallHint": "Install or upgrade Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code",
+    "oneClickInstallHint": "Install or upgrade Codex CLI",
     "localEnvCheck": "Local environment check",
+    "desktopApp": "Desktop app",
+    "buildVersion": "Build",
+    "appVersionUnsupported": "Check not supported",
+    "appVersionUnavailable": "Could not read version",
+    "chatGptAppVersionHelp": "ChatGPT app version check",
+    "chatGptAppVersionHint": "Reads the installed ChatGPT app in /Applications or ~/Applications on macOS. Refresh checks the local version again. Use ChatGPT itself to check for updates.",
     "updateAllTools": "Update All ({{count}})",
     "currentVersion": "Current Version",
     "latestVersion": "Latest Version",
@@ -841,7 +809,7 @@
     "toolUpgradeConfirmBtn": "Confirm upgrade",
     "toolUpgradeUnanchoredHint": "Can't determine which install your command line uses; will run the default upgrade command (may install to the first npm on PATH).",
     "toolUpgradeUnmanagedTitle": "Skipped upgrading these tools",
-    "toolUpgradeUnmanagedDetail": "{{tool}} ({{path}}) wasn't installed by npm or a recognized installer, so CC Switch can't tell how to upgrade it. Upgrade it the way you installed it (e.g. winget, Scoop, or re-running the official install script).",
+    "toolUpgradeUnmanagedDetail": "{{tool}} ({{path}}) wasn't installed by npm or a recognized installer, so Codex Switch can't tell how to upgrade it. Upgrade it the way you installed it (e.g. winget, Scoop, or re-running the official install script).",
     "envBadge": {
       "wsl": "WSL",
       "windows": "Win",
@@ -855,25 +823,13 @@
     "importFailedError": "Import config failed: {{message}}",
     "exportFailedError": "Export config failed:",
     "restartRequired": "Restart Required",
-    "restartRequiredMessage": "Modifying the CC Switch configuration directory requires restarting the application to take effect. Restart now?",
+    "restartRequiredMessage": "Modifying the Codex Switch configuration directory requires restarting the application to take effect. Restart now?",
     "restartNow": "Restart Now",
     "restartLater": "Restart Later",
     "restartFailed": "Application restart failed, please manually close and reopen.",
     "devModeRestartHint": "Dev Mode: Automatic restart not supported, please manually restart the application.",
     "saving": "Saving...",
     "globalProxy": {
-      "label": "Global Proxy",
-      "hint": "Proxy all requests (API, Skills download, etc.). When local routing is enabled, app traffic is also routed through this proxy. Leave empty for direct connection.",
-      "username": "Username (optional)",
-      "password": "Password (optional)",
-      "test": "Test Connection",
-      "scan": "Scan Local Proxies",
-      "clear": "Clear",
-      "scanFailed": "Scan failed: {{error}}",
-      "saved": "Proxy settings saved",
-      "saveFailed": "Save failed: {{error}}",
-      "testSuccess": "Connected! Latency {{latency}}ms",
-      "testFailed": "Connection failed: {{error}}",
       "pricingDefaultsTitle": "Pricing Defaults",
       "pricingDefaultsDescription": "Choose whether each app matches pricing by the request model or the response model. Only applies to requests that go through local routing.",
       "pricingAppLabel": "App",
@@ -885,7 +841,19 @@
       "pricingSaveFailed": "Failed to save pricing defaults: {{error}}",
       "pricingLoadFailed": "Failed to load pricing defaults: {{error}}"
     },
-    "saveFailedGeneric": "Save failed, please try again"
+    "saveFailedGeneric": "Save failed, please try again",
+    "localBuildHint": "Codex Switch is distributed as a local build. App updates are managed outside the app.",
+    "quotaRefresh": {
+      "title": "Quota refresh",
+      "off": "Off",
+      "custom": "Custom",
+      "seconds": "{{count}} sec",
+      "minutes": "{{count}} min",
+      "secondsUnit": "seconds",
+      "secondsUnitShort": "s",
+      "invalid": "Enter a whole number from 30 to 3600 seconds.",
+      "help": "Home and the menu bar share this interval and one request per account. The current account refreshes in the background; other accounts refresh while Home is visible. Off stops automatic refresh; manual refresh remains available."
+    }
   },
   "apps": {
     "claude": "Claude",
@@ -976,7 +944,7 @@
     },
     "current": {
       "readFailed": "Could not read Pi's provider configuration",
-      "stateUnavailableHint": "Provider changes are disabled until CC Switch can read Pi's provider configuration."
+      "stateUnavailableHint": "Provider changes are disabled until Codex Switch can read Pi's provider configuration."
     },
     "prompts": {
       "globalTab": "Global prompts",
@@ -1193,48 +1161,6 @@
     "officialHint": "💡 Official provider uses browser login, no API Key needed",
     "providerKeyStatusLoading": "Provider identifier status is still loading. Please try again shortly.",
     "getApiKey": "Get API Key",
-    "partnerPromotion": {
-      "kimi": "New Kimi users get 10% of their first successful top-up back as bonus API credit, up to CNY ¥1,000.",
-      "a6api": "A6API is a token aggregation platform with a built-in real-time price leaderboard that automatically picks the lowest price on the market. Smooth and stable, simple to operate, and no more tedious price comparisons. Register now to claim free trial credits!",
-      "sudocode": "With one SudoCode key, Claude Code and Claude Desktop use Claude Opus 5, while Codex uses GPT-5.6. Sign up, join QQ group 726213516, and contact the group owner to claim CNY ¥10 in trial credit.",
-      "code0": "code0.ai is an AI coding service platform for developers, supporting Claude Code, Codex, and Gemini. Exclusive for CC Switch users: contact support via the official website to claim free trial credits!",
-      "packycode": "PackyCode is an official partner of CC Switch. Register using this link and enter \"cc-switch\" promo code during recharge to get 10% off",
-      "apikeyfun": "APIKEY.FUN offers a special deal for CC Switch users. Register through the exclusive link to enjoy up to permanent 5% off top-ups.",
-      "apinebula": "APINEBULA offers CC Switch users a special discount: register using the link and enter the \"ccswitch\" promo code during your first top-up to get 10% off.",
-      "patewayai": "PatewayAI offers special benefits for CC Switch users. Register via this link to receive $3 credit.",
-      "claudeapi": "ClaudeAPI offers special benefits for CC Switch users. Register via this link to claim test credits.",
-      "claudecn": "ClaudeCN is an enterprise-grade AI gateway operated by a registered company, supporting enterprise procurement processes with corporate payments, contracts, and compliance guarantees.",
-      "runapi": "RunAPI offers special benefits for CC Switch users. Register via this link and enjoy 10% off your first top-up.",
-      "opencode_go": "OpenCode Go offers subscription access to a range of coding models. View plan details and subscribe via this link.",
-      "dmxapi": "Claude Code exclusive model 66% OFF now!",
-      "cubence": "Cubence is an official partner of CC Switch. Register using this link and enter \"CCSWITCH\" promo code during recharge to get 10% off every top-up",
-      "aigocode": "AIGoCode is an official partner of CC Switch. Register using this link and get 10% bonus credit on your first top-up!",
-      "rightcode": "RightCode is an official partner of CC Switch. Register using this link and get 5% bonus credit on every top-up!",
-      "aicodemirror": "AICodeMirror is an official partner of CC Switch. Register using this link to get 20% off!",
-      "aicoding": "AI Coding offers an exclusive discount for CC Switch users — 10% off your first top-up!",
-      "crazyrouter": "CrazyRouter offers an exclusive bonus for CC Switch users — 30% extra credit on your first top-up!",
-      "sssaicode": "SSAI Code offers an exclusive bonus for CC Switch users — $10 extra credit on every top-up!",
-      "siliconflow": "SiliconFlow is an official partner of CC Switch",
-      "ucloud": "Compshare offers an exclusive bonus for CC Switch users — register via this link to get ¥5 platform trial credit!",
-      "micu": "Micu is an official partner of CC Switch",
-      "etok": "Join the ETok community on the official website and subscribe to a plan.",
-      "shengsuanyun": "Shengsuanyun offers exclusive benefits for CC Switch users. New users who register via this link get ¥10 free credits and 10% bonus on first top-up!",
-      "doubaoseed": "DouBao offers exclusive benefits for CC Switch users: register via this link to get 500K tokens of inference credits for all DouBao text models and 5M tokens of free Seedance 2.0 credits.",
-      "volcengine_agentplan": "Volcengine Ark Agent Plan offers exclusive benefits for CC Switch users: subscribe via this link and new customers get 75% off for the first two months, plus an extra 5% off with the exclusive invite code 6J6FV5N2 — as low as ¥9.4/month!",
-      "volcengine_codingplan": "Volcengine Ark Coding Plan offers exclusive benefits for CC Switch users: subscribe via this link and new customers get 75% off for the first two months, plus an extra 5% off with the exclusive invite code 6J6FV5N2 — as low as ¥9.4/month!",
-      "byteplus": "Register via this link to get 500,000 tokens of free inference quota per model.",
-      "ccsub": "CCSub is a stable, affordable AI API relay — a drop-in replacement for Claude.ai & OpenAI subscriptions, with one key for all models at ~30% of direct API cost.",
-      "subrouter": "SubRouter is an AI relay aggregator that lets one key access multiple models and providers.",
-      "qiniu": "Qiniu Cloud is a multi-protocol AI relay: one key for native Claude, GPT, and Gemini models, with the Anthropic, OpenAI, and Gemini APIs all supported.",
-      "fenno": "Fenno.ai is a stable, efficient API relay giving you access to a wide range of mainstream models. Exclusive CC Switch offer: subscribe via this link to the $1.99 Trial Plan worth $50 in credits, valid for 7 days!",
-      "zetaapi": "ZetaAPI delivers real, undegraded models at as low as 35% of official pricing. Exclusive CC Switch offer: register via this link and use promo code CC-SWITCH for 10% off your first top-up!",
-      "teamorouter": "TeamoRouter is an enterprise-grade Agentic LLM gateway with pricing up to 90% off. It offers exclusive benefits for CC Switch users: register via this link as a new user for 10% off your first top-up!",
-      "ppio": "PPIO is a leading independent Agentic Cloud provider in China, serving every flagship open-source model through a single API key. Register via this link and complete identity verification to receive a ¥10 credit voucher.",
-      "xycai": "XycAi is an enterprise-grade token factory: one-click access to 200+ global models, automatic SLA compensation, and 100% refunds for abnormal cache charges!",
-      "9527code": "9527 CODE is an enterprise-grade, full-capability AI relay platform delivering fast, stable relay for Claude Code, Codex and other mainstream models. One year of continuous operation, 99.9% service stability, and 7×24 human technical support. New users can contact support for trial credit, with unlimited referral cashback!",
-      "soleapi": "SoleAPI is an AI model gateway for developers and enterprises: one API key reaches 30+ leading models including Claude, GPT and Gemini, natively compatible with the OpenAI and Anthropic protocols, with real-time smart routing, millisecond failover, 99.99% availability and 24/7 support. Sign up via the referral link for free trial credits and ongoing cashback for inviting friends who top up!",
-      "fluxa": "FluxA and Baidu AI Cloud jointly launched AgenticPlan, letting AI agents buy, manage and use models, APIs and tools on their own. It includes Baidu Qianfan TokenPlan at up to 40% off with flagship models such as DeepSeek V4, GLM 5.2 and Kimi, plus bonus FluxA AgentMarket API credits that unlock 13,000+ paid APIs for search, data scraping, social media, finance, crypto, image generation and video."
-    },
     "presets": {
       "ucloud": "Compshare",
       "ucloudCoding": "Compshare Coding Plan",
@@ -1330,6 +1256,11 @@
     "quickSetModels": "Quick Set",
     "quickSetSuccess": "Model name applied to all roles",
     "advancedOptionsToggle": "Advanced Options",
+    "connectionHelp": "Connection setup help",
+    "endpointHelp": "API endpoint help",
+    "defaultModelHelp": "Default model help",
+    "advancedHelp": "Advanced settings help",
+    "catalogHelp": "Model catalog help",
     "advancedOptionsHint": "Includes API format, auth field, and model mapping. Defaults work for most use cases.",
     "categoryOfficial": "Official",
     "categoryCnOfficial": "Opensource Official",
@@ -1457,6 +1388,7 @@
     "loginRequired": "Sign in to an xAI account first"
   },
   "managedAuth": {
+    "deviceCodeExpired": "The sign-in code has expired. Please try again.",
     "accountRemoved": "Account removed",
     "selectedAccountNeedsReauth": "The linked account is missing or needs you to sign in again",
     "selectedAccountUnavailable": "The linked account is missing or needs you to sign in again. Select another account."
@@ -1604,7 +1536,7 @@
     "headerName": "Header",
     "headerValue": "Value",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "CC Switch",
+    "headerValuePlaceholder": "Codex Switch",
     "removeHeader": "Remove header",
     "noHeaders": "No custom headers configured",
     "extraOptions": "Extra Options",
@@ -1640,7 +1572,7 @@
     "noSearchResults": "No provider presets match your search."
   },
   "usage": {
-    "title": "Usage Statistics",
+    "title": "Local usage",
     "subtitle": "View AI model usage and cost statistics",
     "today": "24 Hours",
     "last7days": "7 Days",
@@ -1650,7 +1582,7 @@
     "preset7d": "7d",
     "preset14d": "14d",
     "preset30d": "30d",
-    "totalRequests": "Total Requests",
+    "totalRequests": "Total usage records",
     "totalCost": "Total Cost",
     "cost": "Cost",
     "unpriced": "Unpriced",
@@ -1665,9 +1597,19 @@
     "realTotalHint": "Input + Output + Cache Write + Cache Read",
     "freshInput": "Fresh Input",
     "cacheHitRate": "Cache Hit Rate",
-    "requestLogs": "Request Logs",
-    "providerStats": "Provider Stats",
+    "requestLogs": "Usage records",
+    "sourceStats": "Source Stats",
     "modelStats": "Model Stats",
+    "comparison": {
+      "sources": "Source comparison",
+      "models": "Model comparison",
+      "metric": "Comparison metric",
+      "cost": "Cost",
+      "tokens": "Tokens",
+      "total": "Total",
+      "costHint": "Estimated cost in USD, based on the current filters.",
+      "tokensHint": "Same Tokens as the table: fresh input + output, excluding cache."
+    },
     "time": "Time",
     "provider": "Provider",
     "billingModel": "Billing Model",
@@ -1685,7 +1627,7 @@
     "stream": "Stream",
     "nonStream": "Non-stream",
     "source": "Source",
-    "requestsLabel": "requests",
+    "requestsLabel": "usage records",
     "costLabel": "total cost",
     "appFilter": {
       "all": "All",
@@ -1700,10 +1642,11 @@
     "rawInputLabel": "Raw",
     "sessionSync": {
       "title": "Auto-Scan Session Logs",
-      "description": "Periodically scans each client's local session logs to track usage; when off, logs are only scanned on manual sync",
+      "description": "Scans local session logs at startup and every 60 seconds when enabled. Sync Now also works in either mode; page refresh only reloads recorded statistics.",
       "syncNow": "Sync Now",
       "syncCompleted": "Sync completed: {{imported}} imported, {{files}} files scanned, {{errors}} errors",
-      "syncFailed": "Session usage sync failed: {{error}}"
+      "syncFailed": "Session usage sync failed: {{error}}",
+      "help": "About automatic session scanning"
     },
     "rebuildCodex": {
       "title": "Codex Usage Maintenance",
@@ -1781,7 +1724,7 @@
     "performance": "Performance",
     "latency": "Latency",
     "errorMessage": "Error Message",
-    "requests": "Requests",
+    "requests": "Usage records",
     "tokens": "Tokens",
     "avgCost": "Average Cost",
     "avgLatency": "Average Latency",
@@ -1816,11 +1759,11 @@
     "modelsDevDefaultHint": "Showing the {{shown}} most recently released models (of {{total}}) — type to search all",
     "modelsDevAutoSync": {
       "title": "Automatic models.dev pricing sync",
-      "description": "When enabled, periodically fetch selected prices when CC Switch launches and keep them in your local pricing file.",
+      "description": "When enabled, periodically fetch selected prices when Codex Switch launches and keep them in your local pricing file.",
       "enabled": "Enabled",
       "disabled": "Disabled",
       "enableConfirmTitle": "Enable automatic pricing sync?",
-      "enableConfirmMessage": "After enabling, CC Switch will periodically update prices for the selected models from models.dev when it launches (at most once every 6 hours). Built-in and manually configured prices with the same model ID will be overwritten.",
+      "enableConfirmMessage": "After enabling, Codex Switch will periodically update prices for the selected models from models.dev when it launches (at most once every 6 hours). Built-in and manually configured prices with the same model ID will be overwritten.",
       "enableConfirmAction": "Enable automatic sync",
       "configure": "Choose models",
       "configureTitle": "Choose models for automatic pricing sync",
@@ -1849,7 +1792,84 @@
       "syncNow": "Sync now"
     },
     "cacheReadCostPerMillion": "Cache Read Cost (per million tokens, USD)",
-    "cacheCreationCostPerMillion": "Cache Write Cost (per million tokens, USD)"
+    "cacheCreationCostPerMillion": "Cache Write Cost (per million tokens, USD)",
+    "estimatedCost": "Estimated cost",
+    "sessionSource": {
+      "configure": "Configure Token source",
+      "title": "Token session source",
+      "directory": "Codex root directory",
+      "help": "About the Token source",
+      "description": "Choose the Codex root containing sessions and archived_sessions. Logs are read without changing them. Account configuration and sign-in files use their own directory. Leave blank to use the default.",
+      "placeholder": "Default Codex root",
+      "browse": "Choose folder",
+      "reset": "Restore default",
+      "current": "Currently saved source",
+      "default": "Default source",
+      "loading": "Loading Token source…",
+      "loadFailed": "Unable to read the effective Token source.",
+      "retry": "Retry",
+      "browseFailed": "Unable to choose a folder.",
+      "saveFailed": "Unable to save the Token source. Your draft is still here.",
+      "saved": "Token source saved. Use Sync Now to scan the selected source.",
+      "cancel": "Cancel",
+      "save": "Save"
+    },
+    "records": {
+      "title": "Usage records",
+      "view": "View",
+      "views": {
+        "session": "By session",
+        "hour": "By hour",
+        "day": "By day",
+        "details": "Details"
+      },
+      "attribution": "Attribution",
+      "method": {
+        "all": "All assignments",
+        "untagged": "Unassigned",
+        "auto": "Automatic",
+        "manual": "Manual",
+        "mixed": "Mixed"
+      },
+      "session": "Session / time",
+      "account": "Account",
+      "provider": "Provider",
+      "models": "Model",
+      "count": "Usage records",
+      "input": "Input",
+      "output": "Output",
+      "cache": "Cache read",
+      "cost": "Estimated cost",
+      "multiple": "Multiple",
+      "untagged": "Unassigned",
+      "autoHelp": "Based on the observed active configuration; upstream billing is not verified.",
+      "unpriced": "Some records have no price; the estimate covers priced records only.",
+      "allAccounts": "All accounts",
+      "allProviders": "All providers",
+      "timezone": "Time zone",
+      "expand": "Expand records",
+      "tagRow": "Assign this record or group",
+      "assignFiltered": "Assign filtered records",
+      "assign": "Assign usage",
+      "assignHelp": "Choose a subscription account or API source for the selected usage records.",
+      "target": "Source",
+      "choose": "Choose…",
+      "replaceExisting": "Replace existing labels in this selection",
+      "affected": "Currently {{count}} matching usage records",
+      "apply": "Assign",
+      "assigned": "Assigned {{count}} usage records",
+      "undo": "Undo",
+      "undone": "Assignment undone",
+      "groups": "{{count}} rows",
+      "previous": "Previous page",
+      "next": "Next page",
+      "legacySummary": "Some historical usage has summary data only. Rebuild usage to rescan available session logs for details.",
+      "source": "Source",
+      "allSources": "All sources",
+      "accountType": "Subscription account",
+      "apiType": "API source",
+      "replaceExistingHelp": "By default, only unassigned records are labeled. Enable this to replace existing labels within the selected conversation, time range and filters; future records are unaffected."
+    }
   },
   "usageScript": {
     "title": "Configure Usage Query",
@@ -1941,7 +1961,7 @@
   },
   "dbUpgrade": {
     "title": "Database version is too new",
-    "description": "This database was created by a newer version of CC Switch. Upgrade the app to continue. Upgrading will not delete your data.",
+    "description": "This database was created by a newer version of Codex Switch. Upgrade the app to continue. Upgrading will not delete your data.",
     "versionInfo": "Database v{{db}} · App supports v{{supported}}",
     "dbPath": "Database file",
     "checking": "Checking for available updates…",
@@ -1954,7 +1974,8 @@
     "retry": "Retry upgrade",
     "openReleases": "Open releases page",
     "openConfigDir": "Open config folder",
-    "quit": "Quit"
+    "quit": "Quit",
+    "localBuildRecovery": "This database needs a compatible Codex Switch build. Back up the configuration directory before installing a compatible build or restoring an earlier backup. Automatic app updates are not configured; this screen does not change your data."
   },
   "errors": {
     "usage_query_failed": "Usage query failed",
@@ -1987,7 +2008,7 @@
       "deleteConfirm": "Are you sure you want to delete server \"{{id}}\"? This action cannot be undone.",
       "noServers": "No servers yet",
       "enabledApps": "Enabled Apps",
-      "noImportFound": "No MCP servers to import found. All servers are already managed by CC Switch.",
+      "noImportFound": "No MCP servers to import found. All servers are already managed by Codex Switch.",
       "importSuccess": "Successfully imported {{count}} MCP servers",
       "searchPlaceholder": "Search MCP name, description, tag, or command...",
       "searchAriaLabel": "Search managed MCP servers",
@@ -2479,7 +2500,7 @@
     "installSuccess": "Skill {{name}} installed",
     "installFailed": "Failed to install",
     "uninstallSuccess": "Skill {{name}} uninstalled",
-    "uninstallPiPreserved": "Pi's copy could not be verified as CC Switch-managed and was left in place: {{path}}",
+    "uninstallPiPreserved": "Pi's copy could not be verified as Codex Switch-managed and was left in place: {{path}}",
     "uninstallPiCleanupIncomplete": "Pi cleanup could not be completed. Check the Pi Skills directory manually for a leftover copy.",
     "uninstallFailed": "Failed to uninstall",
     "update": "Update",
@@ -2579,10 +2600,10 @@
     "noInstalledDescription": "Discover and install skills from repositories, or import existing skills",
     "discover": "Discover Skills",
     "import": "Import Existing",
-    "importDescription": "Select skills to import into CC Switch unified management",
+    "importDescription": "Select skills to import into Codex Switch unified management",
     "importSuccess": "Successfully imported {{count}} skills",
     "importSelected": "Import Selected ({{count}})",
-    "noUnmanagedFound": "No skills to import found. All skills are already managed by CC Switch.",
+    "noUnmanagedFound": "No skills to import found. All skills are already managed by Codex Switch.",
     "unmanagedAvailable": "Skills available to import",
     "foundIn": "Found in",
     "local": "Local",
@@ -2627,7 +2648,7 @@
   },
   "deeplink": {
     "confirmImport": "Confirm Import Provider",
-    "confirmImportDescription": "The following configuration will be imported from deep link into CC Switch",
+    "confirmImportDescription": "The following configuration will be imported from deep link into Codex Switch",
     "importPrompt": "Import Prompt",
     "importPromptDescription": "Please confirm whether to import this system prompt",
     "importMcp": "Import MCP Servers",
@@ -2747,226 +2768,12 @@
     "circuitOpen": "Circuit Open",
     "consecutiveFailures": "{{count}} consecutive failures"
   },
-  "failover": {
-    "enabled": "{{app}} failover enabled",
-    "disabled": "{{app}} failover disabled",
-    "toggleFailed": "Operation failed: {{detail}}",
-    "inQueue": "In queue",
-    "addQueue": "Add",
-    "priority": {
-      "tooltip": "Failover priority {{priority}}"
-    },
-    "tooltip": {
-      "enabled": "{{app}} failover enabled\nRequests follow queue priority (P1→P2→...)",
-      "disabled": "Enable {{app}} failover\nSwitches to queue P1 immediately, then falls back on failures",
-      "takeoverRequired": "Take over {{app}} first, then enable failover"
-    }
-  },
-  "proxy": {
-    "panel": {
-      "serviceAddress": "Service Address",
-      "addressCopied": "Address copied",
-      "currentProvider": "Current Provider:",
-      "waitingFirstRequest": "Current Provider: Waiting for first request...",
-      "stoppedTitle": "Routing Service Stopped",
-      "stoppedDescription": "Use the toggle above to start the service",
-      "openSettings": "Configure Routing Service",
-      "stats": {
-        "activeConnections": "Active Connections",
-        "totalRequests": "Total Requests",
-        "successRate": "Success Rate",
-        "uptime": "Uptime"
-      }
-    },
-    "settings": {
-      "title": "Routing Service Settings",
-      "description": "Configure local routing server listening address, port and runtime parameters. Changes take effect immediately after saving.",
-      "alert": {
-        "autoApply": "Changes will be automatically synced to the running routing service without manual restart."
-      },
-      "basic": {
-        "title": "Basic Settings",
-        "description": "Configure routing service listening address and port."
-      },
-      "advanced": {
-        "title": "Advanced Parameters",
-        "description": "Control request stability and logging."
-      },
-      "timeout": {
-        "title": "Timeout Settings",
-        "description": "Configure timeout for streaming and non-streaming requests."
-      },
-      "fields": {
-        "listenAddress": {
-          "label": "Listen Address",
-          "placeholder": "127.0.0.1",
-          "description": "IP address the routing server listens on (recommended: 127.0.0.1)"
-        },
-        "listenPort": {
-          "label": "Listen Port",
-          "placeholder": "15721",
-          "description": "Port number the routing server listens on (1024 ~ 65535)"
-        },
-        "maxRetries": {
-          "label": "Max Retries",
-          "placeholder": "3",
-          "description": "Number of retries on request failure (0 ~ 10)"
-        },
-        "requestTimeout": {
-          "label": "Request Timeout (sec)",
-          "placeholder": "0 (unlimited) or 300",
-          "description": "Maximum wait time for a single request (0 = unlimited, or 10 ~ 600 seconds)"
-        },
-        "enableLogging": {
-          "label": "Record Request Usage",
-          "description": "Write routing request usage and status to the local statistics database"
-        },
-        "streamingFirstByteTimeout": {
-          "label": "Streaming First Byte Timeout (sec)",
-          "description": "Maximum time to wait for the first data chunk"
-        },
-        "streamingIdleTimeout": {
-          "label": "Streaming Idle Timeout (sec)",
-          "description": "Maximum interval between data chunks"
-        },
-        "nonStreamingTimeout": {
-          "label": "Non-Streaming Timeout (sec)",
-          "description": "Total timeout for non-streaming requests"
-        }
-      },
-      "validation": {
-        "addressInvalid": "Please enter a valid IP address",
-        "portMin": "Port must be greater than 1024",
-        "portMax": "Port must be less than 65535",
-        "retryMin": "Retry count cannot be negative",
-        "retryMax": "Retry count cannot exceed 10",
-        "timeoutNonNegative": "Timeout cannot be negative",
-        "timeoutMax": "Timeout cannot exceed 600 seconds",
-        "timeoutRange": "Please enter 0 or a value between 10-600",
-        "streamingTimeoutMin": "Timeout must be at least 5 seconds",
-        "streamingTimeoutMax": "Timeout cannot exceed 300 seconds"
-      },
-      "actions": {
-        "save": "Save Configuration"
-      },
-      "toast": {
-        "saved": "Routing configuration saved",
-        "saveFailed": "Save failed: {{error}}"
-      },
-      "invalidPort": "Invalid port, please enter a number between 1024-65535",
-      "invalidAddress": "Invalid address. Enter an IPv4 (e.g. 127.0.0.1), IPv6 (e.g. ::1), or localhost",
-      "configSaved": "Routing configuration saved",
-      "configSaveFailed": "Failed to save configuration",
-      "restartRequired": "Restart routing service for address or port changes to take effect"
-    },
-    "switchFailed": "Switch failed: {{error}}",
-    "takeover": {
-      "ariaLabel": "{{appLabel}} local routing",
-      "hint": "Select apps to route — once enabled, requests from that app will go through local routing",
-      "enabled": "{{app}} routing enabled",
-      "disabled": "{{app}} routing disabled",
-      "failed": "Failed to toggle routing: {{detail}}",
-      "tooltip": {
-        "active": "{{appLabel}} is routing - {{address}}:{{port}}\nSwitching providers changes the route only; the direct provider stays",
-        "broken": "{{appLabel}} is routing, but routing service is not running",
-        "inactive": "Route {{appLabel}}'s requests through local routing"
-      }
-    },
-    "failover": {
-      "proxyRequired": "Routing service must be started to configure failover",
-      "autoSwitch": "Auto Failover",
-      "autoSwitchDescription": "When enabled, switches to queue P1 immediately and automatically tries the next provider in the queue on failures"
-    },
-    "failoverQueue": {
-      "title": "Failover Queue",
-      "description": "Manage failover order for each app's providers",
-      "info": "When auto failover is enabled, requests follow the queue priority order (P1 first). On failures, the system will try the next provider in the queue.",
-      "selectProvider": "Select a provider to add to queue",
-      "noAvailableProviders": "No providers available to add",
-      "empty": "Failover queue is empty. Add providers to enable automatic failover.",
-      "orderHint": "Queue order matches the provider list order on the Home page. Reorder providers on the Home page to change priority.",
-      "dragHint": "Drag providers to adjust failover order. Lower numbers have higher priority.",
-      "toggleEnabled": "Enable/Disable",
-      "addSuccess": "Added to failover queue",
-      "addFailed": "Failed to add",
-      "removeSuccess": "Removed from failover queue",
-      "removeFailed": "Failed to remove",
-      "reorderSuccess": "Queue order updated",
-      "reorderFailed": "Failed to update order",
-      "toggleFailed": "Failed to update status"
-    },
-    "autoFailover": {
-      "info": "When the failover queue has multiple providers, the system will try them in priority order when requests fail. When a provider reaches the consecutive failure threshold, the circuit breaker will open and skip it temporarily.",
-      "configSaved": "Auto failover config saved",
-      "configSaveFailed": "Failed to save",
-      "validationFailed": "The following fields are out of valid range: {{fields}}",
-      "retrySettings": "Retry & Timeout Settings",
-      "failureThreshold": "Failure Threshold",
-      "failureThresholdHint": "Open circuit breaker after this many consecutive failures (recommended: 3-10)",
-      "timeout": "Recovery Wait Time (seconds)",
-      "timeoutHint": "Wait this long before trying to recover after circuit opens (recommended: 30-120)",
-      "circuitBreakerSettings": "Circuit Breaker Settings",
-      "successThreshold": "Recovery Success Threshold",
-      "successThresholdHint": "Close circuit breaker after this many successes in half-open state",
-      "errorRate": "Error Rate Threshold (%)",
-      "errorRateHint": "Open circuit breaker when error rate exceeds this value",
-      "minRequests": "Minimum Requests",
-      "minRequestsHint": "Minimum requests before calculating error rate",
-      "explanationTitle": "How It Works",
-      "failureThresholdLabel": "Failure Threshold",
-      "failureThresholdExplain": "Circuit breaker opens after this many consecutive failures, making the provider temporarily unavailable",
-      "timeoutLabel": "Recovery Wait Time",
-      "timeoutExplain": "After circuit opens, wait this long before trying half-open state",
-      "successThresholdLabel": "Recovery Success Threshold",
-      "successThresholdExplain": "In half-open state, close circuit breaker after this many successes, making provider available again",
-      "errorRateLabel": "Error Rate Threshold",
-      "errorRateExplain": "Open circuit breaker when error rate exceeds this value, even if failure threshold not reached",
-      "maxRetries": "Max Retries",
-      "timeoutSettings": "Timeout Settings",
-      "streamingFirstByte": "Streaming First Byte Timeout",
-      "streamingIdle": "Streaming Idle Timeout",
-      "nonStreaming": "Non-Streaming Timeout",
-      "maxRetriesHint": "Number of retries on request failure (0-10)",
-      "streamingFirstByteHint": "Max time to wait for first data chunk, range 1-120s, default 60s",
-      "streamingIdleHint": "Max interval between data chunks, range 60-600s, 0 to disable (prevents mid-stream stalls)",
-      "nonStreamingHint": "Total timeout for non-streaming requests, range 60-1200s, default 600s (10 min)"
-    },
-    "logging": {
-      "enabled": "Logging enabled",
-      "disabled": "Logging disabled",
-      "failed": "Failed to toggle logging"
-    },
-    "server": {
-      "started": "Routing service started - {{address}}:{{port}}",
-      "startFailed": "Failed to start routing service: {{detail}}",
-      "stopped": "Routing service stopped",
-      "stopFailed": "Failed to stop routing service: {{detail}}"
-    },
-    "stoppedWithRestore": "Routing service stopped; all apps are back on direct connections",
-    "stopWithRestoreFailed": "Stop failed: {{detail}}"
-  },
   "streamCheck": {
     "reachable": "{{providerName}} is reachable ({{responseTimeMs}}ms)",
     "reachableSlow": "{{providerName}} reachable but slow ({{responseTimeMs}}ms)",
     "unreachable": "{{providerName}} unreachable: {{message}}",
     "unreachableHint": "Could not establish a connection (DNS / connect / TLS / timeout). Check the base_url and your network.",
     "error": "{{providerName}} check error: {{error}}"
-  },
-  "proxyConfig": {
-    "proxyEnabled": "Routing Master Switch",
-    "appTakeover": "Routing Enabled",
-    "perAppConfig": "Per-App Config",
-    "circuitBreaker": "Circuit Breaker",
-    "circuitBreakerSettings": "Circuit Breaker Settings",
-    "failureThreshold": "Failure Threshold",
-    "successThreshold": "Success Threshold",
-    "recoveryTimeout": "Recovery Timeout",
-    "errorRateThreshold": "Error Rate Threshold",
-    "minRequests": "Min Requests",
-    "timeoutConfig": "Timeout Config",
-    "streamingFirstByte": "Streaming First Byte Timeout",
-    "streamingIdle": "Streaming Idle Timeout",
-    "nonStreaming": "Non-Streaming Timeout"
   },
   "universalProvider": {
     "duplicate": "Duplicate",
@@ -3228,5 +3035,119 @@
     "expiredHint": "Run the {{tool}} command to refresh your login",
     "queryFailed": "Query failed",
     "refresh": "Refresh"
+  },
+  "productShell": {
+    "openAiApi": "OpenAI API",
+    "unsupportedImport": "Only Codex provider imports are available in this app.",
+    "proxy": {
+      "globalHint": "Configure the shared HTTP proxy for external API requests."
+    },
+    "settings": {
+      "codexDirectoryDescription": "Override the Codex configuration directory, including paths in WSL.",
+      "configDirDescription": "Manage Codex configuration and app storage paths.",
+      "codexInstallHint": "Install or upgrade Codex CLI."
+    },
+    "auth": {
+      "description": "Manage your ChatGPT accounts for Codex."
+    },
+    "usage": {
+      "commonModelsDescription": "Select {{count}} recent Codex models.",
+      "modelIdPlaceholder": "e.g. gpt-5-codex",
+      "displayNamePlaceholder": "e.g. GPT-5 Codex"
+    },
+    "storedUpstreamFormat": "Stored upstream format",
+    "upstreamFormatHint": "Use Responses for native Codex requests, or Chat Completions with local routing enabled.",
+    "officialQuotaHint": "Quota is read from the selected Codex or ChatGPT account.",
+    "reasoningModeHint": "Enable this when the upstream supports an explicit thinking mode.",
+    "nativeConnectionHint": "Codex connects directly using the native Responses API. Models and reasoning levels remain customizable.",
+    "legacyConnectionHint": "This saved connection requires a removed protocol conversion. Its configuration is preserved for editing, but it cannot be activated.",
+    "nativeEndpointHint": "Base URL for the provider's native Responses API.",
+    "nativeCatalogHint": "The catalog adds models to Codex's /model menu. The request uses each model's exact identifier and native reasoning levels."
+  },
+  "codexAccounts": {
+    "subscriptionAccounts": "Subscription accounts",
+    "moreActions": "More account actions",
+    "configurationsTitle": "Provider",
+    "noApiKeys": "No API Key connections",
+    "addApiKeyConnection": "Add API Key",
+    "configurationsDescription": "Manage API-key connections and saved advanced settings here. ChatGPT subscription quota is shown on its account card.",
+    "title": "ChatGPT accounts",
+    "current": "Current",
+    "configuration": "Account configuration",
+    "chooseConfiguration": "Choose configuration",
+    "switch": "Switch to this account",
+    "restartHint": "Switching updates local Codex credentials and configuration. Running clients may cache their login; reopen them if they still show the previous account.",
+    "homeTabs": "Codex management",
+    "quotaExpiredHint": "Open Edit account to sign in again.",
+    "reauthDescription": "Some accounts need updated sign-in information. Open Edit account on the affected account to sign in again.",
+    "apiKey": "OpenAI API",
+    "configurationLoading": "Loading configuration…",
+    "helpLabel": "Account and quota help",
+    "helpQuota": "Percentages show used quota. The five-hour and weekly windows have independent usage and reset times; available windows depend on the account.",
+    "quotaUsedLabel": "Used",
+    "quotaRemainingLabel": "Left",
+    "helpQuotaBattery": "Colored segments and percentages show remaining quota. The gray marker shows the time left until reset as a fraction of the full window. Each window is independent; a marker appears only when its duration and reset time are known.",
+    "quotaUnknown": "Quota unavailable",
+    "quotaResetUnknown": "Reset time unavailable",
+    "advancedConfiguration": "Advanced connections",
+    "automaticConfiguration": "Choose automatically",
+    "switchFailedInline": "Switch did not complete.",
+    "connectionLoadFailed": "Connections could not be loaded. Refresh and try again.",
+    "directSwitchHelp": "Signed-in ChatGPT accounts can switch directly. The default account is used only by advanced managed configurations and is independent of the current account.",
+    "credentialStoreHelp": "Some advanced sign-in storage settings do not support account switching. If switching is unavailable, the app will explain why.",
+    "editTitle": "Edit account",
+    "editDescription": "Manage account details and sign-in options.",
+    "loginIdentity": "Login identity",
+    "displayName": "Display name",
+    "notes": "Notes",
+    "icon": "Icon",
+    "customColor": "Custom color",
+    "color": "Color",
+    "advancedOptions": "Advanced options",
+    "accountAdvancedOptions": "Advanced account management",
+    "icons": {
+      "user": "User",
+      "star": "Star",
+      "briefcase": "Work",
+      "code": "Code",
+      "heart": "Heart",
+      "shield": "Shield"
+    },
+    "configurationsHelp": "About connection configurations",
+    "addConnectionTitle": "Add connection configuration",
+    "localUsageScopeLabel": "Statistics scope",
+    "localUsageScope": "Locally recorded Codex requests and scanned sessions, filtered by time, connection source and model. This excludes other devices and does not measure subscription quota. Costs are estimated using the local pricing table.",
+    "quotaRefreshFailed": "Refresh failed; showing the last successful data",
+    "switchSuccess": "Account switched. Reopen a running Codex client if it still shows the previous account.",
+    "switchRefreshFailed": "Account switched, but state refresh failed. Refresh to confirm.",
+    "switchFailed": "Switch failed; the previous account is retained: {{error}}",
+    "switchWarning": "Account switched with a configuration warning: {{error}}",
+    "switchRecovered": "Switch completed and the interrupted write was recovered.",
+    "switchUncertain": "Unable to confirm switch state: {{error}}",
+    "switchPending": "Switching account…",
+    "switchUnavailable": "Why switching is unavailable",
+    "accountHelpLabel": "Account help",
+    "navigationAccounts": "Accounts",
+    "navigationUsage": "Usage",
+    "addTitle": "Add an account or connection",
+    "addDescription": "Choose a ChatGPT account or API Key to connect Codex.",
+    "addChatGpt": "ChatGPT login",
+    "addChatGptDescription": "View subscription quota and switch between signed-in accounts.",
+    "addApiKey": "API Key connection",
+    "addApiKeyDescription": "Enter an API key and service address to connect OpenAI or another supported service.",
+    "addApiConnectionTitle": "Add API Key connection"
+  },
+  "apiBalance": {
+    "label": "Balance",
+    "details": "Balance details",
+    "unsupported": "Balance queries are not available for this provider",
+    "missingKey": "Enter an API key first",
+    "explanation": "Balances come from the provider account API. Each currency is shown separately.",
+    "loading": "Querying balance…",
+    "unavailable": "The provider reports this balance is unavailable for API calls.",
+    "updated": "Updated",
+    "supported": "Supports official DeepSeek, StepFun, SiliconFlow, OpenRouter and Novita AI APIs. OpenRouter requires a management key for balance queries.",
+    "refresh": "Refresh balance",
+    "empty": "The provider returned no valid balance"
   }
 }

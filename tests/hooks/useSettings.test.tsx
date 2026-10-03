@@ -112,7 +112,7 @@ const createDirectorySettingsMock = (
 ) => ({
   appConfigDir: undefined,
   resolvedDirs: {
-    appConfig: "/home/mock/.cc-switch",
+    appConfig: "/home/mock/.codex-switch",
     claude: "/default/claude",
     codex: "/default/codex",
     gemini: "/default/gemini",
@@ -377,6 +377,104 @@ describe("useSettings hook", () => {
     expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();
     expect(invalidatePiDirectoryCachesMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each(["auto", "manual"] as const)(
+    "persists an independent Token source through %s save without projecting live config",
+    async (mode) => {
+      settingsFormMock = createSettingsFormMock({ settings: serverSettings });
+      const { result } = renderHook(() => useSettings());
+      const updates = { codexUsageSourceDir: "  /read-only/codex  " };
+
+      await act(async () => {
+        if (mode === "auto") {
+          await result.current.autoSaveSettings(updates);
+        } else {
+          await result.current.saveSettings(updates, { silent: true });
+        }
+      });
+
+      const payload = mutateAsyncMock.mock.calls[0][0] as Settings;
+      expect(payload.codexUsageSourceDir).toBe("/read-only/codex");
+      expect(payload.codexConfigDir).toBe(serverSettings.codexConfigDir);
+      expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();
+      expect(applyClaudePluginConfigMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not publish unrelated auth or directory drafts when saving the Token source", async () => {
+    settingsFormMock = createSettingsFormMock({
+      settings: {
+        ...serverSettings,
+        codexConfigDir: "/unsaved/config",
+        unifyCodexSessionHistory: true,
+        enableClaudePluginIntegration: true,
+      },
+    });
+    const { result } = renderHook(() => useSettings());
+
+    await act(async () => {
+      await result.current.autoSaveSettings({
+        codexUsageSourceDir: "/read-only/codex",
+      });
+    });
+
+    const payload = mutateAsyncMock.mock.calls[0][0] as Settings;
+    expect(payload.codexConfigDir).toBe(serverSettings.codexConfigDir);
+    expect(payload.unifyCodexSessionHistory).toBe(
+      serverSettings.unifyCodexSessionHistory,
+    );
+    expect(payload.enableClaudePluginIntegration).toBe(
+      serverSettings.enableClaudePluginIntegration,
+    );
+    expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();
+    expect(applyClaudePluginConfigMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { trayDisplayMode: "quotaRing" },
+    { trayDisplayMode: "quotaRingOnly" },
+    { trayQuotaWindow: "sevenDay" },
+    { trayQuotaColorMode: "system" },
+    { quotaRefreshIntervalSeconds: 90 },
+    {
+      quotaBatteryWarningThresholdPercent: 70,
+      quotaBatteryLowThresholdPercent: 20,
+    },
+  ] as const)(
+    "saves device preference %j without publishing auth/directory drafts",
+    async (updates) => {
+      settingsFormMock = createSettingsFormMock({
+        settings: {
+          ...serverSettings,
+          codexConfigDir: "/unsaved/config",
+          unifyCodexSessionHistory: true,
+          enableClaudePluginIntegration: true,
+          skipClaudeOnboarding: false,
+        },
+      });
+      const { result } = renderHook(() => useSettings());
+      await act(async () => {
+        await result.current.autoSaveSettings(updates);
+      });
+      const payload = mutateAsyncMock.mock.calls[0][0] as Settings;
+      expect(payload).toMatchObject(updates);
+      expect(payload.codexConfigDir).toBe(serverSettings.codexConfigDir);
+      expect(payload.unifyCodexSessionHistory).toBe(
+        serverSettings.unifyCodexSessionHistory,
+      );
+      expect(payload.enableClaudePluginIntegration).toBe(
+        serverSettings.enableClaudePluginIntegration,
+      );
+      expect(payload.skipClaudeOnboarding).toBe(
+        serverSettings.skipClaudeOnboarding,
+      );
+      expect(syncCurrentProvidersLiveMock).not.toHaveBeenCalled();
+      expect(applyClaudePluginConfigMock).not.toHaveBeenCalled();
+      expect(applyClaudeOnboardingSkipMock).not.toHaveBeenCalled();
+      expect(clearClaudeOnboardingSkipMock).not.toHaveBeenCalled();
+      expect(updateTrayMenuMock).toHaveBeenCalledOnce();
+    },
+  );
 
   it("shows toast when Claude plugin sync fails but continues flow", async () => {
     // 设置服务器状态为 false,本地状态为 true,触发状态变化

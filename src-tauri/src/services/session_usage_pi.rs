@@ -5,13 +5,13 @@
 
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::calculator::CostCalculator;
-use crate::proxy::usage::parser::TokenUsage;
 use crate::services::session_usage::{
     metadata_modified_nanos, update_sync_state_on_conn, SessionSyncResult,
 };
 use crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_FRESH;
 use crate::services::usage_stats::find_model_pricing;
+use crate::usage::calculator::CostCalculator;
+use crate::usage::TokenUsage;
 use rust_decimal::Decimal;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -1008,7 +1008,7 @@ mod tests {
             assert_eq!(empty_failure, (500, 0, "Pi request failed".to_string()));
         }
 
-        let providers = db.get_provider_stats(None, None, Some("pi"), None, None)?;
+        let providers = db.get_provider_stats(None, None, Some("pi"), None, None, None)?;
         assert!(providers.iter().any(|provider| {
             provider.provider_id == PROVIDER_PLACEHOLDER && provider.provider_name == "Pi (Session)"
         }));

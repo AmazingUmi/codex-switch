@@ -1,5 +1,7 @@
 mod app_config;
+mod app_data_migration;
 mod app_store;
+pub mod auth;
 mod auto_launch;
 mod claude_desktop_config;
 mod claude_mcp;
@@ -7,6 +9,7 @@ mod claude_plugin;
 mod codex_config;
 mod codex_history_migration;
 mod codex_state_db;
+mod codex_usage_source;
 mod commands;
 mod config;
 mod database;
@@ -16,14 +19,17 @@ mod gemini_config;
 mod gemini_mcp;
 mod grok_config;
 pub mod hermes_config;
+pub mod http_client;
 mod init_status;
 mod jsonc_document;
+pub mod legacy_routing;
 mod lightweight;
 #[cfg(target_os = "linux")]
 mod linux_fix;
 pub mod live;
 mod mcode_config;
 mod mcp;
+mod menu;
 pub mod mode;
 mod model_capabilities;
 mod openclaw_config;
@@ -33,13 +39,16 @@ mod pi_config;
 mod prompt;
 mod prompt_files;
 mod provider;
-mod proxy;
 mod services;
 mod session_manager;
 mod settings;
 mod store;
+pub mod switch_lock;
+pub mod usage;
 
 mod tray;
+mod tray_display;
+mod tray_quota;
 mod usage_events;
 mod usage_script;
 
@@ -68,8 +77,8 @@ pub use services::{
     profile::{ProfilePayload, ProfileScope, ProfileService},
     provider::{reapply_current_codex_official_live, EditorSave, EditorView},
     skill::{migrate_skills_to_ssot, ImportSkillSelection},
-    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, ProxyService,
-    SkillService, SpeedtestService,
+    ConfigService, EndpointLatency, McpService, PromptService, ProviderService, SkillService,
+    SpeedtestService,
 };
 pub use settings::{update_settings, AppSettings};
 pub use store::AppState;
@@ -217,6 +226,7 @@ pub(crate) fn redact_url_for_log_with_secrets(url_str: &str, known_secrets: &[St
 /// 只保留 `scheme://host:port`，丢掉 path/query/userinfo。用于我们手里没有任何
 /// 已知密钥可脱敏 path 的场景——凭据可能整个内嵌在 base_url 的 path 里，此时
 /// 记录 path 无法保证不泄漏，只能退回到 origin。
+#[cfg(test)]
 pub(crate) fn redact_url_origin_for_log(url_str: &str) -> String {
     let scheme_relative = url_str.starts_with("//");
     let parsed = if scheme_relative {
@@ -242,7 +252,7 @@ fn runtime_log_level_allows(level: log::Level, max_level: log::LevelFilter) -> b
     max_level.to_level().is_some_and(|maximum| level <= maximum)
 }
 
-/// 统一处理 ccswitch:// 深链接 URL
+/// 统一处理 codexswitch:// 深链接 URL
 ///
 /// - 解析 URL
 /// - 向前端发射 `deeplink-import` / `deeplink-error` 事件
@@ -253,7 +263,7 @@ fn handle_deeplink_url(
     focus_main_window: bool,
     source: &str,
 ) -> bool {
-    if !url_str.starts_with("ccswitch://") {
+    if !url_str.starts_with("codexswitch://") {
         return false;
     }
 
@@ -323,6 +333,7 @@ async fn update_tray_menu(
             if let Some(tray) = app.tray_by_id(tray::TRAY_ID) {
                 tray.set_menu(Some(new_menu))
                     .map_err(|e| format!("更新托盘菜单失败: {e}"))?;
+                crate::tray_quota::request_refresh(&app);
                 return Ok(true);
             }
             Ok(false)
@@ -347,12 +358,14 @@ fn macos_tray_icon() -> Option<Image<'static>> {
     }
 }
 
+pub const APP_UPDATES_ENABLED: bool = false;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 设置 panic hook，在应用崩溃时记录日志到 <app_config_dir>/crash.log（默认 ~/.cc-switch/crash.log）
+    // 设置 panic hook，在应用崩溃时记录日志到 <app_config_dir>/crash.log（默认 ~/.codex-switch/crash.log）
     panic_hook::setup_panic_hook();
 
-    let mut builder = tauri::Builder::default();
+    let mut builder = tauri::Builder::default().manage(menu::PendingSettingsNavigation::default());
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
@@ -423,6 +436,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         // 拦截窗口关闭：根据设置决定是否最小化到托盘
         .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::ThemeChanged(_)) {
+                tray::update_tray_display(window.app_handle());
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // 数据库版本过新的恢复模式下没有托盘可唤回，关闭即退出，避免应用隐身后台
                 let in_db_recovery = crate::init_status::get_init_error()
@@ -465,11 +481,31 @@ pub fn run() {
         .setup(|app| {
             let _ = rustls::crypto::ring::default_provider().install_default();
 
-            // 预先刷新 Store 覆盖配置，确保后续路径读取正确（日志/数据库等）
+            // Copy application-owned preferences from the old regular bundle
+            // before reading the store under the new independent identity.
+            app_data_migration::migrate_platform_preferences(
+                &app.path().app_data_dir()?,
+                cfg!(feature = "codex-preview"),
+            )?;
             app_store::refresh_app_config_dir_override(app.handle());
+            // An inherited override equal to the former default is no longer
+            // a custom directory; route it through the independent fork root.
+            if app_store::get_app_config_dir_override().as_deref()
+                == Some(config::get_home_dir().join(".cc-switch").as_path())
+            {
+                app_store::set_app_config_dir_to_store(app.handle(), None)?;
+            }
+            // Migration completes before logs, settings, auth and DB initialization.
+            app_data_migration::migrate_default_data(
+                &config::get_home_dir(),
+                cfg!(feature = "codex-preview"),
+            )?;
+            if let Some(custom) = app_store::get_app_config_dir_override() {
+                app_data_migration::migrate_custom_database(&custom)?;
+            }
             panic_hook::init_app_config_dir(crate::config::get_app_config_dir());
 
-            // 初始化日志（输出到 <app_config_dir>/logs/cc-switch.log）
+            // 初始化日志（输出到 <app_config_dir>/logs/codex-switch.log）
             {
                 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
@@ -494,7 +530,7 @@ pub fn run() {
                             Target::new(TargetKind::Stdout),
                             Target::new(TargetKind::Folder {
                                 path: log_dir,
-                                file_name: Some("cc-switch".into()),
+                                file_name: Some("codex-switch".into()),
                             }),
                         ])
                         // KeepSome(4) 保留 4 个轮转归档，加上当前文件最多约 100 MiB。
@@ -507,7 +543,7 @@ pub fn run() {
 
                 // 用户配置存在数据库中，数据库尚未打开时使用保守的 Info 级别。
                 log::set_max_level(log::LevelFilter::Info);
-                log::info!("=== CC Switch v{} started ===", env!("CARGO_PKG_VERSION"));
+                log::info!("=== Codex Switch v{} started ===", env!("CARGO_PKG_VERSION"));
             }
 
             // 首次读取覆盖路径时 logger 尚未可用；此处重放一次，
@@ -517,9 +553,10 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             set_windows_app_user_model_id(app.handle());
 
+            // This fork has no published update channel.
             // 注册 Updater 插件（桌面端）；放在 logger 之后，确保失败可诊断。
             #[cfg(desktop)]
-            {
+            if APP_UPDATES_ENABLED {
                 if let Err(e) = app
                     .handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())
@@ -536,7 +573,7 @@ pub fn run() {
 
             // 初始化数据库
             let app_config_dir = crate::config::get_app_config_dir();
-            let db_path = app_config_dir.join("cc-switch.db");
+            let db_path = app_config_dir.join("codex-switch.db");
             let json_path = app_config_dir.join("config.json");
 
             // 检查是否需要从 config.json 迁移到 SQLite
@@ -670,10 +707,7 @@ pub fn run() {
 
             let app_state = AppState::new(db);
 
-            // 设置 AppHandle 用于代理故障转移时的 UI 更新
-            app_state.proxy_service.set_app_handle(app.handle().clone());
-
-            // 补完上次崩溃时写到一半的客户端文件（写前意图在 ~/.cc-switch/live-state.json），
+            // 补完上次崩溃时写到一半的客户端文件（写前意图在 ~/.codex-switch/live-state.json），
             // 要在任何写客户端文件的启动步骤之前。
             crate::mode::operation::recover_on_startup(&app_state.db);
 
@@ -737,7 +771,7 @@ pub fn run() {
             // 落成 "default" provider 设为 current，再追加官方预设（is_current=false）。
             // 降级回旧版时，旧版的回填和整份写入仍靠这一行保住用户原来的 live 配置。
             //
-            // 捕获首次运行快照：所有全新装用户都会看到欢迎弹窗介绍 CC Switch 的工作方式。
+            // 捕获首次运行快照：所有全新装用户都会看到欢迎弹窗介绍 Codex Switch 的工作方式。
             // 读失败时默认不弹，宁可漏弹也不要因为故障打扰用户。
             let first_run_already_confirmed = crate::settings::get_settings()
                 .first_run_notice_confirmed
@@ -1043,12 +1077,12 @@ pub fn run() {
                 #[cfg(target_os = "linux")]
                 {
                     // Use Tauri's path API to get correct path (includes app identifier)
-                    // tauri-plugin-deep-link writes to: ~/.local/share/com.ccswitch.desktop/applications/cc-switch-handler.desktop
+                    // tauri-plugin-deep-link writes to: ~/.local/share/com.codexswitch.desktop/applications/codex-switch-handler.desktop
                     // Only register if .desktop file doesn't exist to avoid overwriting user customizations
                     let should_register = app
                         .path()
                         .data_dir()
-                        .map(|d| !d.join("applications/cc-switch-handler.desktop").exists())
+                        .map(|d| !d.join("applications/codex-switch-handler.desktop").exists())
                         .unwrap_or(true);
 
                     if should_register {
@@ -1091,19 +1125,22 @@ pub fn run() {
                         log::debug!("  URL[{i}]: {}", url_for_log(url_str));
 
                         if handle_deeplink_url(&app_handle, url_str, true, "on_open_url") {
-                            break; // Process only first ccswitch:// URL
+                            break; // Process only first codexswitch:// URL
                         }
                     }
                 }
             });
             log::info!("✓ Deep-link URL handler registered");
 
+            #[cfg(target_os = "macos")]
+            menu::install(app.handle())?;
+
             // 创建动态托盘菜单
             let menu = tray::create_tray_menu(app.handle(), &app_state)?;
 
             // 构建托盘
             let mut tray_builder = TrayIconBuilder::with_id(tray::TRAY_ID)
-                .tooltip("CC Switch") // 鼠标悬停提示
+                .tooltip("Codex Switch") // 鼠标悬停提示
                 .on_tray_icon_event(|tray, event| match event {
                     // 鼠标悬停/点击到托盘图标时，后台异步刷新用量缓存，
                     // 让用户下一次（或快速打开菜单的那一刻）看到较新的数字。
@@ -1118,7 +1155,10 @@ pub fn run() {
                 })
                 .menu(&menu)
                 .on_menu_event(|app, event| {
-                    tray::handle_tray_menu_event(app, &event.id.0);
+                    // Tauri delivers application menu events to tray callbacks too.
+                    if !event.id.0.starts_with(menu::MENU_ID_PREFIX) {
+                        tray::handle_tray_menu_event(app, &event.id.0);
+                    }
                 })
                 .show_menu_on_left_click(true);
 
@@ -1162,7 +1202,7 @@ pub fn run() {
 
             // 初始化 CopilotAuthManager
             {
-                use crate::proxy::providers::copilot_auth::CopilotAuthManager;
+                use crate::auth::copilot_auth::CopilotAuthManager;
                 use commands::CopilotAuthState;
                 use tokio::sync::RwLock;
 
@@ -1184,7 +1224,7 @@ pub fn run() {
 
             // 初始化 xAI OAuthManager (Grok API 反代)
             {
-                use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
+                use crate::auth::xai_oauth::XaiOAuthManager;
                 use commands::XaiOAuthState;
                 use tokio::sync::RwLock;
 
@@ -1194,38 +1234,18 @@ pub fn run() {
                 log::info!("✓ XaiOAuthManager initialized");
             }
 
-            // 初始化全局出站代理 HTTP 客户端
-            {
-                let db = &app.state::<AppState>().db;
-                let proxy_url = db.get_global_proxy_url().ok().flatten();
-
-                if let Err(e) = crate::proxy::http_client::init(proxy_url.as_deref()) {
-                    log::error!(
-                        "[GlobalProxy] [GP-005] Failed to initialize with saved config: {e}"
-                    );
-
-                    // 清除无效的代理配置
-                    if proxy_url.is_some() {
-                        log::warn!(
-                            "[GlobalProxy] [GP-006] Clearing invalid proxy config from database"
-                        );
-                        if let Err(clear_err) = db.set_global_proxy_url(None) {
-                            log::error!(
-                                "[GlobalProxy] [GP-007] Failed to clear invalid config: {clear_err}"
-                            );
-                        }
-                    }
-
-                    // 使用直连模式重新初始化
-                    if let Err(fallback_err) = crate::proxy::http_client::init(None) {
-                        log::error!(
-                            "[GlobalProxy] [GP-008] Failed to initialize direct connection: {fallback_err}"
-                        );
-                    }
-                }
+            // Initialize outgoing HTTP with the system network environment.
+            // Previously saved application proxy URLs are intentionally ignored.
+            if let Err(error) = crate::http_client::init() {
+                log::error!("[HttpClient] Failed to initialize shared client: {error}");
             }
+            // The first quota read needs both shared cache and OAuth state.
+            // Starting before registration can leave the tray empty until its
+            // next timer, or indefinitely when automatic polling is disabled.
+            tray::update_tray_display(app.handle());
+            crate::tray_quota::start_worker(app.handle());
 
-            // 异常退出恢复 + 代理状态自动恢复
+            // Recover interrupted writes and migrate historical takeover state.
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let state = app_handle.state::<AppState>();
@@ -1243,8 +1263,8 @@ pub fn run() {
 
                 initialize_common_config_snippets(&state);
 
-                // 定下各应用的直连 / 代理模式（处理旧版遗留的接管状态），再把代理模式的
-                // 应用接上。要排在通用配置片段的自动提取之后：它读的是直连的 live。
+                // Migrate historical takeovers to native direct connections after
+                // common snippet extraction, which skips polluted live files.
                 crate::mode::controller::startup(&state).await;
 
                 // Periodic backup check (on startup)
@@ -1269,6 +1289,43 @@ pub fn run() {
                 });
 
                 // Session log usage sync: 启动时同步一次，之后每 60 秒检查
+                // Only Switch's database receives these observations. Native
+                // auth/config/logs stay read-only, and each process run starts a
+                // fresh interval so downtime can never inherit the last account.
+                let db_for_identity = state.db.clone();
+                let manager_for_identity = state.codex_oauth_manager.clone();
+                tauri::async_runtime::spawn(async move {
+                    let run_id = uuid::Uuid::new_v4().to_string();
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        interval.tick().await;
+                        let source_before = crate::services::usage_attribution::source_key(
+                            &crate::codex_usage_source::get_codex_usage_source_dir(),
+                        );
+                        let identity = match crate::services::usage_attribution::read_current_identity(
+                            &db_for_identity, &manager_for_identity,
+                        ).await {
+                            Ok(identity) => identity,
+                            Err(error) => {
+                                log::warn!("Usage identity observation failed: {error}");
+                                None
+                            }
+                        };
+                        if source_before != crate::services::usage_attribution::source_key(
+                            &crate::codex_usage_source::get_codex_usage_source_dir(),
+                        ) {
+                            continue;
+                        }
+                        match crate::services::usage_attribution::observe_identity(
+                            &db_for_identity, &run_id, identity.as_ref(), chrono::Utc::now().timestamp_millis(),
+                        ) {
+                            Ok(count) if count > 0 => crate::usage_events::notify_log_recorded(),
+                            Ok(_) => {},
+                            Err(error) => log::warn!("Usage attribution update failed: {error}"),
+                        }
+                    }
+                });
                 let db_for_session_sync = state.db.clone();
                 tauri::async_runtime::spawn(async move {
                     const SESSION_SYNC_INTERVAL_SECS: u64 = 60;
@@ -1411,12 +1468,6 @@ pub fn run() {
             commands::save_settings,
             commands::has_codex_unify_history_backup,
             commands::restore_codex_unified_history,
-            commands::get_rectifier_config,
-            commands::set_rectifier_config,
-            commands::get_optimizer_config,
-            commands::set_optimizer_config,
-            commands::get_copilot_optimizer_config,
-            commands::set_copilot_optimizer_config,
             commands::get_log_config,
             commands::set_log_config,
             commands::restart_app,
@@ -1560,46 +1611,23 @@ pub fn run() {
             commands::set_auto_launch,
             commands::get_auto_launch_status,
             // Proxy server management
-            commands::start_proxy_server,
-            commands::stop_proxy_server,
-            commands::stop_proxy_with_restore,
-            commands::get_proxy_takeover_status,
-            commands::set_proxy_takeover_for_app,
-            commands::get_direct_provider,
-            commands::get_proxy_status,
-            commands::get_proxy_config,
-            commands::update_proxy_config,
             // Global & Per-App Config
-            commands::get_global_proxy_config,
-            commands::update_global_proxy_config,
-            commands::get_proxy_config_for_app,
-            commands::update_proxy_config_for_app,
             commands::get_pricing_model_source,
             commands::set_pricing_model_source,
-            commands::is_proxy_running,
-            commands::is_live_takeover_active,
-            commands::switch_proxy_provider,
-            // Proxy failover commands
-            commands::get_provider_health,
-            commands::reset_circuit_breaker,
-            commands::get_circuit_breaker_config,
-            commands::update_circuit_breaker_config,
-            commands::get_circuit_breaker_stats,
-            // Failover queue management
-            commands::get_failover_queue,
-            commands::get_available_providers_for_failover,
-            commands::add_to_failover_queue,
-            commands::remove_from_failover_queue,
-            commands::get_auto_failover_enabled,
-            commands::set_auto_failover_enabled,
             // Usage statistics
             commands::get_usage_summary,
+            commands::get_codex_usage_source,
             commands::get_usage_summary_by_app,
             commands::get_usage_trends,
             commands::get_provider_stats,
             commands::get_model_stats,
             commands::get_request_logs,
             commands::get_request_detail,
+            commands::get_usage_records,
+            commands::get_usage_attribution_choices,
+            commands::preview_usage_attribution,
+            commands::set_usage_attribution,
+            commands::undo_usage_attribution,
             commands::get_model_pricing,
             commands::update_model_pricing,
             commands::update_model_pricing_batch,
@@ -1621,6 +1649,7 @@ pub fn run() {
             commands::delete_sessions,
             commands::launch_session_terminal,
             commands::get_tool_versions,
+            commands::get_chatgpt_app_version,
             commands::run_tool_lifecycle_action,
             commands::probe_tool_installations,
             // Provider terminal
@@ -1660,12 +1689,6 @@ pub fn run() {
             commands::set_hermes_memory,
             commands::get_hermes_memory_limits,
             commands::set_hermes_memory_enabled,
-            // Global upstream proxy
-            commands::get_global_proxy_url,
-            commands::set_global_proxy_url,
-            commands::test_proxy_url,
-            commands::get_upstream_proxy_status,
-            commands::scan_local_proxies,
             // Window theme control
             commands::set_window_theme,
             // Generic managed auth commands
@@ -1674,6 +1697,8 @@ pub fn run() {
             commands::auth_cancel_login,
             commands::auth_list_accounts,
             commands::auth_get_status,
+            commands::auth_update_account,
+            commands::auth_switch_codex_account,
             commands::auth_remove_account,
             commands::auth_set_default_account,
             commands::auth_logout,
@@ -1714,6 +1739,7 @@ pub fn run() {
             commands::enter_lightweight_mode,
             commands::exit_lightweight_mode,
             commands::is_lightweight_mode,
+            menu::take_pending_settings_navigation,
         ]);
 
     let app = builder
@@ -1744,7 +1770,6 @@ pub fn run() {
                 // 重启路径交还 Tauri 默认流程即可：
                 //   - 窗口状态：插件 Exit 钩子在主线程保存（同线程读取窗口几何，无死锁）
                 //   - 托盘图标：Tauri 内部 cleanup_before_exit 清理，正常走 Drop
-                //   - 代理/Live 配置：无需恢复，重启后新实例立即接管并恢复代理状态
                 //   - 100ms 落盘等待：重启前的 DB 写入均为命令驱动、此刻已完成，
                 //     与所有 Tauri 应用默认重启路径的行为一致，无需额外等待
                 ExitRequestAction::DeferToTauriRestart => {
@@ -1762,7 +1787,6 @@ pub fn run() {
             let app_handle = app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 save_window_state_before_exit(&app_handle);
-                cleanup_before_exit(&app_handle).await;
                 // 先于 std::process::exit 显式移除托盘图标。
                 // 进程直接退出时 Tauri 运行时不走正常 Drop 流程，
                 // 不会向 Windows Shell 发送 NIM_DELETE，导致已退出的进程
@@ -1799,7 +1823,7 @@ pub fn run() {
                         }
                     }
                 }
-                // 处理通过自定义 URL 协议触发的打开事件（例如 ccswitch://...）
+                // 处理通过自定义 URL 协议触发的打开事件（例如 codexswitch://...）
                 RunEvent::Opened { urls } => {
                     if let Some(url) = urls.first() {
                         let url_str = url.to_string();
@@ -1808,7 +1832,7 @@ pub fn run() {
                             url_for_log(&url_str)
                         );
 
-                        if url_str.starts_with("ccswitch://") {
+                        if url_str.starts_with("codexswitch://") {
                             if crate::lightweight::is_lightweight_mode() {
                                 if let Err(e) = crate::lightweight::exit_lightweight_mode(app_handle)
                                 {
@@ -1876,21 +1900,6 @@ pub fn run() {
     });
 }
 
-// ============================================================
-// 应用退出清理
-// ============================================================
-
-/// 应用退出前的清理工作
-///
-/// 把接上代理的客户端都指回直连（模式和代理路由保留，下次启动再接上），再停止代理。
-/// 客户端不能一直指着代理：开机自启默认关闭，CC Switch 一关客户端就连不上了。
-pub async fn cleanup_before_exit(app_handle: &tauri::AppHandle) {
-    if let Some(state) = app_handle.try_state::<store::AppState>() {
-        crate::mode::controller::detach_all(state.inner()).await;
-        log::info!("退出清理完成：客户端已指回直连，代理已停止");
-    }
-}
-
 /// 主动从系统托盘移除托盘图标。
 ///
 /// `std::process::exit` 会绕过 Tauri 运行时，触发不了 `TrayIcon::drop()`，
@@ -1913,9 +1922,7 @@ pub(crate) fn remove_tray_icon_before_exit(app_handle: &tauri::AppHandle) {
 
 fn initialize_common_config_snippets(state: &store::AppState) {
     // Auto-extract common config snippets from clean live files when snippet is missing.
-    // This must run before proxy mode is re-attached on startup, otherwise we'd read
-    // proxy-placeholder configs instead of the user's actual live settings. A client
-    // still attached from an update restart (no detach on the way out) is skipped too.
+    // Historical takeover placeholders must not be imported into shared snippets.
     for app_type in crate::app_config::AppType::all() {
         if !state
             .db
@@ -1924,7 +1931,7 @@ fn initialize_common_config_snippets(state: &store::AppState) {
         {
             continue;
         }
-        if state.proxy_service.live_has_proxy_placeholder(&app_type) {
+        if crate::mode::controller::live_has_proxy_placeholder(&app_type) {
             continue;
         }
 
@@ -2020,7 +2027,7 @@ fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
         format!(
             "从旧版本迁移配置时发生错误：\n\n{error}\n\n\
             您的数据尚未丢失，旧配置文件仍然保留。\n\
-            建议回退到旧版本 CC Switch 以保护数据。\n\n\
+            建议回退到旧版本 Codex Switch 以保护数据。\n\n\
             点击「重试」重新尝试迁移\n\
             点击「退出」关闭程序（可回退版本后重新打开）"
         )
@@ -2028,7 +2035,7 @@ fn show_migration_error_dialog(app: &tauri::AppHandle, error: &str) -> bool {
         format!(
             "An error occurred while migrating configuration:\n\n{error}\n\n\
             Your data is NOT lost - the old config file is still preserved.\n\
-            Consider rolling back to an older CC Switch version.\n\n\
+            Consider rolling back to an older Codex Switch version.\n\n\
             Click 'Retry' to attempt migration again\n\
             Click 'Exit' to close the program"
         )
@@ -2078,7 +2085,7 @@ fn show_database_init_error_dialog(
             您的数据尚未丢失，应用不会自动删除数据库文件。\n\
             常见原因包括：数据库版本过新、文件损坏、权限不足、磁盘空间不足等。\n\n\
             建议：\n\
-            1) 先备份整个配置目录（包含 cc-switch.db）\n\
+            1) 先备份整个配置目录（包含 codex-switch.db）\n\
             2) 如果提示“数据库版本过新”，请升级到更新版本\n\
             3) 如果刚升级出现异常，可回退旧版本导出/备份后再升级\n\n\
             点击「重试」重新尝试初始化\n\
@@ -2092,8 +2099,8 @@ fn show_database_init_error_dialog(
             Your data is NOT lost - the app will not delete the database automatically.\n\
             Common causes include: newer database version, corrupted file, permission issues, or low disk space.\n\n\
             Suggestions:\n\
-            1) Back up the entire config directory (including cc-switch.db)\n\
-            2) If you see “database version is newer”, please upgrade CC Switch\n\
+            1) Back up the entire config directory (including codex-switch.db)\n\
+            2) If you see “database version is newer”, please upgrade Codex Switch\n\
             3) If this happened right after upgrading, consider rolling back to export/backup then upgrade again\n\n\
             Click 'Retry' to attempt initialization again\n\
             Click 'Exit' to close the program",
@@ -2186,7 +2193,7 @@ pub fn destroy_single_instance_lock(app_handle: &tauri::AppHandle) {
 /// 直接走 `tauri::process::restart`（spawn 新进程 + `exit(0)`），不经过事件
 /// 循环退出，因此 Tauri 内部的 `cleanup_before_exit` 和各插件的
 /// `RunEvent::Exit` 钩子都不会执行。需要的清理由调用方与本函数显式补偿：
-/// 窗口状态、代理/Live 恢复（调用方）；托盘图标、single-instance 锁（本函数）。
+/// 窗口状态（调用方）；托盘图标、single-instance 锁（本函数）。
 ///
 /// 有意不调 `AppHandle::cleanup_before_exit()`：它会在调用线程上 Drop 托盘
 /// 图标，而 macOS 的 NSStatusItem 操作要求主线程；`set_visible(false)` 走

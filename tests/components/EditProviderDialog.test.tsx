@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Provider } from "@/types";
 
@@ -81,6 +81,7 @@ vi.mock("@/components/providers/forms/ProviderForm", () => ({
     isProxyTakeover?: boolean;
     appId?: string;
   }) => {
+    const [draftName, setDraftName] = useState(initialData.name ?? "");
     useEffect(() => {
       if (onSubmitReadyChange) {
         submitReadyCallbacks.push(onSubmitReadyChange);
@@ -93,7 +94,7 @@ vi.mock("@/components/providers/forms/ProviderForm", () => ({
         onSubmit={(event) => {
           event.preventDefault();
           onSubmit({
-            name: initialData.name ?? "",
+            name: draftName,
             websiteUrl: initialData.websiteUrl ?? "",
             notes: initialData.notes,
             settingsConfig: JSON.stringify(initialData.settingsConfig ?? {}),
@@ -113,6 +114,11 @@ vi.mock("@/components/providers/forms/ProviderForm", () => ({
           });
         }}
       >
+        <input
+          aria-label="connection-name"
+          value={draftName}
+          onChange={(event) => setDraftName(event.target.value)}
+        />
         <output data-testid="settings-config">
           {JSON.stringify(initialData.settingsConfig ?? {})}
         </output>
@@ -152,6 +158,125 @@ describe("EditProviderDialog", () => {
     );
     apiMocks.getLiveProviderSettings.mockReset();
     apiMocks.getOpenClawLiveProvider.mockReset();
+  });
+
+  it("cancels deletion inside the editor without losing unsaved form values", async () => {
+    const provider = { id: "relay", name: "Relay", settingsConfig: {} };
+    const onSubmit = vi.fn();
+    const onConfirm = vi.fn();
+    function Editor() {
+      const [confirming, setConfirming] = useState(false);
+      return (
+        <EditProviderDialog
+          open
+          provider={provider}
+          appId="codex"
+          onOpenChange={vi.fn()}
+          onSubmit={onSubmit}
+          onDelete={() => setConfirming(true)}
+          deleteConfirmation={
+            confirming
+              ? {
+                  message: "Delete Relay?",
+                  onConfirm,
+                  onCancel: () => setConfirming(false),
+                }
+              : undefined
+          }
+        />
+      );
+    }
+    render(<Editor />);
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "connection-name" }),
+      {
+        target: { value: "Unsaved connection name" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.delete" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Delete Relay?");
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("button", { name: "common.save" }),
+    ).not.toBeInTheDocument();
+    fireEvent.submit(screen.getByRole("textbox").closest("form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "common.cancel" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("Unsaved connection name");
+    fireEvent.click(screen.getByRole("button", { name: "common.save" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(onSubmit.mock.calls[0][0].provider.name).toBe(
+      "Unsaved connection name",
+    );
+  });
+
+  it("explains why the current connection cannot be deleted while allowing save", async () => {
+    const onDelete = vi.fn();
+    render(
+      <EditProviderDialog
+        open
+        provider={{ id: "current", name: "Current", settingsConfig: {} }}
+        appId="codex"
+        onOpenChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onDelete={onDelete}
+        deleteDisabledReason="Switch to another connection first."
+      />,
+    );
+    await screen.findByRole("textbox");
+    const button = screen.getByRole("button", { name: "common.delete" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(
+      "Switch to another connection first.",
+    );
+    expect(screen.getByRole("button", { name: "common.save" })).toBeEnabled();
+    fireEvent.click(button);
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it("prevents repeated confirmation while deletion is pending and permits retry after failure", async () => {
+    let rejectDelete!: (reason: Error) => void;
+    const onConfirm = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectDelete = reject;
+          }),
+      )
+      .mockResolvedValueOnce(undefined);
+    const onOpenChange = vi.fn();
+    render(
+      <EditProviderDialog
+        open
+        provider={{ id: "relay", name: "Relay", settingsConfig: {} }}
+        appId="codex"
+        onOpenChange={onOpenChange}
+        onSubmit={vi.fn()}
+        onDelete={vi.fn()}
+        deleteConfirmation={{
+          message: "Delete Relay?",
+          onConfirm,
+          onCancel: vi.fn(),
+        }}
+      />,
+    );
+    await screen.findByRole("textbox");
+    const button = screen.getByRole("button", { name: "common.delete" });
+    fireEvent.click(button);
+    fireEvent.click(button);
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(button).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "common.cancel" }),
+    ).toBeDisabled();
+    await act(async () => rejectDelete(new Error("Delete failed")));
+    expect(button).toBeEnabled();
+    expect(screen.getByRole("textbox")).toBeInTheDocument();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.click(button);
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(2));
   });
 
   it("Codex 显示后端算出的切换投影，并把它作为保存时三方比较的基准", async () => {
@@ -207,68 +332,6 @@ describe("EditProviderDialog", () => {
     expect(payload.provider.settingsConfig).toEqual(view);
     expect(payload.editorSave).toEqual({ base: view, onConflict: "refuse" });
   });
-
-  it.each([
-    [
-      "gemini",
-      {
-        env: { GEMINI_API_KEY: "db-key", GEMINI_MODEL: "m" },
-        config: {},
-      },
-      {
-        env: { GEMINI_SANDBOX: "docker", GEMINI_API_KEY: "db-key" },
-        config: { ui: { theme: "dark" } },
-      },
-    ],
-    [
-      "grokbuild",
-      { config: '[models]\ndefault = "grok-4.5"\n' },
-      { config: '[ui]\ntheme = "dark"\n\n[models]\ndefault = "grok-4.5"\n' },
-    ],
-  ] as const)(
-    "%s 也显示切换投影，并把它作为保存时三方比较的基准",
-    async (appId, settingsConfig, view) => {
-      const provider: Provider = {
-        id: "p",
-        name: "P",
-        category: "custom",
-        settingsConfig: settingsConfig as Record<string, unknown>,
-      };
-      apiMocks.getEditorView.mockResolvedValue({ settings: view, inactive: [] });
-      const handleSubmit = vi.fn().mockResolvedValue(undefined);
-
-      render(
-        <EditProviderDialog
-          open
-          provider={provider}
-          onOpenChange={vi.fn()}
-          onSubmit={handleSubmit}
-          appId={appId}
-        />,
-      );
-
-      await waitFor(() => {
-        expect(
-          JSON.parse(screen.getByTestId("settings-config").textContent ?? "{}"),
-        ).toEqual(view);
-      });
-      expect(apiMocks.getEditorView).toHaveBeenCalledWith(
-        appId,
-        provider.settingsConfig,
-        "custom",
-        provider.id,
-      );
-      expect(apiMocks.getCurrent).not.toHaveBeenCalled();
-      expect(apiMocks.getLiveProviderSettings).not.toHaveBeenCalled();
-
-      fireEvent.click(screen.getByRole("button", { name: "common.save" }));
-      await waitFor(() => expect(handleSubmit).toHaveBeenCalledTimes(1));
-      expect(handleSubmit.mock.calls[0][0].editorSave).toEqual({
-        base: view,
-        onConflict: "refuse",
-      });
-    },
-  );
 
   it("Codex 读不了配置文件时退回显示保存的供应商配置", async () => {
     const provider: Provider = {
@@ -442,10 +505,10 @@ describe("EditProviderDialog", () => {
     });
   });
 
-  it("编辑 Pi 供应商时保留通用元数据", async () => {
+  it("编辑 Codex 供应商时保留通用元数据", async () => {
     const provider: Provider = {
-      id: "pi-provider",
-      name: "Pi Provider",
+      id: "codex-provider",
+      name: "Codex Provider",
       settingsConfig: {
         baseUrl: "https://api.example.com/v1",
         models: [{ id: "model" }],
@@ -469,10 +532,11 @@ describe("EditProviderDialog", () => {
         provider={provider}
         onOpenChange={vi.fn()}
         onSubmit={handleSubmit}
-        appId="pi"
+        appId="codex"
       />,
     );
 
+    await screen.findByTestId("settings-config");
     fireEvent.click(screen.getByRole("button", { name: "common.save" }));
 
     await waitFor(() => expect(handleSubmit).toHaveBeenCalledTimes(1));
@@ -484,17 +548,17 @@ describe("EditProviderDialog", () => {
     );
   });
 
-  it("重新打开 Pi 编辑表单后忽略上一轮的就绪回调", async () => {
+  it("重新打开 Codex 编辑表单后忽略上一轮的就绪回调", async () => {
     const provider: Provider = {
-      id: "pi-provider",
-      name: "Pi Provider",
+      id: "codex-provider",
+      name: "Codex Provider",
       settingsConfig: { models: [{ id: "model" }] },
     };
     const props = {
       provider,
       onOpenChange: vi.fn(),
       onSubmit: vi.fn(),
-      appId: "pi" as const,
+      appId: "codex" as const,
     };
     const { rerender } = render(<EditProviderDialog open {...props} />);
 
@@ -516,4 +580,19 @@ describe("EditProviderDialog", () => {
     act(() => staleCallback?.(true));
     expect(reopenedButton).toBeDisabled();
   });
+  it.each(["claude", "gemini", "pi"] as const)(
+    "rejects unsupported %s dialog requests",
+    (appId) => {
+      const { container } = render(
+        <EditProviderDialog
+          open
+          appId={appId}
+          provider={{ id: "legacy", name: "Legacy", settingsConfig: {} }}
+          onOpenChange={vi.fn()}
+          onSubmit={vi.fn()}
+        />,
+      );
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
 });

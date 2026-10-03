@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   codexProviderPresets,
   generateThirdPartyConfig,
+  getCodexDirectPresetEntries,
 } from "./codexProviderPresets";
 
 describe("codexProviderPresets managed OAuth snapshots", () => {
@@ -24,5 +25,26 @@ describe("codexProviderPresets managed OAuth snapshots", () => {
     expect(
       generateThirdPartyConfig("acme", "https://api.acme.dev/v1", "m1"),
     ).toContain("requires_openai_auth = true");
+  });
+});
+
+describe("Codex direct creation presets", () => {
+  it("offers Official and DeepSeek using their original preset identities", () => {
+    const entries = getCodexDirectPresetEntries();
+    expect(entries.map(({ preset }) => preset.name)).toEqual([
+      "OpenAI Official",
+      "DeepSeek",
+    ]);
+    for (const entry of entries) {
+      expect(entry.id).toBe(
+        `codex-${codexProviderPresets.indexOf(entry.preset)}`,
+      );
+    }
+    expect(entries[0].id).toBe("codex-0");
+    expect(entries[1].preset.config).toContain(
+      'base_url = "https://api.deepseek.com"',
+    );
+    expect(entries[1].preset.config).toContain('wire_api = "responses"');
+    expect(entries[1].preset.modelCatalog?.[0].model).toBe("deepseek-flash");
   });
 });

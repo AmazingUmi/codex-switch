@@ -49,7 +49,7 @@ export function LogConfigPanel() {
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
           <Label>{t("settings.advanced.logConfig.enabled")}</Label>
-          <p className="text-xs text-muted-foreground">
+          <p className="settings-description">
             {t("settings.advanced.logConfig.enabledDescription")}
           </p>
         </div>
@@ -62,7 +62,7 @@ export function LogConfigPanel() {
       <div className="flex items-center justify-between">
         <div className="space-y-0.5">
           <Label>{t("settings.advanced.logConfig.level")}</Label>
-          <p className="text-xs text-muted-foreground">
+          <p className="settings-description">
             {t("settings.advanced.logConfig.levelDescription")}
           </p>
         </div>
@@ -76,7 +76,7 @@ export function LogConfigPanel() {
           <SelectTrigger className="w-[120px]">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="settings-control-menu">
             {LOG_LEVELS.map((level) => (
               <SelectItem key={level} value={level}>
                 {t(`settings.advanced.logConfig.levels.${level}`)}

@@ -9,27 +9,31 @@ import {
 } from "@/components/ui/table";
 import { useModelStats } from "@/lib/query/usage";
 import { fmtUsd } from "./format";
+import { UsageStatsPanel } from "./UsageStatsPanel";
 import type { UsageRangeSelection } from "@/types/usage";
 
 interface ModelStatsTableProps {
   range: UsageRangeSelection;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
 
 export function ModelStatsTable({
   range,
-  appType,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: ModelStatsTableProps) {
   const { t } = useTranslation();
   const { data: stats, isLoading } = useModelStats(
     range,
-    { appType, providerName, model },
+    { appType: "codex", providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },
@@ -40,19 +44,27 @@ export function ModelStatsTable({
   }
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
-      <Table>
+    <UsageStatsPanel
+      comparisonTitle={t("usage.comparison.models", "Model comparison")}
+      items={(stats ?? []).map((stat) => ({
+        id: stat.model,
+        label: stat.model,
+        totalTokens: stat.totalTokens,
+        totalCost: stat.totalCost,
+      }))}
+    >
+      <Table className="min-w-[540px]">
         <TableHeader>
           <TableRow>
             <TableHead>{t("usage.model", "模型")}</TableHead>
             <TableHead className="text-right">
-              {t("usage.requests", "请求数")}
+              {t("usage.requests", "用量记录数")}
             </TableHead>
             <TableHead className="text-right">
               {t("usage.tokens", "Tokens")}
             </TableHead>
             <TableHead className="text-right">
-              {t("usage.totalCost", "总成本")}
+              {t("usage.estimatedCost", "Estimated cost")}
             </TableHead>
             <TableHead className="text-right">
               {t("usage.avgCost", "平均成本")}
@@ -72,8 +84,10 @@ export function ModelStatsTable({
           ) : (
             stats?.map((stat) => (
               <TableRow key={stat.model}>
-                <TableCell className="font-mono text-sm">
-                  {stat.model}
+                <TableCell className="font-medium" title={stat.model}>
+                  <span className="block max-w-[180px] truncate">
+                    {stat.model}
+                  </span>
                 </TableCell>
                 <TableCell className="text-right">
                   {stat.requestCount.toLocaleString()}
@@ -92,6 +106,6 @@ export function ModelStatsTable({
           )}
         </TableBody>
       </Table>
-    </div>
+    </UsageStatsPanel>
   );
 }

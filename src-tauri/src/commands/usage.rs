@@ -6,8 +6,18 @@ use crate::services::usage_stats::*;
 use crate::store::AppState;
 use tauri::State;
 
+/// Report the actual read root and the default used when the override is cleared.
+#[tauri::command]
+pub fn get_codex_usage_source() -> crate::codex_usage_source::CodexUsageSource {
+    crate::codex_usage_source::get_codex_usage_source()
+}
+
 /// 获取使用量汇总
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_usage_summary(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -15,13 +25,20 @@ pub fn get_usage_summary(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<UsageSummary, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_usage_summary(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
@@ -33,17 +50,28 @@ pub fn get_usage_summary_by_app(
     end_date: Option<i64>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<UsageSummaryByApp>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_usage_summary_by_app(
         start_date,
         end_date,
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
 /// 获取每日趋势
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_usage_trends(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -51,18 +79,29 @@ pub fn get_usage_trends(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<DailyStats>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_daily_trends(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
 /// 获取 Provider 统计
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_provider_stats(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -70,18 +109,29 @@ pub fn get_provider_stats(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<ProviderStats>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_provider_stats(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
 /// 获取模型统计
 #[tauri::command]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC filters"
+)]
 pub fn get_model_stats(
     state: State<'_, AppState>,
     start_date: Option<i64>,
@@ -89,13 +139,20 @@ pub fn get_model_stats(
     app_type: Option<String>,
     provider_name: Option<String>,
     model: Option<String>,
+    account_id: Option<String>,
+    provider_id: Option<String>,
 ) -> Result<Vec<ModelStats>, AppError> {
+    let source = UsageSourceFilter {
+        account_id,
+        provider_id,
+    };
     state.db.get_model_stats(
         start_date,
         end_date,
         app_type.as_deref(),
         provider_name.as_deref(),
         model.as_deref(),
+        Some(&source),
     )
 }
 
@@ -327,4 +384,63 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(crate::usage_events::take_test_notify_count(), 1);
     }
+}
+
+// Historical pricing preferences remain independent of local routing.
+
+async fn get_pricing_model_source_internal(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    let db = &state.db;
+    db.get_pricing_model_source(app_type).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn get_pricing_model_source_test_hook(
+    state: &AppState,
+    app_type: &str,
+) -> Result<String, AppError> {
+    get_pricing_model_source_internal(state, app_type).await
+}
+
+/// 获取计费模式来源
+#[tauri::command]
+pub async fn get_pricing_model_source(
+    state: tauri::State<'_, AppState>,
+    app_type: String,
+) -> Result<String, String> {
+    get_pricing_model_source_internal(&state, &app_type)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+async fn set_pricing_model_source_internal(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    let db = &state.db;
+    db.set_pricing_model_source(app_type, value).await
+}
+
+#[cfg_attr(not(feature = "test-hooks"), doc(hidden))]
+pub async fn set_pricing_model_source_test_hook(
+    state: &AppState,
+    app_type: &str,
+    value: &str,
+) -> Result<(), AppError> {
+    set_pricing_model_source_internal(state, app_type, value).await
+}
+
+/// 设置计费模式来源
+#[tauri::command]
+pub async fn set_pricing_model_source(
+    state: tauri::State<'_, AppState>,
+    app_type: String,
+    value: String,
+) -> Result<(), String> {
+    set_pricing_model_source_internal(&state, &app_type, &value)
+        .await
+        .map_err(|e| e.to_string())
 }

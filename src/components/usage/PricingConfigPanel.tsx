@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { usageApi } from "@/lib/api/usage";
 import { useTranslation } from "react-i18next";
 import {
   Table,
@@ -30,25 +31,26 @@ import { PricingEditModal } from "./PricingEditModal";
 import type { ModelPricing } from "@/types/usage";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { proxyApi } from "@/lib/api/proxy";
-import { ModelsDevAutoSyncPanel } from "./ModelsDevAutoSyncPanel";
 
-const PRICING_APPS = ["claude", "codex", "gemini", "grokbuild"] as const;
+import { ModelsDevAutoSyncPanel } from "./ModelsDevAutoSyncPanel";
+import { isCodexPricingModel } from "./codexPricing";
+
+const PRICING_APPS = ["codex"] as const;
 type PricingApp = (typeof PRICING_APPS)[number];
 type PricingModelSource = "request" | "response";
 
 type SourceState = Record<PricingApp, PricingModelSource>;
 
 const DEFAULT_SOURCES: SourceState = {
-  claude: "response",
   codex: "response",
-  gemini: "response",
-  grokbuild: "response",
 };
 
 export function PricingConfigPanel() {
   const { t } = useTranslation();
-  const { data: pricing, isLoading, error } = useModelPricing();
+  const { data: allPricing, isLoading, error } = useModelPricing();
+  const pricing = allPricing?.filter((entry) =>
+    isCodexPricingModel(entry.modelId, entry.displayName),
+  );
   const deleteMutation = useDeleteModelPricing();
   const [editingModel, setEditingModel] = useState<ModelPricing | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
@@ -76,7 +78,7 @@ export function PricingConfigPanel() {
       try {
         const results = await Promise.all(
           PRICING_APPS.map(async (app) => {
-            const source = await proxyApi.getPricingModelSource(app);
+            const source = await usageApi.getPricingModelSource(app);
             return {
               app,
               source: (source === "request"
@@ -121,7 +123,7 @@ export function PricingConfigPanel() {
     try {
       await Promise.all(
         PRICING_APPS.map((app) =>
-          proxyApi.setPricingModelSource(app, sources[app]),
+          usageApi.setPricingModelSource(app, sources[app]),
         ),
       );
       toast.success(t("settings.globalProxy.pricingSaved"));

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CodexOAuthSection } from "@/components/providers/forms/CodexOAuthSection";
@@ -15,9 +15,23 @@ vi.mock("@/components/providers/forms/hooks/useCodexOauth", () => ({
 }));
 
 vi.mock("@/components/CodexOauthAccountQuota", () => ({
-  default: ({ accountId }: { accountId: string }) => {
-    mocks.renderAccountQuota(accountId);
-    return <div data-testid="account-quota">{accountId}</div>;
+  default: ({
+    accountId,
+    enabled,
+    children,
+  }: {
+    accountId: string;
+    enabled: boolean;
+    children: (
+      query: { isFetching: boolean; refetch: () => void },
+      view: React.ReactNode,
+    ) => React.ReactNode;
+  }) => {
+    if (enabled) mocks.renderAccountQuota(accountId);
+    return children(
+      { isFetching: false, refetch: vi.fn() },
+      enabled ? <div data-testid="account-quota">{accountId}</div> : null,
+    );
   },
 }));
 
@@ -107,6 +121,152 @@ describe("CodexOAuthSection", () => {
     expect(screen.queryByTestId("account-quota")).not.toBeInTheDocument();
   });
 
+  it.each(["ready", "loading", "failed"])(
+    "routes the shared home add entry to the chooser while OAuth status is %s",
+    async (state) => {
+      const user = userEvent.setup();
+      const auth = mocks.useCodexOauth();
+      const onAddAccount = vi.fn();
+      mocks.useCodexOauth.mockReturnValue({
+        ...auth,
+        isStatusSuccess: state === "ready",
+        isStatusError: state === "failed",
+      });
+      render(
+        <CodexOAuthSection presentation="cards" onAddAccount={onAddAccount} />,
+      );
+      await user.click(screen.getByRole("button", { name: "添加" }));
+      expect(onAddAccount).toHaveBeenCalledWith(auth.addAccount);
+      expect(auth.addAccount).not.toHaveBeenCalled();
+      onAddAccount.mock.calls[0][0]();
+      expect(auth.addAccount).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps the direct login action when no shared chooser is provided", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    render(<CodexOAuthSection presentation="cards" />);
+    await user.click(screen.getByRole("button", { name: "添加其他账号" }));
+    expect(auth.addAccount).toHaveBeenCalledOnce();
+  });
+
+  it("opens bulk logout from the account header and invokes the existing logout action", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    render(<CodexOAuthSection presentation="cards" showLogoutAll />);
+    expect(screen.queryByText("注销所有账号")).not.toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "更多账号操作" });
+    await user.click(more);
+    await user.click(screen.getByRole("menuitem", { name: "注销所有账号" }));
+    expect(auth.logout).toHaveBeenCalledOnce();
+    expect(auth.removeAccount).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+  });
+
+  it("allows keyboard dismissal of bulk logout without logging out", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    render(<CodexOAuthSection presentation="cards" showLogoutAll />);
+    const more = screen.getByRole("button", { name: "更多账号操作" });
+    more.focus();
+    await user.keyboard("{Enter}");
+    expect(
+      screen.getByRole("menuitem", { name: "注销所有账号" }),
+    ).toBeVisible();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
+    expect(auth.logout).not.toHaveBeenCalled();
+    await waitFor(() => expect(more).toHaveFocus());
+  });
+
+  it.each(["isAddingAccount", "isRemovingAccount", "isSettingDefaultAccount"])(
+    "disables bulk logout while %s is active",
+    async (pendingFlag) => {
+      const user = userEvent.setup();
+      const auth = mocks.useCodexOauth();
+      mocks.useCodexOauth.mockReturnValue({ ...auth, [pendingFlag]: true });
+      render(<CodexOAuthSection presentation="cards" showLogoutAll />);
+      await user.click(screen.getByRole("button", { name: "更多账号操作" }));
+      const logout = screen.getByRole("menuitem", { name: "注销所有账号" });
+      expect(logout).toHaveAttribute("aria-disabled", "true");
+      await user.click(logout);
+      expect(auth.logout).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["loading", "failed", "empty", "hidden"])(
+    "hides the bulk menu when account state is %s",
+    (state) => {
+      const auth = mocks.useCodexOauth();
+      mocks.useCodexOauth.mockReturnValue({
+        ...auth,
+        isStatusSuccess: state !== "loading" && state !== "failed",
+        isStatusError: state === "failed",
+        accounts: state === "empty" ? [] : auth.accounts,
+        hasAnyAccount: state !== "empty",
+      });
+      render(
+        <CodexOAuthSection
+          presentation="cards"
+          showLogoutAll={state !== "hidden"}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "更多账号操作" }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("注销所有账号")).not.toBeInTheDocument();
+      const header = screen.getByRole("heading", {
+        name: "订阅账户",
+      }).parentElement!;
+      if (state === "loading" || state === "failed") {
+        expect(within(header).queryByText("2 个账号")).not.toBeInTheDocument();
+        expect(
+          within(header).getByText(
+            state === "loading" ? "正在加载..." : "状态不可用",
+          ),
+        ).toBeInTheDocument();
+      }
+    },
+  );
+
+  it("shows the loaded account count as neutral header text", () => {
+    render(<CodexOAuthSection presentation="cards" />);
+    const count = screen.getByText("2 个账号");
+    expect(count).toHaveClass("text-muted-foreground");
+    expect(count).not.toHaveClass("bg-green-500");
+  });
+
+  it("stretches home account cards into equal grid rows despite differing metadata", () => {
+    const auth = mocks.useCodexOauth();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      accounts: [
+        {
+          ...auth.accounts[0],
+          display_name: "Primary",
+          notes: "A long note ".repeat(40).trim(),
+        },
+        auth.accounts[1],
+      ],
+    });
+    const { container } = render(
+      <CodexOAuthSection presentation="cards" showAccountQuota />,
+    );
+    const cards = container.querySelectorAll("[data-account-id]");
+    expect(cards).toHaveLength(2);
+    expect(cards[0].parentElement).toHaveClass("auto-rows-fr", "items-stretch");
+    for (const card of cards) {
+      expect(card).toHaveClass("h-full", "flex-col");
+    }
+    expect(screen.getByText("Primary")).toBeInTheDocument();
+    expect(
+      screen.getByTitle("A long note ".repeat(40).trim()),
+    ).toBeInTheDocument();
+    expect(mocks.renderAccountQuota).toHaveBeenCalledWith("account-1");
+    expect(mocks.renderAccountQuota).toHaveBeenCalledWith("account-2");
+  });
+
   it("renders account quota in Auth Center", () => {
     render(<AuthCenterPanel />);
 
@@ -115,6 +275,19 @@ describe("CodexOAuthSection", () => {
     expect(
       screen.getAllByTestId("account-quota").map((quota) => quota.textContent),
     ).toEqual(["account-1", "account-2"]);
+  });
+
+  it("exposes Settings bulk logout with a single remaining account", async () => {
+    const user = userEvent.setup();
+    const auth = mocks.useCodexOauth();
+    mocks.useCodexOauth.mockReturnValue({
+      ...auth,
+      accounts: [auth.accounts[0]],
+    });
+    render(<AuthCenterPanel />);
+    await user.click(screen.getByRole("button", { name: "注销所有账号" }));
+    expect(auth.logout).toHaveBeenCalledOnce();
+    expect(auth.removeAccount).not.toHaveBeenCalled();
   });
 
   it("reauthenticates the selected legacy account in place", async () => {
@@ -133,6 +306,9 @@ describe("CodexOAuthSection", () => {
     });
 
     render(<CodexOAuthSection />);
+    await user.click(
+      screen.getByRole("button", { name: "编辑账号: user@example.com" }),
+    );
     await user.click(screen.getByRole("button", { name: "重新登录" }));
 
     expect(reauthAccount).toHaveBeenCalledWith("account-1");
@@ -150,6 +326,9 @@ describe("CodexOAuthSection", () => {
     });
 
     render(<CodexOAuthSection />);
+    await user.click(
+      screen.getByRole("button", { name: "编辑账号: user@example.com" }),
+    );
     await user.click(screen.getByRole("button", { name: "重新登录" }));
 
     expect(reauthAccount).toHaveBeenCalledWith("account-1");

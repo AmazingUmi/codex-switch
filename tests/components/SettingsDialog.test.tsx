@@ -20,16 +20,6 @@ vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: tMock }),
 }));
 
-vi.mock("@/hooks/useProxyStatus", () => ({
-  useProxyStatus: () => ({
-    isRunning: false,
-    takeoverStatus: null,
-    startProxyServer: vi.fn(),
-    stopWithRestore: vi.fn(),
-    isPending: false,
-  }),
-}));
-
 interface SettingsMock {
   settings: any;
   isLoading: boolean;
@@ -134,6 +124,13 @@ vi.mock("@/lib/api", () => ({
   settingsApi: {
     restart: vi.fn().mockResolvedValue(true),
   },
+  backupsApi: {
+    listDbBackups: vi.fn().mockResolvedValue([]),
+    createDbBackup: vi.fn().mockResolvedValue("db_backup_test.db"),
+    restoreDbBackup: vi.fn().mockResolvedValue("db_backup_safety.db"),
+    renameDbBackup: vi.fn().mockResolvedValue("renamed.db"),
+    deleteDbBackup: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 const TabsContext = createContext<{
@@ -161,10 +158,14 @@ vi.mock("@/components/ui/tabs", () => {
       </TabsContext.Provider>
     ),
     TabsList: ({ children }: any) => <div>{children}</div>,
-    TabsTrigger: ({ value, children }: any) => {
+    TabsTrigger: ({ value, children, ...props }: any) => {
       const ctx = useContext(TabsContext);
       return (
-        <button type="button" onClick={() => ctx.onValueChange?.(value)}>
+        <button
+          type="button"
+          {...props}
+          onClick={() => ctx.onValueChange?.(value)}
+        >
           {children}
         </button>
       );
@@ -286,6 +287,117 @@ describe("SettingsPage Component", () => {
     expect(document.querySelector(".animate-spin")).toBeInTheDocument();
   });
 
+  it("rolls back a failed macOS tray display save through the shared auto-save handler", async () => {
+    vi.stubGlobal("navigator", {
+      userAgent: "Macintosh",
+      platform: "MacIntel",
+    });
+    settingsMock.settings.trayDisplayMode = "icon";
+    settingsMock.autoSaveSettings.mockRejectedValueOnce(
+      new Error("Store unavailable"),
+    );
+    renderSettingsPage();
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tray.quotaRing" }),
+    );
+    await waitFor(() => {
+      expect(settingsMock.updateSettings).toHaveBeenNthCalledWith(1, {
+        trayDisplayMode: "quotaRing",
+      });
+      expect(settingsMock.updateSettings).toHaveBeenNthCalledWith(2, {
+        trayDisplayMode: "icon",
+      });
+    });
+    expect(settingsMock.autoSaveSettings).toHaveBeenCalledWith({
+      trayDisplayMode: "quotaRing",
+    });
+    expect(
+      screen.getByRole("button", { name: "settings.tray.icon" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "settings.saveFailedGeneric",
+    );
+  });
+
+  it("exposes only general, advanced and about settings tabs", () => {
+    renderSettingsPage();
+    for (const label of [
+      "settings.tabGeneral",
+      "settings.tabAdvanced",
+      "common.about",
+    ]) {
+      const tab = screen.getByRole("button", { name: label });
+      expect(tab).toHaveAttribute("title", label);
+      expect(tab.textContent).toBe("");
+    }
+    for (const label of [
+      "codexAccounts.configurationsTab",
+      "settings.tabNetwork",
+      "settings.tabAuth",
+      "usage.title",
+    ]) {
+      expect(
+        screen.queryByRole("button", { name: label }),
+      ).not.toBeInTheDocument();
+    }
+    expect(screen.queryByText("settings.globalProxy")).not.toBeInTheDocument();
+  });
+
+  it.each(["auth", "network", "configurations", "unsupported-old-tab"])(
+    "falls back to general settings for stale defaultTab=%s",
+    (defaultTab) => {
+      renderSettingsPage({ defaultTab });
+      expect(screen.getByTestId("tab-general")).toBeInTheDocument();
+      expect(screen.getByText("language:zh")).toBeInTheDocument();
+      expect(screen.queryByTestId(`tab-${defaultTab}`)).not.toBeInTheDocument();
+    },
+  );
+
+  it("does not expose or change persisted policies through the retired Auth entry", () => {
+    settingsMock.settings = {
+      ...settingsMock.settings,
+      preserveCodexOfficialAuthOnSwitch: true,
+      unifyCodexSessionHistory: true,
+      unifyCodexMigrateExisting: true,
+    };
+    renderSettingsPage({ defaultTab: "auth" });
+
+    expect(screen.getByTestId("tab-general")).toBeInTheDocument();
+    expect(screen.queryByText("settings.codexAuth")).not.toBeInTheDocument();
+    for (const name of [
+      "settings.preserveCodexOfficialAuthOnSwitch",
+      "settings.unifyCodexSessionHistory",
+    ]) {
+      expect(screen.queryByRole("switch", { name })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByTestId("dialog-root")).not.toBeInTheDocument();
+    expect(settingsMock.updateSettings).not.toHaveBeenCalled();
+    expect(settingsMock.autoSaveSettings).not.toHaveBeenCalled();
+    expect(settingsMock.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("normalizes the retired Auth default tab when settings reopen", () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const view = (open: boolean, defaultTab: string) => (
+      <QueryClientProvider client={client}>
+        <SettingsPage
+          open={open}
+          onOpenChange={vi.fn()}
+          defaultTab={defaultTab}
+        />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(view(true, "advanced"));
+    expect(screen.getByTestId("tab-advanced")).toBeInTheDocument();
+    rerender(view(false, "advanced"));
+    rerender(view(true, "auth"));
+    expect(screen.getByTestId("tab-general")).toBeInTheDocument();
+    expect(screen.queryByTestId("tab-auth")).not.toBeInTheDocument();
+  });
+
   it("should reset import/export status when dialog transitions to open", () => {
     const client = new QueryClient({
       defaultOptions: {
@@ -331,10 +443,23 @@ describe("SettingsPage Component", () => {
       minimizeToTrayOnClose: false,
     });
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.cloudSync.title"));
     expect(screen.getByText("webdav-sync-section:none")).toBeInTheDocument();
-    fireEvent.click(screen.getByText("settings.advanced.data.title"));
+    expect(
+      screen.queryByText("settings.advanced.data.title"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("settings.advanced.backup.title"));
+    expect(
+      screen.getByText("settings.backupManager.intervalLabel"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "settings.backupManager.createBackup",
+      }),
+    ).toBeInTheDocument();
 
     // 有文件时，点击导入按钮执行 importConfig
     fireEvent.click(screen.getByRole("button", { name: /settings\.import/ }));
@@ -359,20 +484,21 @@ describe("SettingsPage Component", () => {
     expect(scrollContainer).not.toBeNull();
 
     scrollContainer!.scrollTop = 640;
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
 
     expect(scrollContainer!.scrollTop).toBe(0);
   });
 
-  it("should pass onImportSuccess callback to useImportExport hook", async () => {
+  it("should invoke the external callback after a successful import", async () => {
     const onImportSuccess = vi.fn();
 
     renderSettingsPage({ onImportSuccess });
 
     expect(useImportExportSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ onImportSuccess }),
+      expect.objectContaining({ onImportSuccess: expect.any(Function) }),
     );
-    expect(lastUseImportExportOptions?.onImportSuccess).toBe(onImportSuccess);
 
     if (typeof lastUseImportExportOptions?.onImportSuccess === "function") {
       await lastUseImportExportOptions.onImportSuccess();
@@ -387,7 +513,9 @@ describe("SettingsPage Component", () => {
     renderSettingsPage({ onOpenChange });
 
     // 保存按钮在 advanced tab 中
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: /common\.save/ }));
 
     await waitFor(() => {
@@ -446,7 +574,9 @@ describe("SettingsPage Component", () => {
   it("should trigger directory management callbacks inside advanced tab", () => {
     renderSettingsPage();
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
 
     fireEvent.click(screen.getByText("browse-directory"));

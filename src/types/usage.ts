@@ -112,6 +112,9 @@ export interface DailyStats {
 }
 
 export interface ProviderStats {
+  sourceId: string;
+  accountId: string | null;
+  accountName: string | null;
   providerId: string;
   providerName: string;
   requestCount: number;
@@ -141,8 +144,8 @@ export interface LogFilters {
 /**
  * Dashboard 顶栏的全局筛选维度，作用于 Hero / 趋势图 / 三个统计 Tab。
  *
- * - `providerName` 按展示名精确匹配（与 Provider 统计列表同口径，含
- *   "Claude (Session)" 等会话占位名）；
+ * - `accountId` / `providerId` 按来源身份筛选，未知来源使用
+ *   `__unassigned__`；`providerName` 可组合展示名筛选；
  * - `model` 按「有效计价模型」匹配（pricing_model 优先、回落 model，
  *   与模型统计的分组口径一致）。
  */
@@ -150,6 +153,10 @@ export interface UsageScopeFilters {
   appType?: string;
   providerName?: string;
   model?: string;
+  /** Subscription account identity; independent of provider configuration. */
+  accountId?: string;
+  /** API source identity; independent of its display name. */
+  providerId?: string;
 }
 
 export interface ProviderLimitStatus {
@@ -322,4 +329,68 @@ export interface StatsFilters {
   timeRange: UsageRangePreset;
   providerId?: string;
   appType?: string;
+}
+
+/** Attribution is held only in Switch; imported source records remain read-only. */
+export type UsageAttributionMethod = "untagged" | "auto" | "manual" | "mixed";
+export type UsageRecordsView = "session" | "hour" | "day" | "details";
+export interface UsageRecordFilters {
+  appType?: string;
+  providerId?: string;
+  providerName?: string;
+  accountId?: string;
+  model?: string;
+  startDate?: number;
+  endDate?: number;
+  sessionId?: string;
+  attribution?: "all" | "untagged" | "auto" | "manual";
+}
+export interface UsageRecordRow {
+  id: string;
+  sessionId?: string | null;
+  requestId?: string | null;
+  appType: string;
+  startAt: number;
+  endAt: number;
+  bucketStartAt?: number | null;
+  bucketEndAt?: number | null;
+  recordCount: number;
+  accountName?: string | null;
+  providerName?: string | null;
+  accountIds: string[];
+  providerIds: string[];
+  accountNames: string[];
+  providerNames: string[];
+  models: string[];
+  method: UsageAttributionMethod;
+  /** Fresh input tokens: the backend has already removed cache reads. */
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalCostUsd: string;
+  unpricedCount: number;
+  breakdown?: UsageRecordRow[];
+}
+export interface PaginatedUsageRecords {
+  legacyRollupCount?: number;
+  data: UsageRecordRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+export interface UsageAttributionChoice {
+  id: string;
+  label: string;
+  accountId?: string | null;
+  accountName?: string | null;
+  providerId?: string | null;
+  providerName?: string | null;
+}
+export type UsageAttributionSelector = Omit<UsageRecordFilters, "appType"> & {
+  requestIds?: string[];
+};
+export interface UsageAttributionResult {
+  actionId: number;
+  count: number;
 }

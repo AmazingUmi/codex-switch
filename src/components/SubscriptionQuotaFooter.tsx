@@ -1,9 +1,13 @@
 import React from "react";
 import { RefreshCw, AlertCircle, Clock } from "lucide-react";
+import { formatRelativeTime } from "@/utils/relativeTime";
 import { useTranslation } from "react-i18next";
 import type { AppId } from "@/lib/api";
 import { useSubscriptionQuota } from "@/lib/query/subscription";
 import type { QuotaTier, SubscriptionQuota } from "@/types/subscription";
+import { CodexQuotaRings } from "@/components/CodexQuotaRings";
+import { CodexQuotaBattery } from "@/components/CodexQuotaBattery";
+import type { QuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 
 interface SubscriptionQuotaFooterProps {
   appId: AppId;
@@ -18,7 +22,14 @@ interface SubscriptionQuotaViewProps {
   refetch: () => void;
   /** 用于 `subscription.expiredHint` 的 {tool} 插值；解耦了 hook 的 appId */
   appIdForExpiredHint: string;
+  /** Managed accounts are reauthenticated in the app rather than a CLI. */
+  expiredHint?: string;
   inline?: boolean;
+  visualization?: "bars" | "rings" | "battery";
+  batteryThresholds?: QuotaBatteryThresholds;
+  showRefresh?: boolean;
+  refreshFailed?: boolean;
+  refreshError?: string | null;
 }
 
 /** 已知 tier 名称的显示映射（官方订阅 + Token Plan 共用） */
@@ -55,7 +66,7 @@ export function utilizationColor(utilization: number): string {
 export function countdownStr(resetsAt: string | null): string | null {
   if (!resetsAt) return null;
   const diffMs = new Date(resetsAt).getTime() - Date.now();
-  if (diffMs <= 0) return null;
+  if (!Number.isFinite(diffMs) || diffMs <= 0) return null;
 
   const hours = Math.floor(diffMs / (1000 * 60 * 60));
   const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
@@ -81,35 +92,26 @@ function formatResetTime(
 /** 不需要在 inline 模式显示的 tier */
 const HIDDEN_INLINE_TIERS = new Set(["seven_day_sonnet"]);
 
-/** 格式化相对时间（与 UsageFooter 一致） */
-function formatRelativeTime(
-  timestamp: number,
-  now: number,
-  t: (key: string, options?: { count?: number }) => string,
-): string {
-  const diff = Math.floor((now - timestamp) / 1000);
-  if (diff < 60) return t("usage.justNow");
-  if (diff < 3600)
-    return t("usage.minutesAgo", { count: Math.floor(diff / 60) });
-  if (diff < 86400)
-    return t("usage.hoursAgo", { count: Math.floor(diff / 3600) });
-  return t("usage.daysAgo", { count: Math.floor(diff / 86400) });
-}
-
 /**
  * 纯展示组件：渲染 SubscriptionQuota 的 5 种状态（not_found / parse_error /
  * expired / API 失败 / 成功），支持 inline / expanded 两种布局。
  *
  * 数据源由调用方 hook 注入，方便不同的额度后端复用同一套渲染逻辑：
  * - `SubscriptionQuotaFooter`（CLI 凭据路径，by appId）
- * - `CodexOauthQuotaFooter`（cc-switch 自管 OAuth 路径，by ChatGPT account）
+ * - `CodexOauthQuotaFooter`（Codex Switch 自管 OAuth 路径，by ChatGPT account）
  */
 export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   quota,
   loading,
   refetch,
   appIdForExpiredHint,
+  expiredHint,
   inline = false,
+  visualization = "bars",
+  batteryThresholds,
+  showRefresh = true,
+  refreshFailed = false,
+  refreshError,
 }) => {
   const { t } = useTranslation();
 
@@ -121,6 +123,79 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
     return () => clearInterval(interval);
   }, [quota?.queriedAt]);
 
+  // Account cards share one geometry through loading, missing credentials and
+  // failures. Unavailable windows remain unknown rather than implying zero.
+  if (visualization === "rings" || visualization === "battery") {
+    const hasWindows =
+      !!quota?.success &&
+      !!quota.tiers?.length &&
+      quota.credentialStatus !== "not_found" &&
+      quota.credentialStatus !== "parse_error";
+    const expired = quota?.credentialStatus === "expired" && !quota.success;
+    const failed =
+      !!quota &&
+      !quota.success &&
+      quota.credentialStatus !== "not_found" &&
+      quota.credentialStatus !== "parse_error" &&
+      !expired;
+    const statusLabel = hasWindows
+      ? undefined
+      : !quota && loading
+        ? t("common.loading")
+        : expired
+          ? t("subscription.expired")
+          : failed
+            ? t("subscription.queryFailed")
+            : t("codexAccounts.quotaUnknown", "额度未知");
+    const statusMessage = hasWindows
+      ? undefined
+      : expired
+        ? (expiredHint ??
+          t("subscription.expiredHint", { tool: appIdForExpiredHint }))
+        : quota?.error || quota?.credentialMessage;
+    const unknownQuota: SubscriptionQuota = {
+      tool: appIdForExpiredHint,
+      credentialStatus: "not_found",
+      credentialMessage: null,
+      success: false,
+      tiers: [],
+      extraUsage: null,
+      error: null,
+      queriedAt: null,
+    };
+    const viewProps = {
+      quota: quota ?? unknownQuota,
+      tiers: hasWindows
+        ? quota!.tiers!
+        : [
+            { name: "five_hour", utilization: NaN, resetsAt: null },
+            { name: "seven_day", utilization: NaN, resetsAt: null },
+          ],
+      labels: TIER_I18N_KEYS,
+      loading,
+      refetch,
+      inline,
+      showRefresh,
+      updatedLabel: quota?.queriedAt
+        ? formatRelativeTime(quota.queriedAt, now, t)
+        : t("usage.never", { defaultValue: "从未更新" }),
+      refreshFailed,
+      refreshError,
+      statusLabel,
+      statusMessage,
+      statusTone: expired
+        ? ("warning" as const)
+        : failed
+          ? ("error" as const)
+          : undefined,
+    };
+    return visualization === "battery" ? (
+      <CodexQuotaBattery {...viewProps} thresholds={batteryThresholds} />
+    ) : (
+      <CodexQuotaRings {...viewProps} />
+    );
+  }
+
   // 无凭据 → 不显示
   if (!quota || quota.credentialStatus === "not_found") return null;
 
@@ -131,15 +206,19 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   if (quota.credentialStatus === "expired" && !quota.success) {
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 shadow-sm">
+        <div className="inline-flex min-w-0 items-center gap-2 text-xs rounded-2xl border border-amber-200/70 dark:border-amber-800/70 bg-amber-50/50 dark:bg-amber-900/20 px-3 py-2 shadow-sm backdrop-blur-xl">
           <div className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
             <AlertCircle size={12} />
             <span>{t("subscription.expired")}</span>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -148,21 +227,26 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       );
     }
     return (
-      <div className="mt-3 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 shadow-sm">
+      <div className="mt-3 min-w-0 rounded-2xl border border-amber-200/70 dark:border-amber-800/70 bg-amber-50/50 dark:bg-amber-900/20 px-4 py-3 shadow-sm backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
             <AlertCircle size={14} />
             <div>
               <span className="font-medium">{t("subscription.expired")}</span>
               <span className="ml-2 text-amber-500/70 dark:text-amber-400/70">
-                {t("subscription.expiredHint", { tool: appIdForExpiredHint })}
+                {expiredHint ??
+                  t("subscription.expiredHint", { tool: appIdForExpiredHint })}
               </span>
             </div>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-amber-100 dark:hover:bg-amber-800/30 transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -176,15 +260,21 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
   if (!quota.success) {
     if (inline) {
       return (
-        <div className="inline-flex items-center gap-2 text-xs rounded-lg border border-border-default bg-card px-3 py-2 shadow-sm">
+        <div className="inline-flex min-w-0 items-center gap-2 text-xs rounded-2xl border border-border-default/70 bg-card/50 px-3 py-2 shadow-sm backdrop-blur-xl">
           <div className="flex items-center gap-1.5 text-red-500 dark:text-red-400">
             <AlertCircle size={12} />
-            <span>{t("subscription.queryFailed")}</span>
+            <span title={quota.error || undefined}>
+              {t("subscription.queryFailed")}
+            </span>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -193,16 +283,22 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
       );
     }
     return (
-      <div className="mt-3 rounded-xl border border-border-default bg-card px-4 py-3 shadow-sm">
+      <div className="mt-3 min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-4 py-3 shadow-sm backdrop-blur-xl">
         <div className="flex items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2 text-red-500 dark:text-red-400">
+          <div className="flex min-w-0 items-center gap-2 text-red-500 dark:text-red-400">
             <AlertCircle size={14} />
-            <span>{quota.error || t("subscription.queryFailed")}</span>
+            <span className="break-words">
+              {quota.error || t("subscription.queryFailed")}
+            </span>
           </div>
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 flex-shrink-0"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -237,6 +333,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
             }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50 flex-shrink-0 text-muted-foreground"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -257,7 +354,7 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
 
   // ── 展开模式：详细信息 ──
   return (
-    <div className="mt-3 rounded-xl border border-border-default bg-card px-4 py-3 shadow-sm">
+    <div className="mt-3 min-w-0 rounded-2xl border border-border-default/70 bg-card/50 px-4 py-3 shadow-sm backdrop-blur-xl">
       <div className="flex items-center justify-between mb-2">
         <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
           {t("subscription.title", { defaultValue: "Subscription Quota" })}
@@ -270,9 +367,13 @@ export const SubscriptionQuotaView: React.FC<SubscriptionQuotaViewProps> = ({
             </span>
           )}
           <button
-            onClick={() => refetch()}
+            onClick={(event) => {
+              event.stopPropagation();
+              refetch();
+            }}
             disabled={loading}
             className="p-1 rounded hover:bg-muted transition-colors disabled:opacity-50"
+            aria-label={t("subscription.refresh")}
             title={t("subscription.refresh")}
           >
             <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
@@ -411,6 +512,8 @@ const SubscriptionQuotaFooter: React.FC<SubscriptionQuotaFooterProps> = ({
     data: quota,
     isFetching: loading,
     refetch,
+    refreshFailed,
+    refreshError,
   } = useSubscriptionQuota(
     appId,
     isCurrent,
@@ -428,6 +531,9 @@ const SubscriptionQuotaFooter: React.FC<SubscriptionQuotaFooterProps> = ({
       // expiredHint 里的 {tool} 是 CLI 命令名：Grok 的命令是 `grok` 而非 appId
       appIdForExpiredHint={appId === "grokbuild" ? "grok" : appId}
       inline={inline}
+      visualization={appId === "codex" ? "rings" : "bars"}
+      refreshFailed={refreshFailed}
+      refreshError={refreshError}
     />
   );
 };

@@ -42,10 +42,6 @@ vi.mock("@/components/CodexOauthQuotaFooter", () => ({
 }));
 vi.mock("@/components/XaiOauthQuotaFooter", () => ({ default: () => null }));
 
-vi.mock("@/lib/query/failover", () => ({
-  useProviderHealth: () => ({ data: undefined }),
-}));
-
 vi.mock("@/lib/query/queries", () => ({
   useUsageQuery: () => ({ data: undefined }),
 }));
@@ -110,7 +106,6 @@ function renderCard(
         provider={provider}
         appId="codex"
         isCurrent={options.isCurrent ?? false}
-        isProxyRunning={false}
         onSwitch={vi.fn()}
         onEdit={options.onEdit ?? vi.fn()}
         onDelete={vi.fn()}
@@ -139,8 +134,7 @@ describe("ProviderCard Codex Official account identity", () => {
     expect(onEdit).toHaveBeenCalledWith(provider);
   });
 
-  it("keeps existing managed OAuth quota enabled and exposes its configuration", async () => {
-    const user = userEvent.setup();
+  it("keeps existing managed OAuth quota enabled without a usage action", async () => {
     const onConfigureUsage = vi.fn();
     const provider = managedProvider("Work account");
     delete provider.meta!.providerType;
@@ -150,8 +144,10 @@ describe("ProviderCard Codex Official account identity", () => {
     expect(codexQuotaFooterProps).toHaveBeenCalledWith(
       expect.objectContaining({ autoQueryInterval: 5 }),
     );
-    await user.click(screen.getByRole("button", { name: "configure-usage" }));
-    expect(onConfigureUsage).toHaveBeenCalledWith(provider);
+    expect(
+      screen.queryByRole("button", { name: "configure-usage" }),
+    ).not.toBeInTheDocument();
+    expect(onConfigureUsage).not.toHaveBeenCalled();
   });
 
   it("honors a saved disabled state for managed OAuth quota", () => {
@@ -168,8 +164,8 @@ describe("ProviderCard Codex Official account identity", () => {
 
     expect(codexQuotaFooterProps).not.toHaveBeenCalled();
     expect(
-      screen.getByRole("button", { name: "configure-usage" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "configure-usage" }),
+    ).not.toBeInTheDocument();
   });
 
   it("passes the saved polling interval to managed OAuth quota", () => {
@@ -226,7 +222,6 @@ describe("ProviderCard Codex Official account identity", () => {
           provider={managedProvider(`OpenAI Official (${login})`)}
           appId="codex"
           isCurrent={false}
-          isProxyRunning={false}
           onSwitch={vi.fn()}
           onEdit={vi.fn()}
           onDelete={vi.fn()}
@@ -310,8 +305,8 @@ describe("ProviderCard Codex Official account identity", () => {
       screen.queryByRole("button", { name: "选择账号" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "duplicate-provider" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "duplicate-provider" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText("codex-oauth-quota")).not.toBeInTheDocument();
     expect(codexQuotaFooterProps).not.toHaveBeenCalled();
   });

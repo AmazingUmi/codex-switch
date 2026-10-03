@@ -8,6 +8,11 @@ import { useTauriEvent } from "./useTauriEvent";
 
 type UsageCacheUpdatedPayload =
   | {
+      kind: "codexOauth";
+      accountId: string;
+      data: SubscriptionQuota;
+    }
+  | {
       kind: "script";
       appType: AppId;
       providerId: string;
@@ -28,7 +33,25 @@ export function useUsageCacheBridge() {
   const queryClient = useQueryClient();
 
   useTauriEvent<UsageCacheUpdatedPayload>("usage-cache-updated", (payload) => {
-    if (payload.kind === "script") {
+    if (payload.kind === "codexOauth") {
+      queryClient.setQueryData<SubscriptionQuota>(
+        ["codex_oauth", "quota", payload.accountId],
+        (previous) => {
+          const oldState = previous?.refreshState;
+          const newState = payload.data.refreshState;
+          if (
+            oldState &&
+            newState &&
+            (oldState.generation > newState.generation ||
+              (oldState.generation === newState.generation &&
+                (oldState.attemptedAt ?? 0) > (newState.attemptedAt ?? 0)))
+          ) {
+            return previous;
+          }
+          return payload.data;
+        },
+      );
+    } else if (payload.kind === "script") {
       queryClient.setQueryData<UsageResult>(
         usageKeys.script(payload.providerId, payload.appType),
         payload.data,

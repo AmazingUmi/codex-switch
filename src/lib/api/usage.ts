@@ -14,12 +14,55 @@ import type {
   PaginatedLogs,
   SessionSyncResult,
   DataSourceSummary,
+  UsageRecordFilters,
+  UsageRecordsView,
+  PaginatedUsageRecords,
+  UsageAttributionChoice,
+  UsageAttributionSelector,
+  UsageAttributionResult,
 } from "@/types/usage";
 import type { UsageResult } from "@/types";
 import type { AppId } from "./types";
 import type { TemplateType } from "@/config/constants";
 
+export interface CodexUsageSource {
+  directory: string;
+  defaultDirectory: string;
+}
+
+export const codexUsageSourceQueryKey = ["codexUsageSource"] as const;
+
 export const usageApi = {
+  getUsageRecords: async (
+    filters: UsageRecordFilters,
+    view: UsageRecordsView = "session",
+    page = 0,
+    pageSize = 20,
+    timeZone: "local" | "UTC" = "local",
+  ): Promise<PaginatedUsageRecords> =>
+    invoke("get_usage_records", { filters, view, page, pageSize, timeZone }),
+  getUsageAttributionChoices: async (): Promise<UsageAttributionChoice[]> =>
+    invoke("get_usage_attribution_choices"),
+  previewUsageAttribution: async (
+    selector: UsageAttributionSelector,
+    onlyUntagged = true,
+  ): Promise<number> =>
+    invoke("preview_usage_attribution", { selector, onlyUntagged }),
+  setUsageAttribution: async (
+    selector: UsageAttributionSelector,
+    choiceId: string,
+    onlyUntagged = true,
+  ): Promise<UsageAttributionResult> =>
+    invoke("set_usage_attribution", { selector, choiceId, onlyUntagged }),
+  undoUsageAttribution: async (actionId: number): Promise<number> =>
+    invoke("undo_usage_attribution", { actionId }),
+  getPricingModelSource: async (appType: string): Promise<string> =>
+    invoke("get_pricing_model_source", { appType }),
+  setPricingModelSource: async (
+    appType: string,
+    value: string,
+  ): Promise<void> => invoke("set_pricing_model_source", { appType, value }),
+
   // Provider usage script methods
   query: async (providerId: string, appId: AppId): Promise<UsageResult> => {
     return invoke("queryProviderUsage", { providerId, app: appId });
@@ -56,6 +99,8 @@ export const usageApi = {
     appType?: string,
     providerName?: string,
     model?: string,
+    accountId?: string,
+    providerId?: string,
   ): Promise<UsageSummary> => {
     return invoke("get_usage_summary", {
       startDate,
@@ -63,6 +108,8 @@ export const usageApi = {
       appType,
       providerName,
       model,
+      accountId,
+      providerId,
     });
   },
 
@@ -71,12 +118,16 @@ export const usageApi = {
     endDate?: number,
     providerName?: string,
     model?: string,
+    accountId?: string,
+    providerId?: string,
   ): Promise<UsageSummaryByApp[]> => {
     return invoke("get_usage_summary_by_app", {
       startDate,
       endDate,
       providerName,
       model,
+      accountId,
+      providerId,
     });
   },
 
@@ -86,6 +137,8 @@ export const usageApi = {
     appType?: string,
     providerName?: string,
     model?: string,
+    accountId?: string,
+    providerId?: string,
   ): Promise<DailyStats[]> => {
     return invoke("get_usage_trends", {
       startDate,
@@ -93,6 +146,8 @@ export const usageApi = {
       appType,
       providerName,
       model,
+      accountId,
+      providerId,
     });
   },
 
@@ -102,6 +157,8 @@ export const usageApi = {
     appType?: string,
     providerName?: string,
     model?: string,
+    accountId?: string,
+    providerId?: string,
   ): Promise<ProviderStats[]> => {
     return invoke("get_provider_stats", {
       startDate,
@@ -109,6 +166,8 @@ export const usageApi = {
       appType,
       providerName,
       model,
+      accountId,
+      providerId,
     });
   },
 
@@ -118,6 +177,8 @@ export const usageApi = {
     appType?: string,
     providerName?: string,
     model?: string,
+    accountId?: string,
+    providerId?: string,
   ): Promise<ModelStats[]> => {
     return invoke("get_model_stats", {
       startDate,
@@ -125,6 +186,8 @@ export const usageApi = {
       appType,
       providerName,
       model,
+      accountId,
+      providerId,
     });
   },
 
@@ -199,6 +262,10 @@ export const usageApi = {
   },
 
   // Session usage sync
+  getCodexUsageSource: async (): Promise<CodexUsageSource> => {
+    return invoke("get_codex_usage_source");
+  },
+
   syncSessionUsage: async (): Promise<SessionSyncResult> => {
     return invoke("sync_session_usage");
   },

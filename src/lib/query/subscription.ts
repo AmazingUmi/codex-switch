@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { subscriptionApi } from "@/lib/api/subscription";
 import type { AppId } from "@/lib/api/types";
@@ -6,8 +6,13 @@ import type { ProviderMeta } from "@/types";
 import type { SubscriptionQuota } from "@/types/subscription";
 import { resolveManagedAccountId } from "@/lib/authBinding";
 import { PROVIDER_TYPES } from "@/config/constants";
-import { resolveDisplayUsage, type LastGoodSnapshot } from "./queries";
+import {
+  resolveDisplayUsage,
+  type LastGoodSnapshot,
+  useSettingsQuery,
+} from "./queries";
 import { extractErrorMessage } from "@/utils/errorUtils";
+import { authGetStatus } from "@/lib/api/auth";
 
 const REFETCH_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
@@ -35,11 +40,9 @@ const QUERY_REJECTED_PLACEHOLDER: SubscriptionQuota = {
 /**
  * Keep-last-good：与 useUsageQuery 同一策略（resolveDisplayUsage）。
  *
- * 后端对纯传输失败（网络/超时/读体中断）已 reject——react-query 保留上次 data
- * 并触发 retry，但那份 data 是陈旧的：以 `rejected` 标志交给 resolveDisplayUsage
- * 按同一窗口处理（窗口内继续展示，超窗透出失败），与仍以 `Ok(success:false)`
- * 返回的瞬时失败（HTTP 5xx/429）行为一致。确定性失败（过期/鉴权/解析）不掩盖，
- * 立即透出。
+ * Codex uses the backend's shared projection and original successful timestamp.
+ * Other tools and IPC errors keep the existing frontend retention policy.
+ * Deterministic authentication failures never revive a previous successful value.
  *
  * `scopeKey` 标识查询身份（appId / 绑定的账号 id）：身份变化时丢弃旧快照，
  * 避免用上一个账号的额度掩盖新账号的瞬时失败。
@@ -48,6 +51,17 @@ function useQuotaKeepLastGood(
   query: UseQueryResult<SubscriptionQuota>,
   scopeKey: string,
 ) {
+  const [now, setNow] = useState(Date.now);
+  const sharedState = query.data?.refreshState;
+  const failed =
+    query.isError ||
+    query.data?.success === false ||
+    Boolean(sharedState?.refreshFailed);
+  useEffect(() => {
+    if (!failed && !sharedState) return;
+    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(timer);
+  }, [failed, Boolean(sharedState)]);
   const lastGoodRef = useRef<{
     key: string;
     snap: LastGoodSnapshot<SubscriptionQuota> | null;
@@ -58,13 +72,49 @@ function useQuotaKeepLastGood(
   const { data, lastGood } = resolveDisplayUsage(
     query.data,
     query.dataUpdatedAt,
-    lastGoodRef.current.snap,
-    Date.now(),
+    query.data && query.data.credentialStatus !== "valid"
+      ? null
+      : lastGoodRef.current.snap,
+    Math.max(now, Date.now()),
     { rejected: query.isError },
   );
   lastGoodRef.current.snap = lastGood;
+  if (sharedState && query.data) {
+    const refreshFailed = sharedState.refreshFailed || query.isError;
+    const expired =
+      query.data.success &&
+      sharedState.validUntil != null &&
+      Date.now() > sharedState.validUntil;
+    const sharedData = expired
+      ? {
+          ...query.data,
+          success: false,
+          tiers: [],
+          extraUsage: null,
+          error: sharedState.error ?? "Quota unavailable",
+        }
+      : query.data;
+    return {
+      ...query,
+      data: sharedData,
+      refreshFailed: Boolean(refreshFailed && sharedData.success),
+      refreshError: query.isError
+        ? extractErrorMessage(query.error) || null
+        : sharedState.refreshFailed
+          ? sharedState.error
+          : null,
+    };
+  }
   return {
     ...query,
+    // Keep useful old values through a short outage, but identify them as stale.
+    refreshError:
+      failed && data?.success
+        ? query.isError
+          ? extractErrorMessage(query.error) || null
+          : query.data?.error || null
+        : null,
+    refreshFailed: failed && Boolean(data?.success),
     data:
       data ??
       (query.isError
@@ -82,78 +132,142 @@ export function useSubscriptionQuota(
   autoQuery = false,
   autoQueryIntervalMinutes = 5,
 ) {
+  const { data: settings } = useSettingsQuery();
+  const intervalSeconds = settings?.quotaRefreshIntervalSeconds ?? 60;
+  const manualRefresh = useRef(false);
   const refetchInterval =
-    autoQuery && autoQueryIntervalMinutes > 0
-      ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
-      : false;
+    appId === "codex"
+      ? autoQuery && intervalSeconds > 0
+        ? intervalSeconds * 1000
+        : false
+      : autoQuery && autoQueryIntervalMinutes > 0
+        ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
+        : false;
 
   const query = useQuery({
     queryKey: subscriptionKeys.quota(appId),
-    queryFn: () => subscriptionApi.getQuota(appId),
+    queryFn: () =>
+      subscriptionApi.getQuota(
+        appId,
+        appId === "codex" ? manualRefresh.current : true,
+      ),
     enabled:
       enabled && ["claude", "codex", "gemini", "grokbuild"].includes(appId),
     refetchInterval,
-    refetchIntervalInBackground: Boolean(refetchInterval),
+    refetchIntervalInBackground:
+      appId === "codex" ? false : Boolean(refetchInterval),
     refetchOnWindowFocus: Boolean(refetchInterval),
     staleTime:
-      autoQueryIntervalMinutes > 0
-        ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
-        : REFETCH_INTERVAL,
-    retry: 1,
+      appId === "codex"
+        ? intervalSeconds > 0
+          ? intervalSeconds * 1000
+          : Infinity
+        : autoQueryIntervalMinutes > 0
+          ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
+          : REFETCH_INTERVAL,
+    retry: appId === "codex" ? false : 1,
   });
 
-  return useQuotaKeepLastGood(query, appId);
+  const previousInterval = useRef(intervalSeconds);
+  useEffect(() => {
+    if (previousInterval.current !== intervalSeconds) {
+      previousInterval.current = intervalSeconds;
+      if (appId === "codex" && enabled)
+        void query.refetch({ cancelRefetch: false });
+    }
+  }, [appId, intervalSeconds, enabled, query.refetch]);
+  const display = useQuotaKeepLastGood(query, appId);
+  return {
+    ...display,
+    refetch: async (options?: Parameters<typeof query.refetch>[0]) => {
+      manualRefresh.current = true;
+      try {
+        return await query.refetch({ ...options, cancelRefetch: false });
+      } finally {
+        manualRefresh.current = false;
+      }
+    },
+  };
 }
 
 export interface UseCodexOauthQuotaOptions {
   enabled?: boolean;
   /** 是否启用自动轮询与窗口 focus 重取 */
   autoQuery?: boolean;
-  autoQueryIntervalMinutes?: number;
 }
 
 /**
  * Codex OAuth 订阅额度查询 hook（按账号 ID）
  *
- * 直接以 cc-switch 自管的 ChatGPT 账号 ID 查询额度，供认证中心里逐个账号
+ * 直接以 codex-switch 自管的 ChatGPT 账号 ID 查询额度，供认证中心里逐个账号
  * 展示用量时复用。Query key 与 `useCodexOauthQuota` 一致，绑定到同一账号的
  * 供应商卡片与账号列表会自动去重共享同一份请求缓存。
- * accountId 为 null 时使用 "default" 占位，让后端 fallback 到默认账号。
+ * 未指定账号时先解析默认账号的真实 ID，再按 ID 查询，避免默认账号变更时
+ * 复用固定 "default" 缓存，也确保正在进行的请求归属于原账号。
  */
 export function useCodexOauthQuotaByAccountId(
   accountId: string | null,
   options: UseCodexOauthQuotaOptions = {},
 ) {
-  const {
-    enabled = true,
-    autoQuery = false,
-    autoQueryIntervalMinutes = 5,
-  } = options;
+  const { enabled = true, autoQuery = true } = options;
+  const { data: settings } = useSettingsQuery();
+  const intervalSeconds = settings?.quotaRefreshIntervalSeconds ?? 60;
+  const manualRefresh = useRef(false);
+  const defaultStatus = useQuery({
+    queryKey: ["managed-auth-status", "codex_oauth"],
+    queryFn: () => authGetStatus("codex_oauth"),
+    enabled: enabled && accountId == null,
+    staleTime: 30_000,
+  });
+  const resolvedId =
+    accountId ?? defaultStatus.data?.default_account_id ?? null;
   const refetchInterval =
-    autoQuery && autoQueryIntervalMinutes > 0
-      ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
-      : false;
+    autoQuery && intervalSeconds > 0 ? intervalSeconds * 1000 : false;
   const query = useQuery({
-    queryKey: ["codex_oauth", "quota", accountId ?? "default"],
-    queryFn: () => subscriptionApi.getCodexOauthQuota(accountId),
-    enabled,
-    refetchInterval,
-    refetchIntervalInBackground: Boolean(refetchInterval),
+    queryKey: ["codex_oauth", "quota", resolvedId],
+    queryFn: () => {
+      if (!resolvedId) throw new Error("No managed Codex account selected");
+      return subscriptionApi.getCodexOauthQuota(
+        resolvedId,
+        manualRefresh.current,
+      );
+    },
+    enabled: enabled && Boolean(resolvedId),
+    refetchInterval: (query) =>
+      query.state.data?.credentialStatus === "expired"
+        ? false
+        : refetchInterval,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: Boolean(refetchInterval),
-    staleTime:
-      autoQueryIntervalMinutes > 0
-        ? Math.max(autoQueryIntervalMinutes, 1) * 60 * 1000
-        : REFETCH_INTERVAL,
-    retry: 1,
+    staleTime: intervalSeconds > 0 ? intervalSeconds * 1000 : Infinity,
+    retry: false,
   });
 
-  return useQuotaKeepLastGood(query, accountId ?? "default");
+  const previousInterval = useRef(intervalSeconds);
+  useEffect(() => {
+    if (previousInterval.current !== intervalSeconds) {
+      previousInterval.current = intervalSeconds;
+      if (enabled && resolvedId) void query.refetch({ cancelRefetch: false });
+    }
+  }, [intervalSeconds, enabled, resolvedId, query.refetch]);
+  const display = useQuotaKeepLastGood(query, resolvedId ?? "unresolved");
+  return {
+    ...display,
+    refetch: async (options?: Parameters<typeof query.refetch>[0]) => {
+      manualRefresh.current = true;
+      try {
+        return await query.refetch({ ...options, cancelRefetch: false });
+      } finally {
+        manualRefresh.current = false;
+      }
+    },
+  };
 }
 
 /**
  * Codex OAuth (ChatGPT Plus/Pro 反代) 订阅额度查询 hook
  *
- * 与 `useSubscriptionQuota` 平行：数据走 cc-switch 自管的 OAuth token，
+ * 与 `useSubscriptionQuota` 平行：数据走 codex-switch 自管的 OAuth token，
  * 而不是 Codex CLI 的 ~/.codex/auth.json。账号 ID 从供应商 meta 的
  * authBinding 中解析，再委托给 `useCodexOauthQuotaByAccountId`。
  */
@@ -168,7 +282,7 @@ export function useCodexOauthQuota(
 /**
  * xAI OAuth (SuperGrok 反代) 订阅额度查询 hook
  *
- * 与 `useCodexOauthQuota` 平行：数据走 cc-switch 自管的 xAI OAuth token，
+ * 与 `useCodexOauthQuota` 平行：数据走 codex-switch 自管的 xAI OAuth token，
  * 而不是 Grok CLI 的 ~/.grok/auth.json；后端复用同一个 grok.com 账单端点，
  * 因此与 Grok Build 分区的官方订阅显示同一份额度。
  */

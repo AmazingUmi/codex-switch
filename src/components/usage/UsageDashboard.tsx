@@ -2,15 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { UsageHero } from "./UsageHero";
 import { UsageTrendChart } from "./UsageTrendChart";
-import { RequestLogTable } from "./RequestLogTable";
+import { UsageRecordsTable } from "./UsageRecordsTable";
 import { ProviderStatsTable } from "./ProviderStatsTable";
 import { ModelStatsTable } from "./ModelStatsTable";
-import {
-  KNOWN_APP_TYPES,
-  type AppType,
-  type AppTypeFilter,
-  type UsageRangeSelection,
-} from "@/types/usage";
+import { type UsageRangeSelection } from "@/types/usage";
 import { motion } from "framer-motion";
 import {
   BarChart3,
@@ -18,12 +13,11 @@ import {
   Activity,
   RefreshCw,
   Coins,
-  LayoutGrid,
   DatabaseBackup,
   Loader2,
   ScanSearch,
+  Settings,
 } from "lucide-react";
-import { ProviderIcon } from "@/components/ProviderIcon";
 import {
   Select,
   SelectContent,
@@ -32,7 +26,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useQueryClient } from "@tanstack/react-query";
-import { usageKeys, useModelStats, useProviderStats } from "@/lib/query/usage";
+import {
+  usageKeys,
+  useModelStats,
+  useUsageAttributionChoices,
+} from "@/lib/query/usage";
+import {
+  UNASSIGNED_SOURCE,
+  sourceIdentity,
+  sourceFilters,
+  flatSourceChoices,
+  sourceOptionLabel,
+} from "@/lib/usageSource";
 import { useUsageEventBridge } from "@/hooks/useUsageEventBridge";
 import {
   Accordion,
@@ -41,18 +46,17 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { PricingConfigPanel } from "@/components/usage/PricingConfigPanel";
-import { cn } from "@/lib/utils";
-import { getLocaleFromLanguage } from "./format";
+import { formatUsageDateTime, getLocaleFromLanguage } from "./format";
 import { getUsageRangePresetLabel, resolveUsageRange } from "@/lib/usageRange";
 import { UsageDateRangePicker } from "./UsageDateRangePicker";
+import { UsageSessionSourceDialog } from "./UsageSessionSourceDialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
+import { HelpButton } from "@/components/ui/help-button";
 import { Switch } from "@/components/ui/switch";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { usageApi } from "@/lib/api/usage";
 import { toast } from "sonner";
-
-const APP_FILTER_OPTIONS: AppTypeFilter[] = ["all", ...KNOWN_APP_TYPES];
 
 const DEFAULT_REFRESH_INTERVAL_MS = 30000;
 const REFRESH_INTERVAL_OPTIONS_MS = [0, 5000, 10000, 30000, 60000] as const;
@@ -66,18 +70,7 @@ const isRefreshIntervalOption = (
 const normalizeRefreshInterval = (value: number | undefined) =>
   isRefreshIntervalOption(value) ? value : DEFAULT_REFRESH_INTERVAL_MS;
 
-// 与 AppSwitcher 的 appIconName 保持一致（codex 复用 openai 图标）
-const APP_FILTER_ICON: Record<AppType, string> = {
-  claude: "claude",
-  codex: "openai",
-  gemini: "gemini",
-  grokbuild: "grok",
-  opencode: "opencode",
-  pi: "pi",
-  mcode: "minimax",
-};
-
-// Select 的 "all" 哨兵和用户自定义名称同处一个值域——真有来源/模型叫 "all"
+// Select 的 "all" 哨兵和模型名称同处一个值域——真有模型叫 "all"
 // 就会撞名（重复 value、选中即清空筛选）。动态选项统一加前缀编码隔离值域。
 const DYNAMIC_OPTION_PREFIX = "v:";
 const encodeOptionValue = (name: string) => `${DYNAMIC_OPTION_PREFIX}${name}`;
@@ -91,6 +84,8 @@ interface UsageDashboardProps {
   onSessionAutoSyncEnabledChange?: (
     next: boolean,
   ) => Promise<boolean> | boolean | void;
+  codexUsageSourceDir?: string;
+  onCodexUsageSourceDirChange?: (next?: string) => Promise<boolean>;
 }
 
 export function UsageDashboard({
@@ -98,14 +93,36 @@ export function UsageDashboard({
   onRefreshIntervalChange,
   sessionAutoSyncEnabled = true,
   onSessionAutoSyncEnabledChange,
+  codexUsageSourceDir,
+  onCodexUsageSourceDirChange,
 }: UsageDashboardProps = {}) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [range, setRange] = useState<UsageRangeSelection>({ preset: "today" });
-  const [appType, setAppType] = useState<AppTypeFilter>("all");
-  const [providerName, setProviderName] = useState<string | undefined>(
-    undefined,
+  const appType = "codex";
+  const [sourceId, setSourceId] = useState("");
+  const { accountId, providerId } = sourceFilters(sourceId);
+  const { data: attributionChoices } = useUsageAttributionChoices();
+  const sourceChoices = useMemo(
+    () => flatSourceChoices(attributionChoices ?? []),
+    [attributionChoices],
   );
+  const sourceLabel = (choice: (typeof sourceChoices)[number]) =>
+    sourceOptionLabel(
+      choice,
+      sourceChoices,
+      t("usage.records.accountType", "Account"),
+      t("usage.records.apiType", "API"),
+    );
+  const selectedSource = sourceChoices.find(
+    (choice) =>
+      sourceIdentity(choice.accountId, choice.providerId) === sourceId,
+  );
+  const selectedSourceLabel = selectedSource
+    ? sourceLabel(selectedSource)
+    : sourceId === UNASSIGNED_SOURCE
+      ? t("usage.records.untagged", "Unassigned")
+      : t("usage.allSources");
   const [model, setModel] = useState<string | undefined>(undefined);
   const [refreshIntervalMs, setRefreshIntervalMs] = useState(() =>
     normalizeRefreshInterval(savedRefreshIntervalMs),
@@ -113,23 +130,15 @@ export function UsageDashboard({
   const [showRebuildConfirm, setShowRebuildConfirm] = useState(false);
   const [rebuildingCodex, setRebuildingCodex] = useState(false);
   const [syncingSession, setSyncingSession] = useState(false);
+  const [showSessionSource, setShowSessionSource] = useState(false);
 
   useEffect(() => {
     setRefreshIntervalMs(normalizeRefreshInterval(savedRefreshIntervalMs));
   }, [savedRefreshIntervalMs]);
 
-  // 切应用时清掉下游筛选，避免留下一个在新范围内查无数据的"幽灵"组合；
-  // 切 Provider 同理清掉模型（模型选项随 Provider 级联）。
-  const changeAppType = (next: AppTypeFilter) => {
-    setAppType(next);
-    if (next !== appType) {
-      setProviderName(undefined);
-      setModel(undefined);
-    }
-  };
-  const changeProviderName = (next: string | undefined) => {
-    setProviderName(next);
-    if (next !== providerName) {
+  const changeSource = (next: string) => {
+    setSourceId(next);
+    if (next !== sourceId) {
       setModel(undefined);
     }
   };
@@ -185,8 +194,7 @@ export function UsageDashboard({
     }
   };
 
-  // 手动触发一次会话日志同步：手动模式下是唯一的直连用量补录途径，
-  // 入口按钮仅在关闭自动扫描时展示（自动模式有后台定时扫描，无需手动触发）
+  // Keep explicit sync available in automatic mode to verify a changed source.
   const runManualSessionSync = async () => {
     setSyncingSession(true);
     try {
@@ -221,49 +229,35 @@ export function UsageDashboard({
       return getUsageRangePresetLabel(range.preset, t);
     }
 
-    const startStr = new Date(resolvedRange.startDate * 1000).toLocaleString(
+    const startStr = formatUsageDateTime(
+      new Date(resolvedRange.startDate * 1000),
       locale,
+      { includeYear: true, includeTimeZone: true },
     );
 
     if (range.liveEndTime) {
       return `${startStr} → ${t("usage.liveEndTimeNow", "现在")}`;
     }
 
-    const endStr = new Date(resolvedRange.endDate * 1000).toLocaleString(
+    const endStr = formatUsageDateTime(
+      new Date(resolvedRange.endDate * 1000),
       locale,
+      { includeYear: true, includeTimeZone: true },
     );
     return `${startStr} - ${endStr}`;
   }, [locale, range, resolvedRange.endDate, resolvedRange.startDate, t]);
 
-  // 顶栏下拉的选项池：Provider 列表只跟应用/时间范围走（不受自身选中值影响），
-  // 模型列表随所选 Provider 级联。两者都只列当前范围内真实有数据的条目。
-  // refetchInterval 必须跟随面板的刷新设置——未筛选时这两个查询与统计表共享
-  // query key，落下的话会以默认 30s 拖着同 key 查询一起轮询，"--" 形同虚设。
+  // Sources include configured accounts/providers even before any usage exists.
+  // Model options follow the selected canonical source and time range.
   const optionsRefetch = {
     refetchInterval:
       refreshIntervalMs > 0 ? refreshIntervalMs : (false as const),
   };
-  const { data: providerOptionsData } = useProviderStats(
-    range,
-    { appType },
-    optionsRefetch,
-  );
   const { data: modelOptionsData } = useModelStats(
     range,
-    { appType, providerName },
+    { appType, accountId, providerId },
     optionsRefetch,
   );
-
-  const providerOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const stat of providerOptionsData ?? []) {
-      names.add(stat.providerName);
-    }
-    // 数据刷新后选中项可能掉出列表（如改了时间范围）；补回去保证 Select
-    // 仍能渲染选中文案，用户看得见才能主动清除。
-    if (providerName) names.add(providerName);
-    return Array.from(names);
-  }, [providerOptionsData, providerName]);
 
   const modelOptions = useMemo(() => {
     const names = new Set<string>();
@@ -282,67 +276,47 @@ export function UsageDashboard({
       className="space-y-8 pb-8"
     >
       <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-2">
-        <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-2">
           <h2 className="text-2xl font-bold tracking-tight">
             {t("usage.title")}
           </h2>
-          <p className="text-sm text-muted-foreground">{t("usage.subtitle")}</p>
+          <HelpButton
+            label={t("codexAccounts.localUsageScopeLabel", "Statistics scope")}
+          >
+            {t(
+              "codexAccounts.localUsageScope",
+              "统计本机记录的 Codex 请求及扫描到的会话，按所选时间、连接来源和模型筛选；不会汇总账号在其他设备的用量，也不代表订阅额度。费用按本地价格表估算。",
+            )}
+          </HelpButton>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center p-1 bg-muted/30 rounded-lg border border-border/50">
-            {APP_FILTER_OPTIONS.map((type) => {
-              const label = t(`usage.appFilter.${type}`);
-              return (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => changeAppType(type)}
-                  title={label}
-                  aria-label={label}
-                  className={cn(
-                    "flex h-8 items-center justify-center px-2.5 rounded-md transition-all",
-                    appType === type
-                      ? "bg-background text-primary shadow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
-                  )}
-                >
-                  {type === "all" ? (
-                    <LayoutGrid className="h-4 w-4" />
-                  ) : (
-                    <ProviderIcon
-                      icon={APP_FILTER_ICON[type]}
-                      name={label}
-                      size={16}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
           <Select
-            value={
-              providerName != null ? encodeOptionValue(providerName) : "all"
+            value={sourceId || "all"}
+            onValueChange={(value) =>
+              changeSource(value === "all" ? "" : value)
             }
-            onValueChange={(v) => changeProviderName(decodeOptionValue(v))}
           >
             <SelectTrigger
-              className="h-9 w-[100px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
-              title={providerName ?? t("usage.filterBySource")}
+              className="h-9 w-[160px] max-w-full gap-2 px-4 text-xs font-medium [&>span]:min-w-0 [&>span]:truncate [&>svg]:h-3.5 [&>svg]:w-3.5"
+              title={selectedSourceLabel}
+              aria-label={t("usage.filterBySource")}
             >
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="max-w-[280px]">
               <SelectItem value="all">{t("usage.allSources")}</SelectItem>
-              {providerOptions.map((name) => (
+              <SelectItem value={UNASSIGNED_SOURCE}>
+                {t("usage.records.untagged", "Unassigned")}
+              </SelectItem>
+              {sourceChoices.map((choice) => (
                 <SelectItem
-                  key={name}
-                  value={encodeOptionValue(name)}
-                  title={name}
+                  key={sourceIdentity(choice.accountId, choice.providerId)}
+                  value={sourceIdentity(choice.accountId, choice.providerId)}
+                  title={sourceLabel(choice)}
                   className="[&>span]:min-w-0 [&>span]:truncate"
                 >
-                  {name}
+                  {sourceLabel(choice)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -353,8 +327,9 @@ export function UsageDashboard({
             onValueChange={(v) => setModel(decodeOptionValue(v))}
           >
             <SelectTrigger
-              className="h-9 w-[100px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
+              className="h-9 w-[144px] bg-background text-xs focus:border-border-default [&>span]:min-w-0 [&>span]:truncate"
               title={model ?? t("usage.filterByModel")}
+              aria-label={t("usage.filterByModel")}
             >
               <SelectValue />
             </SelectTrigger>
@@ -367,7 +342,9 @@ export function UsageDashboard({
                   title={name}
                   className="[&>span]:min-w-0 [&>span]:truncate"
                 >
-                  {name}
+                  {name === "Unassigned"
+                    ? t("usage.records.untagged", "Unassigned")
+                    : name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -379,7 +356,7 @@ export function UsageDashboard({
               onValueChange={(v) => changeRefreshInterval(Number(v))}
             >
               <SelectTrigger
-                className="h-9 w-[100px] bg-background text-xs focus:border-border-default"
+                className="h-9 w-[120px] bg-background text-xs focus:border-border-default"
                 title={t("usage.refreshInterval")}
                 aria-label={t("usage.refreshInterval")}
               >
@@ -408,8 +385,9 @@ export function UsageDashboard({
 
       <UsageHero
         range={range}
-        appType={appType === "all" ? undefined : appType}
-        providerName={providerName}
+        appType={appType}
+        accountId={accountId}
+        providerId={providerId}
         model={model}
         refreshIntervalMs={refreshIntervalMs}
       />
@@ -418,7 +396,8 @@ export function UsageDashboard({
         range={range}
         rangeLabel={rangeLabel}
         appType={appType}
-        providerName={providerName}
+        accountId={accountId}
+        providerId={providerId}
         model={model}
         refreshIntervalMs={refreshIntervalMs}
       />
@@ -426,14 +405,14 @@ export function UsageDashboard({
       <div className="space-y-4">
         <Tabs defaultValue="logs" className="w-full">
           <div className="flex items-center justify-between mb-4">
-            <TabsList className="bg-muted/50">
+            <TabsList>
               <TabsTrigger value="logs" className="gap-2">
                 <ListFilter className="h-4 w-4" />
-                {t("usage.requestLogs")}
+                {t("usage.records.title", "Usage records")}
               </TabsTrigger>
               <TabsTrigger value="providers" className="gap-2">
                 <Activity className="h-4 w-4" />
-                {t("usage.providerStats")}
+                {t("usage.sourceStats")}
               </TabsTrigger>
               <TabsTrigger value="models" className="gap-2">
                 <BarChart3 className="h-4 w-4" />
@@ -448,11 +427,12 @@ export function UsageDashboard({
             transition={{ delay: 0.2 }}
           >
             <TabsContent value="logs" className="mt-0">
-              <RequestLogTable
+              <UsageRecordsTable
                 range={range}
                 rangeLabel={rangeLabel}
                 appType={appType}
-                providerName={providerName}
+                sourceId={sourceId}
+                onSourceChange={changeSource}
                 model={model}
                 refreshIntervalMs={refreshIntervalMs}
                 onRangeChange={setRange}
@@ -463,7 +443,8 @@ export function UsageDashboard({
               <ProviderStatsTable
                 range={range}
                 appType={appType}
-                providerName={providerName}
+                accountId={accountId}
+                providerId={providerId}
                 model={model}
                 refreshIntervalMs={refreshIntervalMs}
               />
@@ -473,7 +454,8 @@ export function UsageDashboard({
               <ModelStatsTable
                 range={range}
                 appType={appType}
-                providerName={providerName}
+                accountId={accountId}
+                providerId={providerId}
                 model={model}
                 refreshIntervalMs={refreshIntervalMs}
               />
@@ -486,31 +468,52 @@ export function UsageDashboard({
         <div className="rounded-xl glass-card px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <ScanSearch className="h-5 w-5 text-sky-500" />
-            <div>
+            <div className="flex items-center gap-2">
               <h3 className="text-base font-semibold">
                 {t("usage.sessionSync.title")}
               </h3>
-              <p className="text-sm text-muted-foreground">
+              <HelpButton
+                label={t(
+                  "usage.sessionSync.help",
+                  "About automatic session scanning",
+                )}
+              >
                 {t("usage.sessionSync.description")}
-              </p>
+              </HelpButton>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0 rounded-full text-muted-foreground"
+                aria-label={t(
+                  "usage.sessionSource.configure",
+                  "Configure session source",
+                )}
+                disabled={
+                  !onCodexUsageSourceDirChange ||
+                  syncingSession ||
+                  rebuildingCodex
+                }
+                onClick={() => setShowSessionSource(true)}
+              >
+                <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+              </Button>
             </div>
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            {!sessionAutoSyncEnabled && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={syncingSession}
-                onClick={() => void runManualSessionSync()}
-              >
-                {syncingSession ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                )}
-                {t("usage.sessionSync.syncNow")}
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={syncingSession || rebuildingCodex || showSessionSource}
+              onClick={() => void runManualSessionSync()}
+            >
+              {syncingSession ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-2 h-4 w-4" />
+              )}
+              {t("usage.sessionSync.syncNow")}
+            </Button>
             <Switch
               checked={sessionAutoSyncEnabled}
               onCheckedChange={(value) =>
@@ -520,6 +523,14 @@ export function UsageDashboard({
             />
           </div>
         </div>
+
+        {showSessionSource && onCodexUsageSourceDirChange && (
+          <UsageSessionSourceDialog
+            value={codexUsageSourceDir}
+            onSave={onCodexUsageSourceDirChange}
+            onClose={() => setShowSessionSource(false)}
+          />
+        )}
 
         <Accordion
           type="multiple"
@@ -537,9 +548,6 @@ export function UsageDashboard({
                   <h3 className="text-base font-semibold">
                     {t("settings.advanced.pricing.title")}
                   </h3>
-                  <p className="text-sm text-muted-foreground font-normal">
-                    {t("settings.advanced.pricing.description")}
-                  </p>
                 </div>
               </div>
             </AccordionTrigger>
@@ -558,9 +566,6 @@ export function UsageDashboard({
                   <h3 className="text-base font-semibold">
                     {t("usage.rebuildCodex.title")}
                   </h3>
-                  <p className="text-sm text-muted-foreground font-normal">
-                    {t("usage.rebuildCodex.description")}
-                  </p>
                 </div>
               </div>
             </AccordionTrigger>

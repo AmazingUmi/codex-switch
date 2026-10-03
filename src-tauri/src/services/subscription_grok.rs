@@ -546,7 +546,7 @@ fn tier_name_for_reset(resets_at: Option<i64>, now_secs: i64) -> &'static str {
 /// 参数化 `tool_label` / `relogin_hint` 让该函数可被两个调用点共用（与
 /// `query_codex_quota` 的双调用点设计一致）：
 /// - `"grokbuild"` + "grok login"（Grok CLI 凭据路径）
-/// - `"xai_oauth"` + "re-login via cc-switch"（cc-switch 自管 xAI OAuth 路径，
+/// - `"xai_oauth"` + "re-login via codex-switch"（codex-switch 自管 xAI OAuth 路径，
 ///   见 `commands::xai_oauth::get_xai_oauth_quota`；两者是同一个 OAuth client，
 ///   token 对 grok.com 账单端点等效）
 pub(crate) async fn query_grok_quota(
@@ -554,7 +554,7 @@ pub(crate) async fn query_grok_quota(
     tool_label: &str,
     relogin_hint: &str,
 ) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     // 空 gRPC-web 帧：1 字节 flags + 4 字节大端长度 0
     let resp = client
@@ -566,7 +566,7 @@ pub(crate) async fn query_grok_quota(
         .header("Content-Type", "application/grpc-web+proto")
         .header("x-grpc-web", "1")
         .header("x-user-agent", "connect-es/2.1.1")
-        .header("User-Agent", "cc-switch")
+        .header("User-Agent", "codex-switch")
         .body(vec![0u8; 5])
         .timeout(std::time::Duration::from_secs(15))
         .send()
@@ -662,6 +662,7 @@ pub(crate) async fn query_grok_quota(
             .resets_at
             .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0))
             .map(|dt| dt.to_rfc3339()),
+        window_duration_seconds: None,
         used_value_usd: None,
         max_value_usd: None,
     };
@@ -952,7 +953,7 @@ mod tests {
         let determinate = grpc_status_failure(13, "internal", "grokbuild", RELOGIN_HINT)
             .expect("determinate is Ok");
         assert!(!determinate.success);
-        // tool_label 参数化：两条链路（CLI / cc-switch 自管 OAuth）标签正确落到快照
+        // tool_label 参数化：两条链路（CLI / codex-switch 自管 OAuth）标签正确落到快照
         let auth =
             grpc_status_failure(16, "", "xai_oauth", "re-login").expect("auth failure is Ok");
         assert!(matches!(auth.credential_status, CredentialStatus::Expired));

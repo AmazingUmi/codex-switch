@@ -170,7 +170,7 @@ export function BackupListSection({
       {/* Backup policy settings */}
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label className="text-sm">
+          <Label className="settings-field-label">
             {t("settings.backupManager.intervalLabel", {
               defaultValue: "Auto-backup Interval",
             })}
@@ -184,7 +184,7 @@ export function BackupListSection({
             <SelectTrigger className="h-9">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="settings-control-menu">
               <SelectItem value="0">
                 {t("settings.backupManager.intervalDisabled", {
                   defaultValue: "Disabled",
@@ -225,7 +225,7 @@ export function BackupListSection({
         </div>
 
         <div className="space-y-2">
-          <Label className="text-sm">
+          <Label className="settings-field-label">
             {t("settings.backupManager.retainLabel", {
               defaultValue: "Backup Retention",
             })}
@@ -239,7 +239,7 @@ export function BackupListSection({
             <SelectTrigger className="h-9">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="settings-control-menu">
               {[3, 5, 10, 15, 20, 30, 50].map((n) => (
                 <SelectItem key={n} value={String(n)}>
                   {n}
@@ -253,7 +253,7 @@ export function BackupListSection({
       {/* Backup list */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-medium">
+          <h4 className="settings-field-label">
             {t("settings.backupManager.title", {
               defaultValue: "Database Backups",
             })}

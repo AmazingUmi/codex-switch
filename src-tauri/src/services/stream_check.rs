@@ -10,21 +10,15 @@
 //! 本检查刻意不验证鉴权或模型，因此不会被第三方供应商的鉴权拦截 / 模型校验
 //! 误判为"不可用"。代价是它无法告诉你鉴权对不对、模型存不存在。
 //!
-//! ## 与故障转移的关系（重要不变量）
-//!
-//! 连通性检查 **绝不** 触碰故障转移熔断器：一个返回 403/401 的供应商在本检查里
-//! 算"可达"，但它对真实流量是坏的。熔断器只由 `proxy/forwarder.rs` 转发真实流量
-//! 的成败驱动（被动）。两者职责分离——可达性回答"能不能到"，真实流量回答"能不能用"。
-
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::time::Instant;
 
 use crate::app_config::AppType;
 use crate::error::AppError;
 use crate::provider::Provider;
-use crate::proxy::providers::{get_adapter, ClaudeAdapter, ProviderAdapter};
 
 /// 健康状态枚举
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -135,7 +129,7 @@ impl StreamCheckService {
             None => Self::resolve_base_url(app_type, provider)?,
         };
 
-        let client = crate::proxy::http_client::get();
+        let client = crate::http_client::get();
         let timeout = std::time::Duration::from_secs(config.timeout_secs);
         let ua = Self::custom_user_agent(provider);
 
@@ -155,7 +149,7 @@ impl StreamCheckService {
     /// （`/v1/messages` vs `/chat/completions` vs `:streamGenerateContent`）。
     ///
     /// 官方供应商（`category == "official"`）base_url 故意留空（走客户端默认/OAuth 端点），
-    /// 没有 cc-switch 能可靠探测的目标——这类供应商的连通检测按钮在前端已隐藏
+    /// 没有 codex-switch 能可靠探测的目标——这类供应商的连通检测按钮在前端已隐藏
     /// （见 `ProviderCard.tsx`），故此处对其提取失败直接报错即可，不做官方端点回退。
     fn resolve_base_url(app_type: &AppType, provider: &Provider) -> Result<String, AppError> {
         if provider.category.as_deref() == Some("official") {
@@ -165,8 +159,7 @@ impl StreamCheckService {
         }
 
         match app_type {
-            // 累加模式应用的 settings_config 结构与 Claude/Codex/Gemini 不同，
-            // 不走 adapter，直接按各自约定提取 base_url。
+            // 按原生配置结构提取各应用的 base_url。
             AppType::OpenCode => {
                 let npm = Self::extract_opencode_npm(provider);
                 Self::resolve_opencode_base_url(provider, npm.as_deref())
@@ -174,19 +167,89 @@ impl StreamCheckService {
             AppType::OpenClaw => Self::extract_openclaw_base_url(provider),
             AppType::Hermes => Self::extract_hermes_base_url(provider),
             AppType::Pi => crate::pi_config::provider_base_url(&provider.settings_config),
-            AppType::ClaudeDesktop => ClaudeAdapter::new()
-                .extract_base_url(provider)
-                .map_err(|e| AppError::Message(format!("Failed to extract base_url: {e}"))),
-            _ => get_adapter(app_type)
-                .ok_or_else(|| {
-                    AppError::InvalidInput(format!(
-                        "{} does not support proxy adapters",
-                        app_type.as_str()
-                    ))
-                })?
-                .extract_base_url(provider)
-                .map_err(|e| AppError::Message(format!("Failed to extract base_url: {e}"))),
+            AppType::Claude | AppType::ClaudeDesktop => Self::extract_claude_base_url(provider),
+            AppType::Codex | AppType::GrokBuild => Self::extract_codex_base_url(provider),
+            AppType::Gemini => Self::extract_gemini_base_url(provider),
+            AppType::Mcode => Err(AppError::InvalidInput(
+                "mcode does not expose a reachability-check target".to_string(),
+            )),
         }
+    }
+
+    fn configured_url(provider: &Provider, keys: &[&str]) -> Option<String> {
+        keys.iter().find_map(|key| {
+            provider
+                .settings_config
+                .get(*key)
+                .and_then(Value::as_str)
+                .map(|url| url.trim_end_matches('/').to_string())
+        })
+    }
+
+    fn missing_base_url(app_name: &str) -> AppError {
+        AppError::Message(format!(
+            "Failed to extract base_url: {app_name} Provider 缺少 base_url 配置"
+        ))
+    }
+
+    fn extract_claude_base_url(provider: &Provider) -> Result<String, AppError> {
+        if provider
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.provider_type.as_deref())
+            == Some("codex_oauth")
+        {
+            return Ok(crate::auth::codex_oauth::CHATGPT_CODEX_BASE_URL.to_string());
+        }
+        if provider.is_xai_oauth() {
+            return Ok(crate::auth::xai_oauth::XAI_API_BASE_URL.to_string());
+        }
+        provider
+            .settings_config
+            .pointer("/env/ANTHROPIC_BASE_URL")
+            .and_then(Value::as_str)
+            .map(|url| url.trim_end_matches('/').to_string())
+            .or_else(|| Self::configured_url(provider, &["base_url", "baseURL", "apiEndpoint"]))
+            .ok_or_else(|| Self::missing_base_url("Claude"))
+    }
+
+    fn extract_codex_base_url(provider: &Provider) -> Result<String, AppError> {
+        if crate::services::provider::codex_direct::is_official(provider) {
+            return Ok(crate::auth::codex_oauth::CHATGPT_CODEX_BASE_URL.to_string());
+        }
+        if provider.is_xai_oauth() {
+            return Ok(crate::auth::xai_oauth::XAI_API_BASE_URL.to_string());
+        }
+        Self::configured_url(provider, &["base_url", "baseURL"])
+            .or_else(|| {
+                let config = provider.settings_config.get("config")?;
+                if let Some(url) = config.get("base_url").and_then(Value::as_str) {
+                    return Some(url.trim_end_matches('/').to_string());
+                }
+                let config = config.as_str()?;
+                crate::grok_config::extract_base_url(config)
+                    .or_else(|| {
+                        ["base_url = \"", "base_url = '"].iter().find_map(|prefix| {
+                            let start = config.find(prefix)?;
+                            let rest = &config[start + prefix.len()..];
+                            let quote = prefix.chars().last()?;
+                            let end = rest.find(quote)?;
+                            Some(rest[..end].to_string())
+                        })
+                    })
+                    .map(|url| url.trim_end_matches('/').to_string())
+            })
+            .ok_or_else(|| Self::missing_base_url("Codex"))
+    }
+
+    fn extract_gemini_base_url(provider: &Provider) -> Result<String, AppError> {
+        provider
+            .settings_config
+            .pointer("/env/GOOGLE_GEMINI_BASE_URL")
+            .and_then(Value::as_str)
+            .map(|url| url.trim_end_matches('/').to_string())
+            .or_else(|| Self::configured_url(provider, &["base_url", "baseURL"]))
+            .ok_or_else(|| Self::missing_base_url("Gemini"))
     }
 
     /// 轻量可达性探测：GET `base_url`，收到任意 HTTP 响应即可达。
@@ -514,5 +577,33 @@ mod tests {
         official.id = crate::database::CODEX_OFFICIAL_PROVIDER_ID.to_string();
         official.category = Some("official".to_string());
         assert!(StreamCheckService::resolve_base_url(&AppType::Codex, &official).is_err());
+    }
+    #[test]
+    fn native_reachability_uses_configured_urls_without_protocol_adapters() {
+        let codex = make_provider(serde_json::json!({
+            "auth": {"OPENAI_API_KEY": "k"},
+            "config": "model_provider = 'native'\n[model_providers.native]\nbase_url = 'https://deepseek.example/v1/'\nwire_api = 'responses'\n"
+        }));
+        assert_eq!(
+            StreamCheckService::resolve_base_url(&AppType::Codex, &codex).unwrap(),
+            "https://deepseek.example/v1"
+        );
+        let explicit = make_provider(serde_json::json!({
+            "base_url": "https://first.example/v1/",
+            "baseURL": "https://second.example/v1/",
+            "config": {"base_url": "https://third.example/v1/"}
+        }));
+        assert_eq!(
+            StreamCheckService::resolve_base_url(&AppType::Codex, &explicit).unwrap(),
+            "https://first.example/v1"
+        );
+        let gemini = make_provider(serde_json::json!({
+            "env": {"GOOGLE_GEMINI_BASE_URL": "https://gemini.example/"},
+            "base_url": "https://fallback.example/"
+        }));
+        assert_eq!(
+            StreamCheckService::resolve_base_url(&AppType::Gemini, &gemini).unwrap(),
+            "https://gemini.example"
+        );
     }
 }

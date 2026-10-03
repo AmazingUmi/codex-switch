@@ -6,7 +6,7 @@ use std::fs;
 
 use serde_json::json;
 
-use cc_switch_lib::{
+use codex_switch_lib::{
     AppType, InstalledSkill, McpServer, McpService, ProfilePayload, ProfileScope, ProfileService,
     Prompt, PromptService, Provider, ProviderService, SkillApps, SkillService,
 };
@@ -412,7 +412,7 @@ fn profile_apply_reports_dangling_references_and_continues() {
         "skills": { "claude": ["ghost-skill"] },
         "prompts": { "claude": "ghost-prompt" }
     });
-    let profile = cc_switch_lib::Profile {
+    let profile = codex_switch_lib::Profile {
         id: "dangling-test".to_string(),
         name: "Dangling".to_string(),
         payload: payload.to_string(),
@@ -644,156 +644,45 @@ fn switching_profile_autosaves_previous_profile_state() {
 }
 
 #[test]
-fn profile_switch_in_routing_mode_changes_the_route_only() {
+fn profile_switch_updates_native_provider_and_live_credentials() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
     let home = ensure_test_home();
-
     let state = create_test_state().expect("create test state");
-
-    // 使用临时端口，避免测试机器端口冲突
-    futures::executor::block_on(async {
-        let mut proxy_config = state.db.get_proxy_config().await.expect("get proxy config");
-        proxy_config.listen_port = 0;
+    for (id, key) in [("custom1", "custom-key-1"), ("custom2", "custom-key-2")] {
         state
             .db
-            .update_proxy_config(proxy_config)
-            .await
-            .expect("set ephemeral proxy port");
-    });
-
-    // ---- 两个 Claude 供应商：custom1 与 custom2 ----
-    let mut custom1 = claude_provider("custom1", "custom-key-1");
-    custom1.category = Some("custom".to_string());
-    state
-        .db
-        .save_provider(AppType::Claude.as_str(), &custom1)
-        .expect("save custom1 provider");
-
-    let mut custom2 = claude_provider("custom2", "custom-key-2");
-    custom2.category = Some("custom".to_string());
-    state
-        .db
-        .save_provider(AppType::Claude.as_str(), &custom2)
-        .expect("save custom2 provider");
-
-    // 初始状态：custom1 + 路由模式
-    ProviderService::switch(&state, AppType::Claude, "custom1").expect("switch to custom1");
-    let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
-    rt.block_on(cc_switch_lib::mode::controller::enter(
-        &state,
-        &AppType::Claude,
-    ))
-    .expect("enter routing mode");
-
-    // ---- 构造一个目标为 custom2 的项目快照 ----
-    let project = ProfileService::create(&state, "Custom2 Project", ProfileScope::Claude)
-        .expect("create project");
-    let mut project = state
-        .db
-        .get_profile(&project.id)
-        .expect("get project")
-        .expect("project exists");
-    let mut payload: ProfilePayload =
-        serde_json::from_str(&project.payload).expect("parse project payload");
-    payload.providers.claude = Some("custom2".to_string());
-    project.payload = serde_json::to_string(&payload).expect("serialize payload");
-    state
-        .db
-        .save_profile(&project)
-        .expect("save updated project");
-
-    // ---- 应用项目：只把代理路由切到 custom2，不退出路由模式 ----
-    let warnings = ProfileService::apply(&state, &project.id, ProfileScope::Claude)
-        .expect("apply custom2 project");
-    assert!(
-        warnings.is_empty(),
-        "switching project should not warn: {warnings:?}"
-    );
-
-    assert!(cc_switch_lib::mode::current::is_proxy(&AppType::Claude));
-    let (proxy_enabled_after, _) = state.db.get_proxy_flags_sync("claude");
-    assert!(
-        proxy_enabled_after,
-        "routing mode is mirrored for old versions"
-    );
-    assert_eq!(
-        cc_switch_lib::mode::current::provider_for(
-            &state.db,
-            &AppType::Claude,
-            cc_switch_lib::mode::current::Purpose::InUse,
+            .save_provider(AppType::Claude.as_str(), &claude_provider(id, key))
+            .expect("save provider");
+    }
+    ProviderService::switch(&state, AppType::Claude, "custom1").expect("initial direct switch");
+    let project = ProfileService::create(&state, "Native project", ProfileScope::Claude)
+        .expect("create profile");
+    for (id, key) in [("custom2", "custom-key-2"), ("custom1", "custom-key-1")] {
+        let mut project = state
+            .db
+            .get_profile(&project.id)
+            .expect("read profile")
+            .expect("profile");
+        let mut payload: ProfilePayload =
+            serde_json::from_str(&project.payload).expect("parse profile");
+        payload.providers.claude = Some(id.to_string());
+        project.payload = serde_json::to_string(&payload).expect("serialize profile");
+        state.db.save_profile(&project).expect("save profile");
+        let warnings = ProfileService::apply(&state, &project.id, ProfileScope::Claude)
+            .expect("apply direct profile");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        assert_eq!(
+            ProviderService::current(&state, AppType::Claude).expect("current"),
+            id
+        );
+        let settings: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(home.join(".claude/settings.json")).expect("read settings"),
         )
-        .expect("in-use provider")
-        .as_deref(),
-        Some("custom2"),
-        "the proxy should route to custom2"
-    );
-    assert_eq!(
-        cc_switch_lib::mode::current::provider_for(
-            &state.db,
-            &AppType::Claude,
-            cc_switch_lib::mode::current::Purpose::Direct,
-        )
-        .expect("direct provider")
-        .as_deref(),
-        Some("custom1"),
-        "the direct pointer is independent of the route"
-    );
-
-    // 应用快照里记的是 custom1 的项目：比的是正在用的那家（路由），不是直连指针。
-    let mut back = state
-        .db
-        .get_profile(&project.id)
-        .expect("get project")
-        .expect("project exists");
-    let mut back_payload: ProfilePayload =
-        serde_json::from_str(&back.payload).expect("parse project payload");
-    back_payload.providers.claude = Some("custom1".to_string());
-    back.payload = serde_json::to_string(&back_payload).expect("serialize payload");
-    state
-        .db
-        .save_profile(&back)
-        .expect("save project back to custom1");
-    let warnings = ProfileService::apply(&state, &project.id, ProfileScope::Claude)
-        .expect("apply custom1 project");
-    assert!(warnings.is_empty(), "{warnings:?}");
-    assert_eq!(
-        cc_switch_lib::mode::current::provider_for(
-            &state.db,
-            &AppType::Claude,
-            cc_switch_lib::mode::current::Purpose::InUse,
-        )
-        .expect("in-use provider")
-        .as_deref(),
-        Some("custom1"),
-        "the route follows the project even though the direct pointer already matched"
-    );
-
-    // live 仍指向本地代理；退出路由后写回直连的 custom1
-    let settings_path = home.join(".claude/settings.json");
-    let base_url = |path: &std::path::Path| {
-        let settings: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(path).expect("read settings"))
-                .expect("parse settings");
-        settings
-            .get("env")
-            .and_then(|e| e.get("ANTHROPIC_BASE_URL"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-    };
-    assert!(base_url(&settings_path)
-        .expect("proxy base url")
-        .starts_with("http://127.0.0.1:"));
-    rt.block_on(cc_switch_lib::mode::controller::exit(
-        &state,
-        &AppType::Claude,
-    ))
-    .expect("exit routing mode");
-    assert_eq!(
-        base_url(&settings_path).as_deref(),
-        Some("https://api.test"),
-        "leaving routing mode writes the direct provider back"
-    );
+        .expect("parse settings");
+        assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://api.test");
+        assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], key);
+    }
 }
 
 #[cfg(any(target_os = "macos", windows))]

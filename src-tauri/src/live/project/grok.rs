@@ -1,4 +1,4 @@
-//! Grok Build 的投影：供应商行 → `config.toml` 的 `models.default` 和 CC Switch 写的那张
+//! Grok Build 的投影：供应商行 → `config.toml` 的 `models.default` 和 Codex Switch 写的那张
 //! `[model."<名称>"]` 整表。
 //!
 //! 整表指表里的所有键（`model`、`base_url`、`api_key` / `env_key`，以及
@@ -18,9 +18,6 @@ use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, TableLike};
 use crate::error::AppError;
 use crate::live::patch::toml::TomlDocPatch;
 use crate::live::patch::{KeyPath, LiveWriteError};
-
-/// 代理契约写进模型表的接口类型（本地代理只提供 Responses）。
-pub const PROXY_API_BACKEND: &str = "responses";
 
 /// 一个供应商在 `config.toml` 里拥有的东西。
 #[derive(Debug, Clone)]
@@ -74,30 +71,6 @@ impl GrokProjection {
 
     pub fn table_name(&self) -> Option<&str> {
         self.table.as_ref().map(|(name, _)| name.as_str())
-    }
-
-    /// 代理契约：路由供应商的表，地址、Key、接口类型换成本地代理的。`env_key` 原样保留：
-    /// Grok 优先用表里的 `api_key`。官方卡没有模型表，不能作为路由（xAI 登录不经本地
-    /// 代理）。
-    pub fn proxy_contract(
-        route: &Self,
-        proxy_base_url: &str,
-        placeholder: &str,
-    ) -> Result<Self, AppError> {
-        let (name, table) = route.table.as_ref().ok_or_else(|| {
-            AppError::localized(
-                "provider.grokbuild.proxy.official",
-                "Grok Build 官方账号不能经本地路由使用",
-                "The official Grok Build account cannot be used through local routing",
-            )
-        })?;
-        let mut table = table.clone();
-        table.insert("base_url", toml_edit::value(proxy_base_url));
-        table.insert("api_key", toml_edit::value(placeholder));
-        table.insert("api_backend", toml_edit::value(PROXY_API_BACKEND));
-        Ok(Self {
-            table: Some((name.clone(), table)),
-        })
     }
 
     /// 摘要用的规范形式。
@@ -212,7 +185,7 @@ pub struct GrokConfigPatch {
     pub target: Option<(String, Table)>,
     /// 上次写入记录里的表。目标自己的表不删，由整表替换覆盖。
     pub retired: Vec<String>,
-    /// 这个值作为 `api_key` 的表都是 CC Switch 的代理契约留下的，一律删（目标自己的
+    /// 这个值作为 `api_key` 的表都是 Codex Switch 的代理契约留下的，一律删（目标自己的
     /// 表除外）。
     pub placeholder: Option<String>,
 }
@@ -460,19 +433,6 @@ api_key = "PROXY_MANAGED"
             live,
         );
         assert_eq!(out, "[models]\nweb_search = \"grok-4.6\"\n");
-    }
-
-    #[test]
-    fn proxy_contract_keeps_env_key_and_points_at_the_proxy() {
-        let b = GrokProjection::of(&row(ROW_B), false).unwrap();
-        let contract =
-            GrokProjection::proxy_contract(&b, "http://127.0.0.1:15721/grokbuild/v1", PLACEHOLDER)
-                .unwrap();
-        let (name, table) = contract.table.unwrap();
-        assert_eq!(name, "b");
-        assert_eq!(table["api_key"].as_str(), Some(PLACEHOLDER));
-        assert_eq!(table["env_key"].as_str(), Some("B_KEY"));
-        assert_eq!(table["api_backend"].as_str(), Some("responses"));
     }
 
     #[test]

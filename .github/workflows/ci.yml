@@ -35,7 +35,7 @@ jobs:
             frontend:
               - "src/**"
               - "tests/**"
-              - "index.html"
+              - "src/index.html"
               - "package.json"
               - "pnpm-lock.yaml"
               - "pnpm-workspace.yaml"
@@ -65,15 +65,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version-file: ".node-version"
 
       - name: Setup pnpm
-        env:
-          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
-        run: |
-          corepack enable
-          corepack install
-          pnpm --version
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
 
       - name: Get pnpm store directory
         id: pnpm-store
@@ -118,6 +113,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.95.0"
           components: rustfmt, clippy
 
       - name: Install Linux system deps
@@ -139,7 +135,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Create frontend dist placeholder
@@ -169,6 +165,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: "1.95.0"
 
       - name: Setup WSL2
         uses: Vampire/setup-wsl@d1da7f2c0322a5ee4f24975344f67fc0f5baf364 # v7
@@ -183,7 +181,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust-toolchain.toml', 'src-tauri/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Create frontend dist placeholder
@@ -193,8 +191,8 @@ jobs:
       - name: Prepare WSL2-backed test environment
         shell: pwsh
         run: |
-          wsl.exe -d Ubuntu-24.04 -- bash -lc "rm -rf /tmp/cc-switch-windows-test-root && mkdir -p /tmp/cc-switch-windows-test-root/{home,temp} && chmod -R 0777 /tmp/cc-switch-windows-test-root"
-          $testRoot = "\\wsl.localhost\Ubuntu-24.04\tmp\cc-switch-windows-test-root"
+          wsl.exe -d Ubuntu-24.04 -- bash -lc "rm -rf /tmp/codex-switch-windows-test-root && mkdir -p /tmp/codex-switch-windows-test-root/{home,temp} && chmod -R 0777 /tmp/codex-switch-windows-test-root"
+          $testRoot = "\\wsl.localhost\Ubuntu-24.04\tmp\codex-switch-windows-test-root"
           $testHome = Join-Path $testRoot "home"
           $testTemp = Join-Path $testRoot "temp"
           foreach ($path in @($testRoot, $testHome, $testTemp)) {
@@ -202,9 +200,9 @@ jobs:
               throw "WSL2-backed test path is unavailable: $path"
             }
           }
-          "CC_SWITCH_TEST_HOME=$testHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CC_SWITCH_WSL_TEST_DIR=$testRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CC_SWITCH_WSL_TEST_TEMP=$testTemp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODEX_SWITCH_TEST_HOME=$testHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODEX_SWITCH_WSL_TEST_DIR=$testRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODEX_SWITCH_WSL_TEST_TEMP=$testTemp" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Compile backend tests with native temp
         # link.exe/mt.exe cannot create manifests when TEMP points at a WSL UNC path.
@@ -219,7 +217,7 @@ jobs:
             ForEach-Object {
               if ($_ -match '"reason":"compiler-artifact"') {
                 $artifact = $_ | ConvertFrom-Json
-                if ($artifact.executable -and $artifact.profile.test -and $artifact.target.name -eq 'cc_switch_lib') {
+                if ($artifact.executable -and $artifact.profile.test -and $artifact.target.name -eq 'codex_switch_lib') {
                   $artifact.executable
                 }
               }
@@ -228,9 +226,9 @@ jobs:
             exit $LASTEXITCODE
           }
           if (-not $testBinary) {
-            throw "cc_switch_lib test binary not found in cargo compiler artifacts"
+            throw "codex_switch_lib test binary not found in cargo compiler artifacts"
           }
-          "CC_SWITCH_TEST_EXE=$testBinary" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODEX_SWITCH_TEST_EXE=$testBinary" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Run Windows-to-WSL2 filesystem contract
         # Run the test binary built in the previous step directly. Invoking cargo
@@ -238,10 +236,10 @@ jobs:
         # link.exe/mt.exe cannot create manifest temp files on \\wsl.localhost.
         shell: pwsh
         run: |
-          $env:TEMP = $env:CC_SWITCH_WSL_TEST_TEMP
-          $env:TMP = $env:CC_SWITCH_WSL_TEST_TEMP
+          $env:TEMP = $env:CODEX_SWITCH_WSL_TEST_TEMP
+          $env:TMP = $env:CODEX_SWITCH_WSL_TEST_TEMP
           $testName = "config::tests::atomic_write_replaces_existing_wsl_unc_file"
-          $testList = & $env:CC_SWITCH_TEST_EXE --list --ignored
+          $testList = & $env:CODEX_SWITCH_TEST_EXE --list --ignored
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -249,7 +247,7 @@ jobs:
           if ($testList -notcontains $expected) {
             throw "Expected ignored test was not discovered: $testName"
           }
-          & $env:CC_SWITCH_TEST_EXE $testName --ignored --exact --nocapture
+          & $env:CODEX_SWITCH_TEST_EXE $testName --ignored --exact --nocapture
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }

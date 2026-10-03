@@ -1,3 +1,4 @@
+import { HelpButton } from "@/components/ui/help-button";
 import { useTranslation } from "react-i18next";
 import {
   Select,
@@ -7,6 +8,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { isMac, isWindows, isLinux } from "@/lib/platform";
+import { TerminalSquare } from "lucide-react";
+import { SettingsSectionHeader } from "./SettingsSectionHeader";
 
 // Terminal options per platform
 const MACOS_TERMINALS = [
@@ -88,18 +91,21 @@ export function TerminalSettings({ value, onChange }: TerminalSettingsProps) {
   const currentValue = value || defaultTerminal;
 
   return (
-    <section className="space-y-2">
-      <header className="space-y-1">
-        <h3 className="text-sm font-medium">{t("settings.terminal.title")}</h3>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.terminal.description")}
-        </p>
-      </header>
+    <section className="settings-section space-y-3">
+      <SettingsSectionHeader
+        title={t("settings.terminal.title")}
+        icon={<TerminalSquare />}
+        help={
+          <HelpButton label={t("settings.terminal.title")}>
+            {t("settings.terminal.fallbackHint")}
+          </HelpButton>
+        }
+      />
       <Select value={currentValue} onValueChange={onChange}>
-        <SelectTrigger className="w-[200px]">
+        <SelectTrigger className="settings-control-text h-10 w-[200px] max-w-full">
           <SelectValue />
         </SelectTrigger>
-        <SelectContent>
+        <SelectContent className="settings-control-menu">
           {terminals.map((terminal) => (
             <SelectItem key={terminal.value} value={terminal.value}>
               {t(terminal.labelKey)}
@@ -107,9 +113,6 @@ export function TerminalSettings({ value, onChange }: TerminalSettingsProps) {
           ))}
         </SelectContent>
       </Select>
-      <p className="text-xs text-muted-foreground">
-        {t("settings.terminal.fallbackHint")}
-      </p>
     </section>
   );
 }

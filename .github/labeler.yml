@@ -5,7 +5,7 @@ frontend:
   - changed-files:
       - any-glob-to-any-file:
           - "src/**"
-          - "index.html"
+          - "src/index.html"
           - "vite.config.ts"
           - "vitest.config.ts"
           - "tailwind.config.cjs"
@@ -49,8 +49,6 @@ documentation:
 mcp:
   - changed-files:
       - any-glob-to-any-file:
-          - "src/components/mcp/**"
-          - "src/lib/api/mcp.ts"
           - "src-tauri/src/mcp/**"
           - "src-tauri/src/claude_mcp.rs"
           - "src-tauri/src/gemini_mcp.rs"
@@ -59,8 +57,6 @@ mcp:
 skills:
   - changed-files:
       - any-glob-to-any-file:
-          - "src/components/skills/**"
-          - "src/lib/api/skills.ts"
           - "src-tauri/src/commands/skill.rs"
           - "src-tauri/src/services/skill.rs"
           - "src-tauri/src/database/dao/skills.rs"

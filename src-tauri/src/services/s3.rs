@@ -9,7 +9,7 @@ use std::time::Duration;
 use url::Url;
 
 use crate::error::AppError;
-use crate::proxy::http_client;
+use crate::http_client;
 use futures::StreamExt;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -882,7 +882,7 @@ mod integration_tests {
     #[tokio::test]
     #[ignore]
     async fn live_s3_connection() {
-        crate::proxy::http_client::init(None).ok();
+        crate::http_client::init().ok();
         let creds = test_creds();
         let result = test_connection(&creds).await;
         assert!(result.is_ok(), "Connection failed: {:?}", result.err());
@@ -892,9 +892,9 @@ mod integration_tests {
     #[tokio::test]
     #[ignore]
     async fn live_s3_put_get_head_roundtrip() {
-        crate::proxy::http_client::init(None).ok();
+        crate::http_client::init().ok();
         let creds = test_creds();
-        let key = "cc-switch-sync/v2/default/_integration_test.json";
+        let key = "codex-switch-sync/v2/default/_integration_test.json";
         let data = br#"{"test":true,"ts":12345}"#;
 
         // PUT
@@ -916,7 +916,7 @@ mod integration_tests {
         println!("PASS: head_object OK");
 
         // 404
-        let r = get_object(&creds, "cc-switch-sync/_no_such_key", 1024).await;
+        let r = get_object(&creds, "codex-switch-sync/_no_such_key", 1024).await;
         assert!(r.is_ok());
         assert!(r.unwrap().is_none());
         println!("PASS: get_object(404) returned None");

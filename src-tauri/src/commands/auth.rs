@@ -1,14 +1,12 @@
 use tauri::State;
 
 use crate::app_config::AppType;
+use crate::auth::codex_oauth::{CodexAccountMetadata, CodexOAuthError, CodexOAuthManager};
+use crate::auth::copilot_auth::{CopilotAuthError, GitHubAccount, GitHubDeviceCodeResponse};
+use crate::auth::xai_oauth::{XaiOAuthAccount, XaiOAuthError};
 use crate::commands::codex_oauth::CodexOAuthState;
 use crate::commands::copilot::CopilotAuthState;
 use crate::commands::xai_oauth::XaiOAuthState;
-use crate::proxy::providers::codex_oauth_auth::CodexOAuthError;
-use crate::proxy::providers::copilot_auth::{
-    CopilotAuthError, GitHubAccount, GitHubDeviceCodeResponse,
-};
-use crate::proxy::providers::xai_oauth_auth::{XaiOAuthAccount, XaiOAuthError};
 use crate::store::AppState;
 
 const AUTH_PROVIDER_GITHUB_COPILOT: &str = "github_copilot";
@@ -28,6 +26,10 @@ pub struct ManagedAuthAccount {
     pub reauth_required: bool,
     /// xAI 专用：refresh token 已失效，账号不可再用于请求。
     pub requires_reauth: bool,
+    pub display_name: Option<String>,
+    pub notes: Option<String>,
+    pub icon: Option<String>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -67,6 +69,10 @@ fn map_account(
         is_default: default_account_id == Some(account.id.as_str()),
         reauth_required: account.reauth_required,
         requires_reauth: false,
+        display_name: None,
+        notes: None,
+        icon: None,
+        color: None,
         id: account.id,
         provider: provider.to_string(),
         login: account.login,
@@ -90,7 +96,37 @@ fn map_xai_account(
         github_domain: account.github_domain,
         reauth_required: false,
         requires_reauth: account.requires_reauth,
+        display_name: None,
+        notes: None,
+        icon: None,
+        color: None,
     }
+}
+
+async fn map_codex_account(
+    manager: &CodexOAuthManager,
+    account: GitHubAccount,
+    default_account_id: Option<&str>,
+) -> ManagedAuthAccount {
+    let metadata = manager.account_metadata(&account.id).await;
+    let mut result = map_account(AUTH_PROVIDER_CODEX_OAUTH, account, default_account_id);
+    result.display_name = metadata.display_name;
+    result.notes = metadata.notes;
+    result.icon = metadata.icon;
+    result.color = metadata.color;
+    result
+}
+
+async fn map_codex_accounts(
+    manager: &CodexOAuthManager,
+    accounts: Vec<GitHubAccount>,
+    default_account_id: Option<&str>,
+) -> Vec<ManagedAuthAccount> {
+    let mut result = Vec::with_capacity(accounts.len());
+    for account in accounts {
+        result.push(map_codex_account(manager, account, default_account_id).await);
+    }
+    result
 }
 
 fn map_device_code_response(
@@ -153,7 +189,12 @@ pub async fn auth_start_login(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve named Tauri IPC arguments and injected state"
+)]
 pub async fn auth_poll_for_account(
+    app: tauri::AppHandle,
     auth_provider: String,
     device_code: String,
     github_domain: Option<String>,
@@ -185,17 +226,29 @@ pub async fn auth_poll_for_account(
             match auth_manager
                 .poll_for_token(&device_code, || async {
                     app_state
-                        .proxy_service
-                        .lock_switch_for_app(AppType::Codex.as_str())
+                        .switch_locks
+                        .lock_for_app(AppType::Codex.as_str())
                         .await
                 })
                 .await
             {
                 Ok(account) => {
                     let default_account_id = auth_manager.get_status().await.default_account_id;
-                    Ok(account.map(|account| {
-                        map_account(auth_provider, account, default_account_id.as_deref())
-                    }))
+                    match account {
+                        Some(account) => {
+                            app_state.usage_cache.invalidate_codex_oauth(&account.id);
+                            crate::tray_quota::request_refresh(&app);
+                            Ok(Some(
+                                map_codex_account(
+                                    auth_manager,
+                                    account,
+                                    default_account_id.as_deref(),
+                                )
+                                .await,
+                            ))
+                        }
+                        None => Ok(None),
+                    }
                 }
                 Err(CodexOAuthError::AuthorizationPending) => Ok(None),
                 Err(e) => Err(e.to_string()),
@@ -253,11 +306,10 @@ pub async fn auth_list_accounts(
             let auth_manager = &codex_state.0;
             let status = auth_manager.get_status().await;
             let default_account_id = status.default_account_id.clone();
-            Ok(status
-                .accounts
-                .into_iter()
-                .map(|account| map_account(auth_provider, account, default_account_id.as_deref()))
-                .collect())
+            Ok(
+                map_codex_accounts(auth_manager, status.accounts, default_account_id.as_deref())
+                    .await,
+            )
         }
         AUTH_PROVIDER_XAI_OAUTH => {
             let auth_manager = xai_state.0.read().await;
@@ -309,13 +361,12 @@ pub async fn auth_get_status(
                 authenticated: status.authenticated,
                 default_account_id: default_account_id.clone(),
                 migration_error: None,
-                accounts: status
-                    .accounts
-                    .into_iter()
-                    .map(|account| {
-                        map_account(auth_provider, account, default_account_id.as_deref())
-                    })
-                    .collect(),
+                accounts: map_codex_accounts(
+                    auth_manager,
+                    status.accounts,
+                    default_account_id.as_deref(),
+                )
+                .await,
             })
         }
         AUTH_PROVIDER_XAI_OAUTH => {
@@ -339,7 +390,58 @@ pub async fn auth_get_status(
 }
 
 #[tauri::command(rename_all = "camelCase")]
+pub async fn auth_update_account(
+    auth_provider: String,
+    account_id: String,
+    metadata: CodexAccountMetadata,
+    codex_state: State<'_, CodexOAuthState>,
+) -> Result<ManagedAuthAccount, String> {
+    if ensure_auth_provider(&auth_provider)? != AUTH_PROVIDER_CODEX_OAUTH {
+        return Err("Account editing is only supported for Codex OAuth".into());
+    }
+    let manager = &codex_state.0;
+    let account = manager
+        .update_account_metadata(&account_id, metadata)
+        .await
+        .map_err(|error| error.to_string())?;
+    let default = manager.default_account_id().await;
+    Ok(map_codex_account(manager, account, default.as_deref()).await)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+pub async fn auth_switch_codex_account(
+    app_handle: tauri::AppHandle,
+    account_id: String,
+    provider_id: Option<String>,
+) -> Result<crate::services::provider::CodexAccountSwitchResult, String> {
+    use tauri::{Emitter, Manager};
+    let switch_app = app_handle.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = switch_app
+            .try_state::<AppState>()
+            .ok_or_else(|| "Application state is unavailable".to_string())?;
+        crate::services::ProviderService::switch_codex_account(
+            state.inner(),
+            &account_id,
+            provider_id.as_deref(),
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Account switching task failed: {error}"))??;
+    crate::tray::refresh_tray_menu(&app_handle);
+    if let Err(error) = app_handle.emit(
+        "provider-switched",
+        serde_json::json!({"appType": "codex", "providerId": result.provider_id}),
+    ) {
+        log::warn!("Failed to emit successful Codex account switch: {error}");
+    }
+    Ok(result)
+}
+
+#[tauri::command(rename_all = "camelCase")]
 pub async fn auth_remove_account(
+    app: tauri::AppHandle,
     auth_provider: String,
     account_id: String,
     app_state: State<'_, AppState>,
@@ -356,7 +458,9 @@ pub async fn auth_remove_account(
                 .map_err(|e| e.to_string())
         }
         AUTH_PROVIDER_CODEX_OAUTH => {
-            remove_codex_oauth_account_with_switch_lock(app_state.inner(), &account_id).await
+            remove_codex_oauth_account_with_switch_lock(app_state.inner(), &account_id).await?;
+            crate::tray::refresh_tray_menu(&app);
+            Ok(())
         }
         AUTH_PROVIDER_XAI_OAUTH => {
             let auth_manager = xai_state.0.write().await;
@@ -377,14 +481,16 @@ pub(crate) async fn remove_codex_oauth_account_with_switch_lock(
     // add/update/switch/hot-switch. Otherwise a switch that already preflighted
     // a bundle could recreate auth.json after removal.
     let _switch_guard = app_state
-        .proxy_service
-        .lock_switch_for_app(AppType::Codex.as_str())
+        .switch_locks
+        .lock_for_app(AppType::Codex.as_str())
         .await;
     app_state
         .codex_oauth_manager
         .remove_account(account_id)
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    app_state.usage_cache.invalidate_codex_oauth(account_id);
+    Ok(())
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -424,6 +530,7 @@ pub async fn auth_set_default_account(
 
 #[tauri::command(rename_all = "camelCase")]
 pub async fn auth_logout(
+    app: tauri::AppHandle,
     auth_provider: String,
     app_state: State<'_, AppState>,
     copilot_state: State<'_, CopilotAuthState>,
@@ -435,7 +542,11 @@ pub async fn auth_logout(
             let auth_manager = copilot_state.0.write().await;
             auth_manager.clear_auth().await.map_err(|e| e.to_string())
         }
-        AUTH_PROVIDER_CODEX_OAUTH => logout_codex_oauth_with_switch_lock(app_state.inner()).await,
+        AUTH_PROVIDER_CODEX_OAUTH => {
+            logout_codex_oauth_with_switch_lock(app_state.inner()).await?;
+            crate::tray::refresh_tray_menu(&app);
+            Ok(())
+        }
         AUTH_PROVIDER_XAI_OAUTH => {
             let auth_manager = xai_state.0.write().await;
             auth_manager.clear_auth().await.map_err(|e| e.to_string())
@@ -448,12 +559,14 @@ pub(crate) async fn logout_codex_oauth_with_switch_lock(
     app_state: &AppState,
 ) -> Result<(), String> {
     let _switch_guard = app_state
-        .proxy_service
-        .lock_switch_for_app(AppType::Codex.as_str())
+        .switch_locks
+        .lock_for_app(AppType::Codex.as_str())
         .await;
     app_state
         .codex_oauth_manager
         .clear_auth()
         .await
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    app_state.usage_cache.invalidate_all_codex_oauth();
+    Ok(())
 }

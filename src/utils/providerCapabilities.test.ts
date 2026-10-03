@@ -4,7 +4,7 @@ import type { AppId } from "@/lib/api";
 import {
   providerNeedsRouting,
   resolveCodexOfficialIdentity,
-  supportsOfficialProxyTakeover,
+  providerSupportsDirectConnection,
 } from "@/utils/providerCapabilities";
 
 function mkProvider(overrides: Partial<Provider> = {}): Provider {
@@ -69,9 +69,9 @@ describe("providerNeedsRouting", () => {
     );
     expect(resolveCodexOfficialIdentity("claude", managed)).toBeNull();
 
-    expect(supportsOfficialProxyTakeover("codex", native)).toBe(true);
-    expect(supportsOfficialProxyTakeover("codex", managed)).toBe(true);
-    expect(supportsOfficialProxyTakeover("codex", unbound)).toBe(true);
+    expect(providerSupportsDirectConnection("codex", native)).toBe(true);
+    expect(providerSupportsDirectConnection("codex", managed)).toBe(true);
+    expect(providerSupportsDirectConnection("codex", unbound)).toBe(true);
   });
 
   it("does not infer Codex login identity from a stale Official category", () => {
@@ -124,7 +124,7 @@ describe("providerNeedsRouting", () => {
     expect(resolveCodexOfficialIdentity("codex", storedAuthKey)).toBe(
       "api_key",
     );
-    expect(supportsOfficialProxyTakeover("codex", storedAuthKey)).toBe(false);
+    expect(providerSupportsDirectConnection("codex", storedAuthKey)).toBe(true);
     expect(resolveCodexOfficialIdentity("codex", storedBearer)).toBeNull();
     expect(resolveCodexOfficialIdentity("codex", explicitOpenAi)).toBe(
       "api_key",
@@ -188,7 +188,7 @@ describe("providerNeedsRouting", () => {
     expect(providerNeedsRouting("codex", managed)).toBe(false);
   });
 
-  it("官方供应商一律不需要路由（即便 providerType 是 OAuth）", () => {
+  it("rejects proxy-injected OAuth even with a stale official category", () => {
     const apps: AppId[] = ["claude", "codex", "claude-desktop"];
     for (const app of apps) {
       expect(
@@ -199,7 +199,7 @@ describe("providerNeedsRouting", () => {
             meta: { providerType: "xai_oauth" },
           }),
         ),
-      ).toBe(false);
+      ).toBe(true);
     }
   });
 
@@ -267,6 +267,57 @@ describe("providerNeedsRouting", () => {
         ),
       ).toBe(true);
     });
+  });
+
+  it.each([
+    { fullURL: true },
+    { is_full_url: true },
+    { api_format: " OPENAI_CHAT " },
+    { apiFormat: "anthropic" },
+    { auth: { OPENAI_API_KEY: " PROXY_MANAGED " } },
+    { config: 'experimental_bearer_token = "PROXY_MANAGED"' },
+    {
+      config:
+        'model_provider = "native"\nwire_api = "chat_completions"\n[model_providers.native]\nwire_api = "responses"',
+    },
+    {
+      config:
+        'model_provider = "native"\nexperimental_bearer_token = "PROXY_MANAGED"\n[model_providers.native]\nexperimental_bearer_token = "real-key"',
+    },
+    {
+      config:
+        'model_provider = "native"\n[model_providers.native]\nwire_api = "unknown"',
+    },
+    {
+      config:
+        'model_provider = "native"\n[model_providers.native]\nwire_api = true',
+    },
+    {
+      config:
+        'model_provider = "native"\n[model_providers.native]\nbase_url = "https://example.invalid/chat/completions/"',
+    },
+  ])(
+    "matches the backend guard for raw saved legacy configuration: %j",
+    (settingsConfig) => {
+      expect(
+        providerSupportsDirectConnection(
+          "codex",
+          mkProvider({ settingsConfig }),
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it("accepts native format aliases and a user localhost gateway", () => {
+    const native = mkProvider({
+      settingsConfig: {
+        auth: { OPENAI_API_KEY: "native-key" },
+        apiFormat: " OpenAI-Responses ",
+        config:
+          'model_provider = "native"\n[model_providers.native]\nwire_api = "Responses"\nbase_url = "http://127.0.0.1:15721/v1"',
+      },
+    });
+    expect(providerSupportsDirectConnection("codex", native)).toBe(true);
   });
 
   describe("Claude 非 OAuth 按格式判定", () => {

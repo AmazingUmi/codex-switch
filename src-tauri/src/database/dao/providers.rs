@@ -386,6 +386,16 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_current_provider(&self, app_type: &str) -> Result<(), AppError> {
+        let conn = lock_conn!(self.conn);
+        conn.execute(
+            "UPDATE providers SET is_current = 0 WHERE app_type = ?1",
+            [app_type],
+        )
+        .map_err(|error| AppError::Database(error.to_string()))?;
+        Ok(())
+    }
+
     pub fn set_current_provider(&self, app_type: &str, id: &str) -> Result<(), AppError> {
         let mut conn = lock_conn!(self.conn);
         let tx = conn

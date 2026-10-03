@@ -167,7 +167,7 @@ export const FullScreenPanel: React.FC<FullScreenPanelProps> = ({
                 size="icon"
                 onClick={onClose}
                 aria-label={t("common.back")}
-                className="rounded-lg select-none"
+                className="select-none"
                 style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
                 <ArrowLeft className="h-4 w-4" />

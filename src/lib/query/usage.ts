@@ -5,6 +5,9 @@ import type {
   LogFilters,
   UsageRangeSelection,
   UsageScopeFilters,
+  UsageRecordFilters,
+  UsageRecordsView,
+  UsageAttributionSelector,
 } from "@/types/usage";
 
 const DEFAULT_REFETCH_INTERVAL_MS = 30000;
@@ -53,12 +56,14 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.accountId ?? null,
+      filters?.providerId ?? null,
     ] as const,
   summaryByApp: (
     preset: UsageRangeSelection["preset"],
     customStartDate: number | undefined,
     customEndDate: number | undefined,
-    filters?: Pick<UsageScopeFilters, "providerName" | "model">,
+    filters?: Omit<UsageScopeFilters, "appType">,
     liveEndTime?: boolean,
   ) =>
     [
@@ -70,6 +75,8 @@ export const usageKeys = {
       liveEndTime ?? false,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.accountId ?? null,
+      filters?.providerId ?? null,
     ] as const,
   trends: (
     preset: UsageRangeSelection["preset"],
@@ -88,6 +95,8 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.accountId ?? null,
+      filters?.providerId ?? null,
     ] as const,
   providerStats: (
     preset: UsageRangeSelection["preset"],
@@ -106,6 +115,8 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.accountId ?? null,
+      filters?.providerId ?? null,
     ] as const,
   modelStats: (
     preset: UsageRangeSelection["preset"],
@@ -124,6 +135,8 @@ export const usageKeys = {
       filters?.appType ?? null,
       filters?.providerName ?? null,
       filters?.model ?? null,
+      filters?.accountId ?? null,
+      filters?.providerId ?? null,
     ] as const,
   logs: (key: RequestLogsKey, page: number, pageSize: number) =>
     [
@@ -155,6 +168,8 @@ function normalizeScopeFilters(filters?: UsageScopeFilters): UsageScopeFilters {
     appType: filters?.appType === "all" ? undefined : filters?.appType,
     providerName: filters?.providerName,
     model: filters?.model,
+    accountId: filters?.accountId,
+    providerId: filters?.providerId,
   };
 }
 
@@ -181,6 +196,8 @@ export function useUsageSummary(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.accountId,
+        effective.providerId,
       );
     },
     refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
@@ -190,7 +207,7 @@ export function useUsageSummary(
 
 export function useUsageSummaryByApp(
   range: UsageRangeSelection,
-  filters?: Pick<UsageScopeFilters, "providerName" | "model">,
+  filters?: Omit<UsageScopeFilters, "appType">,
   options?: UsageQueryOptions,
 ) {
   return useQuery({
@@ -208,6 +225,8 @@ export function useUsageSummaryByApp(
         endDate,
         filters?.providerName,
         filters?.model,
+        filters?.accountId,
+        filters?.providerId,
       );
     },
     refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
@@ -237,6 +256,8 @@ export function useUsageTrends(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.accountId,
+        effective.providerId,
       );
     },
     refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
@@ -266,6 +287,8 @@ export function useProviderStats(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.accountId,
+        effective.providerId,
       );
     },
     refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
@@ -295,6 +318,8 @@ export function useModelStats(
         effective.appType,
         effective.providerName,
         effective.model,
+        effective.accountId,
+        effective.providerId,
       );
     },
     refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
@@ -388,5 +413,79 @@ export function useDeleteModelPricing() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: usageKeys.all });
     },
+  });
+}
+
+export function useUsageRecords({
+  filters,
+  range,
+  view = "session",
+  page = 0,
+  pageSize = 20,
+  timezone = "local",
+  options,
+  enabled = true,
+}: {
+  filters: UsageRecordFilters;
+  range?: UsageRangeSelection;
+  view?: UsageRecordsView;
+  page?: number;
+  pageSize?: number;
+  timezone?: "local" | "UTC";
+  options?: UsageQueryOptions;
+  enabled?: boolean;
+}) {
+  return useQuery({
+    queryKey: [
+      ...usageKeys.all,
+      "records",
+      filters,
+      range ?? null,
+      view,
+      page,
+      pageSize,
+      timezone,
+    ],
+    queryFn: () =>
+      usageApi.getUsageRecords(
+        { ...filters, ...(range ? resolveUsageRange(range) : {}) },
+        view,
+        page,
+        pageSize,
+        timezone,
+      ),
+    enabled,
+    refetchInterval: options?.refetchInterval ?? DEFAULT_REFETCH_INTERVAL_MS,
+  });
+}
+
+export function useUsageAttributionChoices() {
+  return useQuery({
+    queryKey: [...usageKeys.all, "attribution-choices"],
+    queryFn: usageApi.getUsageAttributionChoices,
+  });
+}
+
+export function useSetUsageAttribution() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      selector,
+      choiceId,
+      onlyUntagged,
+    }: {
+      selector: UsageAttributionSelector;
+      choiceId: string;
+      onlyUntagged: boolean;
+    }) => usageApi.setUsageAttribution(selector, choiceId, onlyUntagged),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: usageKeys.all }),
+  });
+}
+
+export function useUndoUsageAttribution() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (actionId: number) => usageApi.undoUsageAttribution(actionId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: usageKeys.all }),
   });
 }

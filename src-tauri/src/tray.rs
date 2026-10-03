@@ -5,7 +5,6 @@
 use once_cell::sync::Lazy;
 use tauri::menu::{CheckMenuItem, Menu, MenuBuilder, MenuItem, Submenu, SubmenuBuilder};
 use tauri::{Emitter, Manager};
-use tauri_plugin_opener::OpenerExt;
 
 use crate::app_config::AppType;
 use crate::error::AppError;
@@ -56,7 +55,6 @@ static TRAY_SECTION_SUBMENUS: Lazy<
 #[derive(Clone, Copy)]
 pub struct TrayTexts {
     pub show_main: &'static str,
-    pub open_website: &'static str,
     pub no_providers_label: &'static str,
     pub lightweight_mode: &'static str,
     pub quit: &'static str,
@@ -70,7 +68,7 @@ pub struct TrayTexts {
 /// （`settings.language` 尚未写入）时托盘语言与界面语言一致：
 /// 繁中系统（zh-TW/HK/MO/Hant）→ `zh-TW`，其余 zh → `zh`，
 /// 日文 → `ja`，英文 → `en`，未知区域回退到 `zh`（与前端默认一致）。
-fn map_locale_to_tray_language(locale: &str) -> &'static str {
+pub(crate) fn map_locale_to_tray_language(locale: &str) -> &'static str {
     let locale = locale.to_lowercase();
     if locale == "zh" {
         "zh"
@@ -92,7 +90,7 @@ fn map_locale_to_tray_language(locale: &str) -> &'static str {
 }
 
 /// 读取系统区域并映射为托盘语言码；取不到区域时回退到 `zh`。
-fn detect_system_tray_language() -> &'static str {
+pub(crate) fn detect_system_tray_language() -> &'static str {
     sys_locale::get_locale()
         .as_deref()
         .map(map_locale_to_tray_language)
@@ -104,7 +102,6 @@ impl TrayTexts {
         match language {
             "en" => Self {
                 show_main: "Open main window",
-                open_website: "Open Official Website",
                 no_providers_label: "(no providers)",
                 lightweight_mode: "Lightweight Mode",
                 quit: "Quit",
@@ -113,7 +110,6 @@ impl TrayTexts {
             },
             "ja" => Self {
                 show_main: "メインウィンドウを開く",
-                open_website: "公式サイトを開く",
                 no_providers_label: "(プロバイダーなし)",
                 lightweight_mode: "軽量モード",
                 quit: "終了",
@@ -122,7 +118,6 @@ impl TrayTexts {
             },
             "zh-TW" => Self {
                 show_main: "開啟主介面",
-                open_website: "開啟官方網站",
                 no_providers_label: "(無供應商)",
                 lightweight_mode: "輕量模式",
                 quit: "退出",
@@ -131,7 +126,6 @@ impl TrayTexts {
             },
             _ => Self {
                 show_main: "打开主界面",
-                open_website: "打开官方网站",
                 no_providers_label: "(无供应商)",
                 lightweight_mode: "轻量模式",
                 quit: "退出",
@@ -151,38 +145,20 @@ pub struct TrayAppSection {
     pub log_name: &'static str,
 }
 
-pub const TRAY_ID: &str = "cc-switch";
+pub const TRAY_ID: &str = "codex-switch";
 
-pub const TRAY_SECTIONS: [TrayAppSection; 4] = [
-    TrayAppSection {
-        app_type: AppType::Claude,
-        prefix: "claude_",
-        empty_id: "claude_empty",
-        header_label: "Claude",
-        log_name: "Claude",
-    },
-    TrayAppSection {
-        app_type: AppType::Codex,
-        prefix: "codex_",
-        empty_id: "codex_empty",
-        header_label: "Codex",
-        log_name: "Codex",
-    },
-    TrayAppSection {
-        app_type: AppType::Gemini,
-        prefix: "gemini_",
-        empty_id: "gemini_empty",
-        header_label: "Gemini",
-        log_name: "Gemini",
-    },
-    TrayAppSection {
-        app_type: AppType::GrokBuild,
-        prefix: "grokbuild_",
-        empty_id: "grokbuild_empty",
-        header_label: "Grok Build",
-        log_name: "Grok Build",
-    },
-];
+// Product-shell allowlist. Keep the provider switch and quota machinery shared,
+// but never restore other harnesses from a legacy visibility preference.
+pub const TRAY_SECTIONS: [TrayAppSection; 1] = [TrayAppSection {
+    app_type: AppType::Codex,
+    prefix: "codex_",
+    empty_id: "codex_empty",
+    header_label: "Codex",
+    log_name: "Codex",
+}];
+
+const TRAY_PROFILE_SCOPES: [crate::services::profile::ProfileScope; 1] =
+    [crate::services::profile::ProfileScope::Codex];
 
 /// 配色阈值（与前端 `utilizationColor` 语义一致）。
 const UTIL_WARN_PCT: f64 = 70.0;
@@ -301,8 +277,8 @@ fn format_script_summary(result: &crate::provider::UsageResult) -> Option<String
     }
 }
 
-fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<String> {
-    if crate::proxy::providers::is_codex_official_provider(provider) {
+pub(crate) fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<String> {
+    if crate::services::provider::codex_direct::is_official(provider) {
         return provider
             .meta
             .as_ref()
@@ -313,7 +289,7 @@ fn managed_codex_account_id(provider: &crate::provider::Provider) -> Option<Stri
     None
 }
 
-fn provider_uses_official_subscription(provider: &crate::provider::Provider) -> bool {
+pub(crate) fn provider_uses_official_subscription(provider: &crate::provider::Provider) -> bool {
     // Managed Codex uses the account-scoped path in tray_usage_source instead
     // of the CLI's app-wide subscription cache.
     if managed_codex_account_id(provider).is_some() {
@@ -332,13 +308,13 @@ fn provider_uses_official_subscription(provider: &crate::provider::Provider) -> 
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum TrayUsageSource {
+pub(crate) enum TrayUsageSource {
     ManagedCodex(String),
     Script,
 }
 
 /// Keep the tray's refresh and display paths on the same credentials and toggle.
-fn tray_usage_source(
+pub(crate) fn tray_usage_source(
     app_type: &AppType,
     provider: &crate::provider::Provider,
 ) -> Option<TrayUsageSource> {
@@ -401,6 +377,28 @@ fn format_usage_suffix(
     None
 }
 
+fn current_usage_suffix(
+    cache: &UsageCache,
+    app_type: &AppType,
+    provider: &crate::provider::Provider,
+) -> Option<String> {
+    if *app_type == AppType::Codex
+        && (managed_codex_account_id(provider).is_some()
+            || (crate::codex_config::is_codex_official_provider(provider)
+                && provider_uses_official_subscription(provider)))
+    {
+        let settings = crate::settings::get_settings();
+        let language = settings
+            .language
+            .as_deref()
+            .map(map_locale_to_tray_language)
+            .unwrap_or_else(detect_system_tray_language);
+        return crate::tray_quota::menu_summary(provider, cache, language)
+            .map(|summary| format!(" · {summary}"));
+    }
+    format_usage_suffix(cache, app_type, provider, &provider.id)
+}
+
 /// 对供应商列表排序：sort_index → created_at → name
 fn sort_providers(
     providers: &indexmap::IndexMap<String, crate::provider::Provider>,
@@ -441,6 +439,9 @@ pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool
             log::error!("未知的项目分组托盘事件: {event_id}");
             return true;
         };
+        if !TRAY_PROFILE_SCOPES.contains(&scope) {
+            return true;
+        }
         if let Some(app_state) = app.try_state::<AppState>() {
             if let Err(e) = app_state.db.set_current_profile_id(scope.as_str(), None) {
                 log::error!("清除当前项目失败: {e}");
@@ -466,6 +467,9 @@ pub fn handle_profile_tray_event(app: &tauri::AppHandle, event_id: &str) -> bool
         log::error!("未知的项目分组托盘事件: {event_id}");
         return true;
     };
+    if !TRAY_PROFILE_SCOPES.contains(&scope) {
+        return true;
+    }
 
     log::info!("应用项目: {profile_id}（{scope_str} 组）");
     let app_handle = app.clone();
@@ -516,7 +520,7 @@ pub fn handle_provider_tray_event(app: &tauri::AppHandle, event_id: &str) -> boo
     false
 }
 
-/// 处理供应商点击：关闭 auto_failover + 切换供应商
+/// Switch the selected direct connection and refresh the tray.
 fn handle_provider_click(
     app: &tauri::AppHandle,
     app_type: &AppType,
@@ -525,15 +529,8 @@ fn handle_provider_click(
     if let Some(app_state) = app.try_state::<AppState>() {
         let app_type_str = app_type.as_str();
 
-        // 手动选了供应商就关掉 auto_failover；enabled 是模式的镜像，保持不变
-        let proxy_enabled = crate::mode::current::is_proxy(app_type);
-        app_state
-            .db
-            .set_proxy_flags_sync(app_type_str, proxy_enabled, false)?;
-
-        // 切换供应商。需要本地路由的供应商也不在这里自动启动代理，
-        // 由用户在页面/设置中手动开启。
         crate::services::ProviderService::switch(app_state.inner(), app_type.clone(), provider_id)?;
+        crate::tray_quota::request_refresh(app);
 
         // 更新托盘菜单
         if let Ok(new_menu) = create_tray_menu(app, app_state.inner()) {
@@ -545,14 +542,8 @@ fn handle_provider_click(
         // 发射事件到前端
         let event_data = serde_json::json!({
             "appType": app_type_str,
-            "proxyEnabled": proxy_enabled,
-            "autoFailoverEnabled": false,
             "providerId": provider_id
         });
-        if let Err(e) = app.emit("proxy-flags-changed", event_data.clone()) {
-            log::error!("发射 proxy-flags-changed 事件失败: {e}");
-        }
-        // 发射 provider-switched 事件（保持向后兼容）
         if let Err(e) = app.emit("provider-switched", event_data) {
             log::error!("发射 provider-switched 事件失败: {e}");
         }
@@ -574,40 +565,22 @@ pub fn create_tray_menu(
     };
     let tray_texts = TrayTexts::from_language(language);
 
-    // Get visible apps setting, default to all visible
-    let visible_apps = app_settings.visible_apps.unwrap_or_default();
-
     let mut menu_builder = MenuBuilder::new(app);
     let mut section_handles: std::collections::HashMap<AppType, Submenu<tauri::Wry>> =
         std::collections::HashMap::new();
 
-    // 顶部：打开主界面 / 打开官方网站
+    // 顶部：打开主界面
     let show_main_item =
         MenuItem::with_id(app, "show_main", tray_texts.show_main, true, None::<&str>)
             .map_err(|e| AppError::Message(format!("创建打开主界面菜单失败: {e}")))?;
-    let open_website_item = MenuItem::with_id(
-        app,
-        "open_website",
-        tray_texts.open_website,
-        true,
-        None::<&str>,
-    )
-    .map_err(|e| AppError::Message(format!("创建打开官方网站菜单失败: {e}")))?;
-    menu_builder = menu_builder
-        .item(&show_main_item)
-        .item(&open_website_item)
-        .separator();
+    menu_builder = menu_builder.item(&show_main_item).separator();
 
     // 每个应用类型折叠为子菜单，避免供应商过多时菜单过长
     for section in TRAY_SECTIONS.iter() {
-        if !visible_apps.is_visible(&section.app_type) {
-            continue;
-        }
-
         let app_type_str = section.app_type.as_str();
         let providers = app_state.db.get_all_providers(app_type_str)?;
 
-        // 代理模式下勾选的是代理路由到的那家。
+        // Mark the selected direct connection.
         let current_id = crate::mode::current::provider_for(
             &app_state.db,
             &section.app_type,
@@ -627,32 +600,20 @@ pub fn create_tray_menu(
             let current_provider = providers.get(&current_id);
             let submenu_label = match current_provider {
                 Some(p) => {
-                    let suffix = format_usage_suffix(
-                        &app_state.usage_cache,
-                        &section.app_type,
-                        p,
-                        &current_id,
-                    )
-                    .unwrap_or_default();
+                    let suffix = current_usage_suffix(&app_state.usage_cache, &section.app_type, p)
+                        .unwrap_or_default();
                     format!("{} · {}{}", section.header_label, p.name, suffix)
                 }
                 None => section.header_label.to_string(),
             };
             let submenu_id = format!("submenu_{}", app_type_str);
 
-            // 代理模式下不能切到不支持代理的官方供应商
-            let is_app_taken_over = crate::mode::current::is_proxy(&section.app_type);
-
             let mut submenu_builder = SubmenuBuilder::with_id(app, &submenu_id, &submenu_label);
 
             for (id, provider) in sort_providers(&providers) {
                 let is_current = current_id == *id;
-                let is_official_blocked = is_app_taken_over
-                    && provider.category.as_deref() == Some("official")
-                    && !crate::services::provider::official_provider_supports_proxy_takeover(
-                        &section.app_type,
-                        provider,
-                    );
+                let is_official_blocked = section.app_type == AppType::Codex
+                    && crate::services::provider::codex_direct::ensure_direct(provider).is_err();
                 let label = if is_official_blocked {
                     format!("{} \u{26D4}", &provider.name) // ⛔ emoji
                 } else {
@@ -687,26 +648,11 @@ pub fn create_tray_menu(
     {
         use crate::services::profile::ProfileScope;
 
-        let any_scope_visible = ProfileScope::ALL.iter().any(|scope| {
-            scope
-                .apps()
-                .iter()
-                .any(|app_type| visible_apps.is_visible(app_type))
-        });
-        let profiles = if any_scope_visible {
-            app_state.db.get_all_profiles()?
-        } else {
-            Vec::new()
-        };
+        let profiles = app_state.db.get_all_profiles()?;
 
         let mut scope_submenus = Vec::new();
-        for scope in ProfileScope::ALL {
-            if profiles.is_empty()
-                || !scope
-                    .apps()
-                    .iter()
-                    .any(|app_type| visible_apps.is_visible(app_type))
-            {
+        for scope in TRAY_PROFILE_SCOPES {
+            if profiles.is_empty() {
                 continue;
             }
             let current_profile_id = app_state
@@ -824,13 +770,8 @@ fn update_tray_usage_labels(app: &tauri::AppHandle) {
         let Some(provider) = providers.get(&current_id) else {
             continue;
         };
-        let suffix = format_usage_suffix(
-            &app_state.usage_cache,
-            &section.app_type,
-            provider,
-            &current_id,
-        )
-        .unwrap_or_default();
+        let suffix = current_usage_suffix(&app_state.usage_cache, &section.app_type, provider)
+            .unwrap_or_default();
         let new_label = format!("{} · {}{}", section.header_label, provider.name, suffix);
         if let Err(e) = submenu.set_text(&new_label) {
             log::debug!("[Tray] 更新{}子菜单标题失败: {e}", section.log_name);
@@ -850,6 +791,11 @@ pub fn refresh_tray_menu(app: &tauri::AppHandle) {
             }
         }
     }
+    crate::tray_quota::request_refresh(app);
+}
+
+pub(crate) fn update_tray_display(app: &tauri::AppHandle) {
+    crate::tray_display::update(app);
 }
 
 #[cfg(target_os = "macos")]
@@ -899,11 +845,6 @@ pub fn handle_tray_menu_event(app: &tauri::AppHandle, event_id: &str) {
                 }
             }
         }
-        "open_website" => {
-            if let Err(e) = app.opener().open_url("https://ccswitch.io", None::<String>) {
-                log::error!("打开官方网站失败: {e}");
-            }
-        }
         "lightweight_mode" => {
             if crate::lightweight::is_lightweight_mode() {
                 if let Err(e) = crate::lightweight::exit_lightweight_mode(app) {
@@ -951,6 +892,7 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
         std::thread::sleep(std::time::Duration::from_millis(50));
         TRAY_REBUILD_SCHEDULED.store(false, Ordering::Release);
         update_tray_usage_labels(&app);
+        update_tray_display(&app);
     });
 }
 
@@ -965,6 +907,10 @@ pub fn schedule_tray_refresh(app: &tauri::AppHandle) {
 pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
     use crate::commands::CopilotAuthState;
     use futures::future::join_all;
+
+    if crate::settings::get_settings().quota_refresh_interval_seconds == 0 {
+        return;
+    }
 
     {
         let mut guard = LAST_TRAY_USAGE_REFRESH
@@ -983,19 +929,10 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
         return;
     };
 
-    // 与 `create_tray_menu` 保持一致：用户隐藏的 app 不参与外部 API 查询，
-    // 避免在未使用的 app 上浪费请求、撞 rate limit 或反复触发鉴权失败日志。
-    let visible_apps = crate::settings::get_settings()
-        .visible_apps
-        .unwrap_or_default();
-
+    // Refresh exactly the Codex section shown by the product shell.
     let mut usage_futures = Vec::new();
 
     for section in TRAY_SECTIONS.iter() {
-        if !visible_apps.is_visible(&section.app_type) {
-            continue;
-        }
-
         let app_type_str = section.app_type.as_str();
         let log_name = section.log_name;
 
@@ -1025,6 +962,8 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
         };
 
         if let Some(source) = tray_usage_source(&section.app_type, &current) {
+            let native_subscription = crate::codex_config::is_codex_official_provider(&current)
+                && provider_uses_official_subscription(&current);
             let app_clone = app.clone();
             let state = app.state::<AppState>();
             let copilot_state = app.state::<CopilotAuthState>();
@@ -1040,6 +979,17 @@ pub(crate) async fn refresh_all_usage_in_tray(app: &tauri::AppHandle) {
                             state,
                             Some(account_id),
                             codex_state,
+                            Some(false),
+                        )
+                        .await
+                        .map(|_| ())
+                    }
+                    TrayUsageSource::Script if native_subscription => {
+                        crate::commands::get_subscription_quota(
+                            app_clone,
+                            state,
+                            app_str,
+                            Some(false),
                         )
                         .await
                         .map(|_| ())
@@ -1084,7 +1034,7 @@ mod tests {
 
     #[test]
     fn tray_id_is_unique_to_app() {
-        assert_eq!(TRAY_ID, "cc-switch");
+        assert_eq!(TRAY_ID, "codex-switch");
         assert_ne!(TRAY_ID, "main");
     }
 
@@ -1280,15 +1230,17 @@ mod tests {
     }
 
     #[test]
-    fn tray_sections_include_grokbuild_provider_switching() {
-        let section = TRAY_SECTIONS
-            .iter()
-            .find(|section| section.app_type == AppType::GrokBuild)
-            .expect("Grok Build tray section should exist");
-
-        assert_eq!(section.prefix, "grokbuild_");
-        assert_eq!(section.empty_id, "grokbuild_empty");
-        assert_eq!(section.header_label, "Grok Build");
+    fn tray_shell_only_exposes_codex_switching_and_profiles() {
+        assert_eq!(TRAY_SECTIONS.len(), 1);
+        let section = &TRAY_SECTIONS[0];
+        assert_eq!(section.app_type, AppType::Codex);
+        assert_eq!(section.prefix, "codex_");
+        assert_eq!(section.empty_id, "codex_empty");
+        assert_eq!(section.header_label, "Codex");
+        assert_eq!(
+            super::TRAY_PROFILE_SCOPES,
+            [crate::services::profile::ProfileScope::Codex]
+        );
     }
 
     fn make_quota(tool: &str, success: bool, tiers: Vec<QuotaTier>) -> SubscriptionQuota {
@@ -1309,6 +1261,7 @@ mod tests {
             name: name.to_string(),
             utilization,
             resets_at: None,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         }

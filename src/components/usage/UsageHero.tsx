@@ -2,7 +2,7 @@ import { cloneElement, isValidElement } from "react";
 import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
-import { useUsageSummaryByApp } from "@/lib/query/usage";
+import { useUsageSummary } from "@/lib/query/usage";
 import { cn } from "@/lib/utils";
 import { APP_ICON_MAP } from "@/config/appConfig";
 import type { AppId } from "@/lib/api/types";
@@ -20,20 +20,20 @@ import {
   fmtUsd,
   formatTokensShort,
   getResolvedLang,
+  getLocaleFromLanguage,
   parseFiniteNumber,
 } from "./format";
 import {
   getCacheWriteAvailability,
-  type AppType,
   type UsageRangeSelection,
-  type UsageSummary,
-  type UsageSummaryByApp,
 } from "@/types/usage";
 
 interface UsageHeroProps {
   range: UsageRangeSelection;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
@@ -45,91 +45,10 @@ interface TitleTheme {
   iconBg: string;
 }
 
-const TITLE_THEMES: Record<AppType | "all", TitleTheme> = {
-  all: { accent: "text-primary", iconBg: "bg-primary/10" },
-  claude: {
-    accent: "text-amber-600 dark:text-amber-400",
-    iconBg: "bg-amber-500/10",
-  },
-  codex: {
-    // OpenAI/Codex 走黑白单色调；中性灰在深浅模式都能透出方块底色，
-    // 不像纯黑 bg-black/10 在深色背景下会糊掉。
-    accent: "text-neutral-700 dark:text-neutral-300",
-    iconBg: "bg-neutral-500/10",
-  },
-  gemini: {
-    accent: "text-sky-600 dark:text-sky-400",
-    iconBg: "bg-sky-500/10",
-  },
-  grokbuild: {
-    accent: "text-rose-600 dark:text-rose-400",
-    iconBg: "bg-rose-500/10",
-  },
-  opencode: {
-    accent: "text-purple-600 dark:text-purple-400",
-    iconBg: "bg-purple-500/10",
-  },
-  mcode: {
-    accent: "text-orange-600 dark:text-orange-400",
-    iconBg: "bg-orange-500/10",
-  },
-  pi: {
-    accent: "text-fuchsia-600 dark:text-fuchsia-400",
-    iconBg: "bg-fuchsia-500/10",
-  },
+const CODEX_TITLE_THEME: TitleTheme = {
+  accent: "text-neutral-700 dark:text-neutral-300",
+  iconBg: "bg-neutral-500/10",
 };
-
-/**
- * Combine per-app summaries into a single rolled-up summary.
- *
- * The backend's per-app rows already use fresh-input semantics (cache-inclusive
- * providers have been normalized in SQL), so plain addition is correct here.
- * `cacheHitRate` and `successRate` must be re-derived from the summed counts
- * rather than averaged across rows.
- */
-function aggregateSummaries(items: UsageSummary[]): UsageSummary {
-  let totalRequests = 0;
-  let successCount = 0;
-  let totalCostNum = 0;
-  let input = 0;
-  let output = 0;
-  let cacheCreation = 0;
-  let cacheRead = 0;
-
-  for (const s of items) {
-    totalRequests += s.totalRequests;
-    successCount += Math.round((s.totalRequests * s.successRate) / 100);
-    totalCostNum += parseFiniteNumber(s.totalCost) ?? 0;
-    input += s.totalInputTokens;
-    output += s.totalOutputTokens;
-    cacheCreation += s.totalCacheCreationTokens;
-    cacheRead += s.totalCacheReadTokens;
-  }
-
-  const cacheableInput = input + cacheCreation + cacheRead;
-  return {
-    totalRequests,
-    totalCost: totalCostNum.toFixed(6),
-    totalInputTokens: input,
-    totalOutputTokens: output,
-    totalCacheCreationTokens: cacheCreation,
-    totalCacheReadTokens: cacheRead,
-    successRate: totalRequests > 0 ? (successCount / totalRequests) * 100 : 0,
-    realTotalTokens: input + output + cacheCreation + cacheRead,
-    cacheHitRate: cacheableInput > 0 ? cacheRead / cacheableInput : 0,
-  };
-}
-
-function pickSummary(
-  apps: UsageSummaryByApp[],
-  appType: string | undefined,
-): UsageSummary | undefined {
-  if (apps.length === 0) return undefined;
-  if (appType) {
-    return apps.find((a) => a.appType === appType)?.summary;
-  }
-  return aggregateSummaries(apps.map((a) => a.summary));
-}
 
 /**
  * Hero 标题图标：选中具体应用时显示该应用的品牌图标，"全部"时回退到通用闪电。
@@ -154,38 +73,29 @@ function AppGlyph({
 
 export function UsageHero({
   range,
-  appType,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: UsageHeroProps) {
   const { t, i18n } = useTranslation();
   const lang = getResolvedLang(i18n);
+  const locale = getLocaleFromLanguage(lang);
+  const appType = "codex";
 
-  const { data, isLoading } = useUsageSummaryByApp(
+  const { data, isLoading } = useUsageSummary(
     range,
-    { providerName, model },
+    { appType, providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },
   );
 
-  // No client-side filtering: Hero's totals must match the Trend/Logs/Stats
-  // below, which all go through the backend's full set of app_types. The
-  // KNOWN_APP_TYPES list only governs which filter buttons appear, not which
-  // rows participate in the "all" aggregate.
-  const allApps = data ?? [];
-  const summary = pickSummary(allApps, appType);
-
-  const titleTheme =
-    TITLE_THEMES[(appType ?? "all") as keyof typeof TITLE_THEMES] ??
-    TITLE_THEMES.all;
-  const appLabel =
-    appType && appType in TITLE_THEMES ? t(`usage.appFilter.${appType}`) : null;
-
-  const cacheWriteState = getCacheWriteAvailability(
-    appType ? [appType] : allApps.map((a) => a.appType),
-  );
+  const summary = data;
+  const titleTheme = CODEX_TITLE_THEME;
+  const appLabel = t("usage.appFilter.codex");
+  const cacheWriteState = getCacheWriteAvailability(["codex"]);
 
   const input = summary?.totalInputTokens ?? 0;
   const output = summary?.totalOutputTokens ?? 0;
@@ -264,12 +174,10 @@ export function UsageHero({
                   <div className="flex items-baseline gap-2">
                     <span
                       className="text-2xl md:text-3xl font-bold tabular-nums tracking-tight leading-none"
-                      title={realTotal.toLocaleString()}
+                      title={realTotal.toLocaleString(locale)}
+                      aria-label={realTotal.toLocaleString(locale)}
                     >
-                      {realTotal.toLocaleString()}
-                    </span>
-                    <span className="text-xs text-muted-foreground font-medium bg-muted/40 px-1.5 py-0.5 rounded-md">
-                      ≈ {formatTokensShort(realTotal, lang, 2)}
+                      {formatTokensShort(realTotal, lang, 2)}
                     </span>
                   </div>
                 </div>
@@ -288,7 +196,7 @@ export function UsageHero({
                 <div className="w-px h-8 bg-border/60" />
                 <div className="flex flex-col">
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
-                    {t("usage.totalCost")}
+                    {t("usage.estimatedCost", "Estimated cost")}
                   </span>
                   <span className="font-semibold text-green-500 text-sm tabular-nums">
                     {totalCost == null ? "--" : fmtUsd(totalCost, 4)}

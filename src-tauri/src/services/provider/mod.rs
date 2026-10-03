@@ -58,17 +58,9 @@ use live::{
 };
 use usage::validate_usage_script;
 
-/// Codex official providers are safe to select during takeover: Codex keeps
-/// ownership of the active ChatGPT login and the proxy only forwards the
-/// authenticated request. Other apps' official providers retain the block.
-pub fn official_provider_supports_proxy_takeover(app_type: &AppType, provider: &Provider) -> bool {
-    matches!(app_type, AppType::Codex)
-        && crate::proxy::providers::is_codex_official_provider(provider)
-}
-
 /// 统一会话开关变更后，立即按新开关状态重写当前官方 Codex 供应商的选路（关键字段），
 /// 使开关即时生效，无需等下一次切换。当前供应商非官方（或不存在）时为 no-op：开关只
-/// 影响官方直连的选路。代理模式下 live 是代理契约，不受这个开关影响。
+/// 影响官方直连的会话归属。
 pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, AppError> {
     let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &AppType::Codex)?;
     let current_id = ProviderService::current(state, AppType::Codex)?;
@@ -82,7 +74,7 @@ pub fn reapply_current_codex_official_live(state: &AppState) -> Result<bool, App
     if !codex_direct::is_official(provider) {
         return Ok(false);
     }
-    live::sync_live_for_provider_respecting_mode(state, &AppType::Codex, provider, None)?;
+    live::sync_live_for_provider(state, &AppType::Codex, provider, None)?;
     Ok(true)
 }
 
@@ -104,17 +96,13 @@ enum EditorSaveKind {
 
 impl EditorSaveKind {
     /// 这次保存要不要把关键字段也换进 live：直连模式下编辑的是当前供应商，或者新增的是
-    /// 第一个供应商。代理模式下 live 的关键字段是代理契约，只写全局改动。
+    /// 第一个供应商。
     fn writes_key_fields(
         self,
         state: &AppState,
         app_type: &AppType,
-        mode: &crate::mode::state::ModeState,
         id: &str,
     ) -> Result<bool, AppError> {
-        if mode.is_proxy() {
-            return Ok(false);
-        }
         let direct = crate::mode::current::provider_for(
             &state.db,
             app_type,
@@ -137,20 +125,22 @@ pub struct SwitchResult {
     pub warnings: Vec<String>,
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexAccountSwitchResult {
+    pub provider_id: String,
+    pub warnings: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    use crate::claude_desktop_config::PROFILE_ID;
     use crate::config::{get_claude_settings_path, read_json_file, write_json_file};
     use crate::database::Database;
     use crate::provider::{
         AuthBinding, AuthBindingSource, ClaudeModelConfig, ProviderMeta, UniversalProvider,
         UsageScript,
     };
-    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    use crate::provider::{ClaudeDesktopMode, ClaudeDesktopModelRoute};
-    use crate::proxy::types::ProxyConfig;
     use crate::store::AppState;
     use serde_json::json;
     use serial_test::serial;
@@ -179,7 +169,7 @@ mod tests {
             #[cfg(windows)]
             let original_local_app_data = env::var("LOCALAPPDATA").ok();
             let original_userprofile = env::var("USERPROFILE").ok();
-            let original_test_home = env::var("CC_SWITCH_TEST_HOME").ok();
+            let original_test_home = env::var("CODEX_SWITCH_TEST_HOME").ok();
             #[cfg(target_os = "linux")]
             let original_xdg_config_home = env::var_os("XDG_CONFIG_HOME");
 
@@ -187,7 +177,7 @@ mod tests {
             #[cfg(windows)]
             env::set_var("LOCALAPPDATA", dir.path().join("AppData").join("Local"));
             env::set_var("USERPROFILE", dir.path());
-            env::set_var("CC_SWITCH_TEST_HOME", dir.path());
+            env::set_var("CODEX_SWITCH_TEST_HOME", dir.path());
             // Claude Desktop Linux paths follow XDG_CONFIG_HOME; pin them under the temp home.
             #[cfg(target_os = "linux")]
             env::remove_var("XDG_CONFIG_HOME");
@@ -226,8 +216,8 @@ mod tests {
             }
 
             match &self.original_test_home {
-                Some(value) => env::set_var("CC_SWITCH_TEST_HOME", value),
-                None => env::remove_var("CC_SWITCH_TEST_HOME"),
+                Some(value) => env::set_var("CODEX_SWITCH_TEST_HOME", value),
+                None => env::remove_var("CODEX_SWITCH_TEST_HOME"),
             }
 
             #[cfg(target_os = "linux")]
@@ -240,32 +230,6 @@ mod tests {
         }
     }
 
-    #[cfg(windows)]
-    fn claude_desktop_profile_path(home: &Path) -> PathBuf {
-        home.join("AppData")
-            .join("Local")
-            .join("Claude-3p")
-            .join("configLibrary")
-            .join(format!("{PROFILE_ID}.json"))
-    }
-
-    #[cfg(target_os = "macos")]
-    fn claude_desktop_profile_path(home: &Path) -> PathBuf {
-        home.join("Library")
-            .join("Application Support")
-            .join("Claude-3p")
-            .join("configLibrary")
-            .join(format!("{PROFILE_ID}.json"))
-    }
-
-    #[cfg(target_os = "linux")]
-    fn claude_desktop_profile_path(home: &Path) -> PathBuf {
-        home.join(".config")
-            .join("Claude-3p")
-            .join("configLibrary")
-            .join(format!("{PROFILE_ID}.json"))
-    }
-
     fn test_guard() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -276,9 +240,9 @@ mod tests {
     fn with_test_home<T>(test: impl FnOnce(&AppState, &Path) -> T) -> T {
         let _guard = test_guard();
         let temp = tempfile::tempdir().expect("tempdir");
-        let old_test_home = std::env::var_os("CC_SWITCH_TEST_HOME");
+        let old_test_home = std::env::var_os("CODEX_SWITCH_TEST_HOME");
         let old_home = std::env::var_os("HOME");
-        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        std::env::set_var("CODEX_SWITCH_TEST_HOME", temp.path());
         std::env::set_var("HOME", temp.path());
 
         let db = Arc::new(Database::memory().expect("in-memory database"));
@@ -286,8 +250,8 @@ mod tests {
         let result = test(&state, temp.path());
 
         match old_test_home {
-            Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
-            None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+            Some(value) => std::env::set_var("CODEX_SWITCH_TEST_HOME", value),
+            None => std::env::remove_var("CODEX_SWITCH_TEST_HOME"),
         }
         match old_home {
             Some(value) => std::env::set_var("HOME", value),
@@ -307,7 +271,7 @@ mod tests {
                  [model_providers.custom]\n\
                  name = \"custom\"\n\
                  base_url = \"{base_url}\"\n\
-                 wire_api = \"chat\"\n"
+                 wire_api = \"responses\"\n"
             )
         })
     }
@@ -1093,7 +1057,7 @@ mod tests {
         );
     }
 
-    /// 编辑当前供应商、去掉它的独有字段：live 里 CC Switch 写进去的那个值随之删掉，
+    /// 编辑当前供应商、去掉它的独有字段：live 里 Codex Switch 写进去的那个值随之删掉，
     /// 用户自己的键不动。
     #[tokio::test]
     #[serial]
@@ -1224,7 +1188,6 @@ mod tests {
         )
         .await
         .expect("seed stale backup");
-        assert!(!state.proxy_service.is_running().await);
 
         let mut updated = original.clone();
         updated.settings_config["env"]["ANTHROPIC_BASE_URL"] =
@@ -1276,7 +1239,6 @@ mod tests {
         db.update_proxy_config_for_app(config)
             .await
             .expect("leave enabled flag set");
-        assert!(!state.proxy_service.is_running().await);
 
         let mut updated = original.clone();
         updated.settings_config["env"]["ANTHROPIC_BASE_URL"] =
@@ -1842,7 +1804,7 @@ GEMINI_TIMEOUT_MS=30000
     #[test]
     fn extract_codex_common_config_strips_provider_fields_and_injected_artifacts() {
         // 顶层 experimental_bearer_token 模拟无活跃路由时的 fallback 注入；
-        // web_search = "disabled" 是 cc-switch 对黑名单网关注入的哨兵；
+        // web_search = "disabled" 是 codex-switch 对黑名单网关注入的哨兵；
         // 顶层 wire_api 模拟无 model_provider 时的 fallback 写法；
         // [mcp.servers] 是历史错误格式，sync_all_enabled 清不掉它。
         let config_toml = r#"model_provider = "azure"
@@ -1852,7 +1814,7 @@ disable_response_storage = true
 model_reasoning_effort = "high"
 approval_policy = "on-request"
 experimental_bearer_token = "sk-live-secret"
-model_catalog_json = "cc-switch-model-catalog.json"
+model_catalog_json = "codex-switch-model-catalog.json"
 web_search = "disabled"
 
 [agents]
@@ -1918,7 +1880,7 @@ command = "legacy-cmd"
         );
         assert!(
             !extracted.contains("web_search"),
-            "should strip the cc-switch web_search disabled sentinel, got: {extracted}"
+            "should strip the codex-switch web_search disabled sentinel, got: {extracted}"
         );
         // 关键字段归供应商（片段已冻结，收进去会从行里剥掉、再也写不回 live）
         for key in [
@@ -1948,319 +1910,6 @@ command = "legacy-cmd"
         assert!(
             extracted.contains("web_search = \"enabled\""),
             "a user-set web_search value is a shareable preference, got: {extracted}"
-        );
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn editing_the_routed_claude_provider_rewrites_the_proxy_contract() {
-        let _home = TempHome::new();
-        crate::settings::reload_settings().expect("reload settings");
-
-        let db = Arc::new(Database::memory().expect("init db"));
-        let state = AppState::new(db.clone());
-
-        let original = Provider::with_id(
-            "p1".into(),
-            "Claude A".into(),
-            json!({
-                "env": {
-                    "ANTHROPIC_API_KEY": "token-a",
-                    "ANTHROPIC_BASE_URL": "https://api.a.example",
-                    "ANTHROPIC_MODEL": "model-a"
-                }
-            }),
-            None,
-        );
-        db.save_provider("claude", &original)
-            .expect("save provider");
-        db.set_current_provider("claude", "p1")
-            .expect("set current provider");
-        crate::settings::set_current_provider(&AppType::Claude, Some("p1"))
-            .expect("set local current provider");
-        write_json_file(
-            &get_claude_settings_path(),
-            &json!({
-                "env": {
-                    "ANTHROPIC_BASE_URL": "https://api.a.example",
-                    "ANTHROPIC_API_KEY": "token-a",
-                    "ANTHROPIC_MODEL": "model-a"
-                },
-                "permissions": { "allow": ["Bash"] }
-            }),
-        )
-        .expect("seed live file");
-
-        db.update_proxy_config(ProxyConfig {
-            listen_port: 0,
-            ..Default::default()
-        })
-        .await
-        .expect("update proxy config");
-        crate::mode::controller::enter(&state, &AppType::Claude)
-            .await
-            .expect("enter routing mode");
-        let proxy_url = state
-            .proxy_service
-            .build_proxy_urls()
-            .await
-            .expect("proxy url")
-            .0;
-
-        let updated = Provider::with_id(
-            "p1".into(),
-            "Claude A".into(),
-            json!({
-                "env": {
-                    "ANTHROPIC_API_KEY": "token-updated",
-                    "ANTHROPIC_BASE_URL": "https://api.updated.example",
-                    "ANTHROPIC_MODEL": "model-updated"
-                }
-            }),
-            None,
-        );
-        ProviderService::update(&state, AppType::Claude, None, updated)
-            .expect("update routed provider");
-
-        let live: Value = read_json_file(&get_claude_settings_path()).expect("read live");
-        let env = &live["env"];
-        assert_eq!(env["ANTHROPIC_API_KEY"], "PROXY_MANAGED");
-        assert_eq!(env["ANTHROPIC_BASE_URL"], proxy_url.as_str());
-        assert!(env.get("ANTHROPIC_MODEL").is_none(), "{live}");
-        assert_eq!(
-            env["ANTHROPIC_DEFAULT_SONNET_MODEL_NAME"], "model-updated",
-            "the contract's display names follow the edited provider"
-        );
-        assert_eq!(
-            live["permissions"],
-            json!({ "allow": ["Bash"] }),
-            "user settings in live are left alone"
-        );
-
-        state
-            .proxy_service
-            .stop()
-            .await
-            .expect("stop proxy service");
-    }
-
-    #[tokio::test]
-    #[serial]
-    async fn update_current_codex_provider_refreshes_and_clears_catalog_during_takeover() {
-        let _home = TempHome::new();
-        crate::settings::reload_settings().expect("reload settings");
-
-        let db = Arc::new(Database::memory().expect("init db"));
-        let state = AppState::new(db.clone());
-
-        let mut original = Provider::with_id(
-            "p1".into(),
-            "Codex A".into(),
-            json!({
-                "auth": { "OPENAI_API_KEY": "token-a" },
-                "config": r#"model_provider = "custom"
-model = "old-model"
-
-[model_providers.custom]
-name = "Codex A"
-base_url = "https://api.a.example/v1"
-wire_api = "responses"
-requires_openai_auth = true
-"#,
-                "modelCatalog": {
-                    "models": [{ "model": "old-model" }]
-                }
-            }),
-            None,
-        );
-        original.meta = Some(ProviderMeta {
-            api_format: Some("openai_responses".into()),
-            ..Default::default()
-        });
-        db.save_provider("codex", &original).expect("save provider");
-        db.set_current_provider("codex", "p1")
-            .expect("set current provider");
-        crate::settings::set_current_provider(&AppType::Codex, Some("p1"))
-            .expect("set local current provider");
-
-        db.update_proxy_config(ProxyConfig {
-            listen_port: 0,
-            ..Default::default()
-        })
-        .await
-        .expect("update proxy config");
-        crate::mode::controller::enter(&state, &AppType::Codex)
-            .await
-            .expect("enter routing mode");
-        assert!(
-            state
-                .proxy_service
-                .live_has_proxy_placeholder(&AppType::Codex),
-            "Codex live config should carry the proxy contract"
-        );
-
-        let mut updated = original.clone();
-        updated.settings_config["config"] = json!(
-            r#"model_provider = "custom"
-model = "gpt-5.4"
-
-[model_providers.custom]
-name = "Codex A"
-base_url = "https://api.updated.example/v1"
-wire_api = "responses"
-requires_openai_auth = true
-"#
-        );
-        updated.settings_config["modelCatalog"] = json!({
-            "models": [{ "model": "gpt-5.4", "displayName": "GPT 5.4" }]
-        });
-
-        ProviderService::update(&state, AppType::Codex, None, updated.clone())
-            .expect("update current Codex provider mapping");
-
-        let catalog_path = crate::codex_config::get_codex_model_catalog_path();
-        let catalog: Value = read_json_file(&catalog_path).expect("read generated catalog");
-        assert_eq!(catalog["models"][0]["slug"], "gpt-5.4");
-        assert_eq!(
-            catalog["models"][0]["input_modalities"],
-            json!(["text", "image"]),
-            "unknown/GPT models must fail open to image input"
-        );
-        let live_config = fs::read_to_string(crate::codex_config::get_codex_config_path())
-            .expect("read Codex config.toml");
-        assert!(live_config.contains("model_catalog_json"));
-
-        updated.settings_config["modelCatalog"] = json!({ "models": [] });
-        ProviderService::update(&state, AppType::Codex, None, updated)
-            .expect("remove current Codex provider mapping");
-
-        let live_config = fs::read_to_string(crate::codex_config::get_codex_config_path())
-            .expect("read Codex config.toml after mapping removal");
-        assert!(
-            !live_config.contains("model_catalog_json"),
-            "removing mappings during takeover must clear the stale catalog pointer"
-        );
-
-        state
-            .proxy_service
-            .stop()
-            .await
-            .expect("stop proxy service");
-    }
-
-    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    #[tokio::test]
-    #[serial]
-    async fn update_current_claude_desktop_provider_syncs_profile_when_proxy_takeover_is_active() {
-        let home = TempHome::new();
-        crate::settings::reload_settings().expect("reload settings");
-
-        let db = Arc::new(Database::memory().expect("init db"));
-        let state = AppState::new(db.clone());
-
-        let mut original = Provider::with_id(
-            "p1".into(),
-            "Desktop A".into(),
-            json!({
-                "env": {
-                    "ANTHROPIC_AUTH_TOKEN": "token-a",
-                    "ANTHROPIC_BASE_URL": "https://opencode.ai/zen/go"
-                }
-            }),
-            None,
-        );
-        original.meta = Some(ProviderMeta {
-            api_format: Some("openai_chat".into()),
-            claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
-            claude_desktop_model_routes: std::collections::HashMap::from([(
-                "claude-sonnet-4-6".into(),
-                ClaudeDesktopModelRoute {
-                    model: "deepseek-v4-flash".into(),
-                    label_override: Some("DeepSeek V4 Flash".into()),
-                    supports_1m: None,
-                },
-            )]),
-            ..Default::default()
-        });
-        db.save_provider("claude-desktop", &original)
-            .expect("save provider");
-        db.set_current_provider("claude-desktop", "p1")
-            .expect("set current provider");
-        crate::settings::set_current_provider(&AppType::ClaudeDesktop, Some("p1"))
-            .expect("set local current provider");
-
-        // Claude Desktop keeps backup state from takeover startup; this sentinel only
-        // marks takeover as active so provider updates rewrite the 3P profile.
-        db.save_live_backup("claude-desktop", "{}")
-            .await
-            .expect("seed live backup");
-        {
-            let mut config = db
-                .get_proxy_config_for_app("claude-desktop")
-                .await
-                .expect("get app proxy config");
-            config.enabled = true;
-            db.update_proxy_config_for_app(config)
-                .await
-                .expect("update app proxy config");
-        }
-
-        state
-            .proxy_service
-            .start()
-            .await
-            .expect("start proxy service");
-
-        let mut updated = Provider::with_id(
-            "p1".into(),
-            "Desktop A".into(),
-            json!({
-                "env": {
-                    "ANTHROPIC_AUTH_TOKEN": "token-updated",
-                    "ANTHROPIC_BASE_URL": "https://opencode.ai/zen/go"
-                }
-            }),
-            None,
-        );
-        updated.meta = Some(ProviderMeta {
-            api_format: Some("openai_chat".into()),
-            claude_desktop_mode: Some(ClaudeDesktopMode::Proxy),
-            claude_desktop_model_routes: std::collections::HashMap::from([(
-                "claude-sonnet-4-6".into(),
-                ClaudeDesktopModelRoute {
-                    model: "deepseek-v4-flash".into(),
-                    label_override: Some("DeepSeek V4 Flash Updated".into()),
-                    supports_1m: Some(true),
-                },
-            )]),
-            ..Default::default()
-        });
-
-        ProviderService::update(&state, AppType::ClaudeDesktop, None, updated.clone())
-            .expect("update current provider");
-
-        let backup = db
-            .get_live_backup("claude-desktop")
-            .await
-            .expect("get live backup")
-            .expect("backup exists");
-        assert_eq!(
-            backup.original_config, "{}",
-            "Claude Desktop provider edits should not rewrite takeover backup"
-        );
-
-        let profile_path = claude_desktop_profile_path(home.dir.path());
-        let profile: Value = read_json_file(&profile_path).expect("read desktop profile");
-        assert_eq!(
-            profile["inferenceGatewayBaseUrl"],
-            json!("http://127.0.0.1:15721/claude-desktop"),
-            "desktop profile should stay pointed at the local gateway during takeover"
-        );
-        assert_eq!(profile["inferenceGatewayAuthScheme"], json!("bearer"));
-        assert_eq!(
-            profile["inferenceModels"],
-            json!([{ "name": "claude-sonnet-4-6", "labelOverride": "DeepSeek V4 Flash Updated", "supports1m": true }]),
-            "provider edits should propagate into the Claude Desktop 3P profile during takeover"
         );
     }
 
@@ -3082,305 +2731,6 @@ wire_api = "responses"
 
     #[test]
     #[serial]
-    fn deleted_codex_account_can_rebind_or_switch_in_either_mode() {
-        for mode in ["direct", "proxy"] {
-            for rebind in [true, false] {
-                with_test_home(|state, _| {
-                    crate::settings::reload_settings().unwrap();
-                    let runtime = tauri::async_runtime::handle();
-                    let token = crate::codex_config::test_codex_id_token("same-user");
-                    runtime
-                        .block_on(
-                            state
-                                .codex_oauth_manager
-                                .add_test_account_with_workspace_and_access_token(
-                                    "old-local-id",
-                                    "workspace",
-                                    "old-access",
-                                    Some(&token),
-                                ),
-                        )
-                        .unwrap();
-                    runtime.block_on(async {
-                        let mut config = state.db.get_proxy_config().await.unwrap();
-                        config.listen_port = 0;
-                        state.db.update_proxy_config(config).await.unwrap();
-                    });
-                    let current = managed_codex_provider("current", "old-local-id");
-                    state.db.save_provider("codex", &current).unwrap();
-                    ProviderService::switch(state, AppType::Codex, &current.id).unwrap();
-                    if mode == "proxy" {
-                        runtime
-                            .block_on(crate::mode::controller::enter(state, &AppType::Codex))
-                            .unwrap();
-                    }
-                    runtime
-                        .block_on(
-                            crate::commands::remove_codex_oauth_account_with_switch_lock(
-                                state,
-                                "old-local-id",
-                            ),
-                        )
-                        .unwrap();
-                    let restarted = (mode == "direct").then(|| AppState::new(state.db.clone()));
-                    let state = restarted.as_ref().unwrap_or(state);
-                    // Ordinary login creates a new local ID, even for the same user/workspace.
-                    runtime
-                        .block_on(
-                            state
-                                .codex_oauth_manager
-                                .add_test_account_with_workspace_and_access_token(
-                                    "new-local-id",
-                                    "workspace",
-                                    "new-access",
-                                    Some(&token),
-                                ),
-                        )
-                        .unwrap();
-                    assert_eq!(
-                        ProviderService::managed_codex_oauth_account_id(
-                            &state
-                                .db
-                                .get_provider_by_id("current", "codex")
-                                .unwrap()
-                                .unwrap()
-                        )
-                        .as_deref(),
-                        Some("old-local-id")
-                    );
-
-                    // 绑定已失效：直连下进入路由要报错让用户重新绑定，客户端文件不动。
-                    if mode == "direct" {
-                        let error = runtime
-                            .block_on(crate::mode::controller::enter(state, &AppType::Codex))
-                            .unwrap_err();
-                        assert!(error.contains("选择账号"), "{error}");
-                        assert!(!crate::mode::current::is_proxy(&AppType::Codex));
-                        assert!(!state
-                            .proxy_service
-                            .live_has_proxy_placeholder(&AppType::Codex));
-                    }
-
-                    let target = managed_codex_provider(
-                        if rebind { "current" } else { "target" },
-                        "new-local-id",
-                    );
-                    if rebind {
-                        ProviderService::update(state, AppType::Codex, None, target.clone())
-                            .unwrap();
-                    } else {
-                        state.db.save_provider("codex", &target).unwrap();
-                        ProviderService::switch(state, AppType::Codex, &target.id).unwrap();
-                    }
-                    let auth: Value = read_json_file(&crate::codex_config::get_codex_auth_path())
-                        .unwrap_or_else(|error| panic!("{mode}, rebind={rebind}: {error}"));
-                    assert_eq!(
-                        auth["tokens"]["access_token"], "new-access",
-                        "{mode}, rebind={rebind}"
-                    );
-                    assert_eq!(
-                        crate::mode::current::provider_for(
-                            &state.db,
-                            &AppType::Codex,
-                            crate::mode::current::Purpose::InUse,
-                        )
-                        .unwrap()
-                        .as_deref(),
-                        Some(target.id.as_str())
-                    );
-
-                    if mode == "proxy" && !rebind {
-                        // 路由换了，直连指针仍是失效的那家：在路由模式下改它的绑定只存行，
-                        // 退出路由时再写回。
-                        ProviderService::update(
-                            state,
-                            AppType::Codex,
-                            None,
-                            managed_codex_provider("current", "new-local-id"),
-                        )
-                        .unwrap();
-                    }
-                    runtime.block_on(async {
-                        if mode == "direct" {
-                            crate::mode::controller::enter(state, &AppType::Codex)
-                                .await
-                                .unwrap();
-                        }
-                        crate::mode::controller::exit(state, &AppType::Codex)
-                            .await
-                            .unwrap();
-                        assert!(!state.proxy_service.is_running().await);
-                    });
-                    let restored: Value =
-                        read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
-                    assert_eq!(
-                        restored["tokens"]["access_token"], "new-access",
-                        "leaving routing mode must keep the replacement account ({mode}, rebind={rebind})"
-                    );
-                });
-            }
-        }
-    }
-
-    #[test]
-    #[serial]
-    fn deleted_codex_account_recovers_after_persisted_startup() {
-        for exit_state in ["detached", "crashed"] {
-            let _guard = test_guard();
-            let _home = TempHome::new();
-            crate::settings::reload_settings().unwrap();
-            let runtime = tauri::async_runtime::handle();
-            let state = AppState::new(Arc::new(Database::init().unwrap()));
-            let token = crate::codex_config::test_codex_id_token("same-user");
-            runtime.block_on(async {
-                state
-                    .codex_oauth_manager
-                    .add_test_account_with_workspace_and_access_token(
-                        "old-local-id",
-                        "workspace",
-                        "old-access",
-                        Some(&token),
-                    )
-                    .await
-                    .unwrap();
-                let mut config = state.db.get_proxy_config().await.unwrap();
-                config.listen_port = 0;
-                state.db.update_proxy_config(config).await.unwrap();
-            });
-            let current = managed_codex_provider("current", "old-local-id");
-            state.db.save_provider("codex", &current).unwrap();
-            ProviderService::switch(&state, AppType::Codex, "current").unwrap();
-            runtime.block_on(async {
-                crate::mode::controller::enter(&state, &AppType::Codex)
-                    .await
-                    .unwrap();
-                crate::commands::remove_codex_oauth_account_with_switch_lock(
-                    &state,
-                    "old-local-id",
-                )
-                .await
-                .unwrap();
-                state
-                    .codex_oauth_manager
-                    .add_test_account_with_workspace_and_access_token(
-                        "new-local-id",
-                        "workspace",
-                        "new-access",
-                        Some(&token),
-                    )
-                    .await
-                    .unwrap();
-            });
-            // Model a later CLI login. Startup recovery must leave it intact.
-            let native_auth = crate::codex_config::codex_managed_oauth_auth_value(
-                "native-workspace",
-                "native-access",
-                Some(&token),
-                "native-refresh",
-                "2026-09-14T00:00:00Z",
-            );
-            write_json_file(&crate::codex_config::get_codex_auth_path(), &native_auth).unwrap();
-            runtime.block_on(async {
-                if exit_state == "detached" {
-                    // 直连供应商的账号没了写不出来：只清掉占位符，登录不动。
-                    crate::mode::controller::detach_all(&state).await;
-                    assert!(!state
-                        .proxy_service
-                        .live_has_proxy_placeholder(&AppType::Codex));
-                } else {
-                    // 崩溃：客户端仍指着代理，只是监听没了。
-                    state.proxy_service.stop().await.unwrap();
-                    assert!(state
-                        .proxy_service
-                        .live_has_proxy_placeholder(&AppType::Codex));
-                }
-                assert!(crate::mode::current::is_proxy(&AppType::Codex));
-            });
-            drop(state);
-
-            crate::settings::reload_settings().unwrap();
-            let restarted = AppState::new(Arc::new(Database::init().unwrap()));
-            assert_eq!(
-                ProviderService::managed_codex_oauth_account_id(
-                    &restarted
-                        .db
-                        .get_provider_by_id("current", "codex")
-                        .unwrap()
-                        .unwrap()
-                )
-                .as_deref(),
-                Some("old-local-id"),
-            );
-            runtime.block_on(async {
-                let accounts = restarted.codex_oauth_manager.list_accounts().await;
-                assert_eq!(accounts.len(), 1);
-                assert_eq!(accounts[0].id, "new-local-id");
-                let store_path = crate::config::get_app_config_dir().join("codex_oauth_auth.json");
-                let persisted_accounts = fs::read(&store_path).unwrap();
-                // Match setup's ordering: extract common config from the direct live
-                // file before re-attaching routing mode.
-                ProviderService::scrub_leaked_gemini_common_config(&restarted)
-                    .await
-                    .unwrap();
-                crate::initialize_common_config_snippets(&restarted);
-                crate::mode::controller::startup(&restarted).await;
-                // 路由的账号失效，接不上就退回直连。
-                assert!(
-                    !crate::mode::current::is_proxy(&AppType::Codex),
-                    "{exit_state}"
-                );
-                assert!(
-                    !restarted
-                        .db
-                        .get_proxy_config_for_app("codex")
-                        .await
-                        .unwrap()
-                        .enabled
-                );
-                assert!(!restarted.proxy_service.is_running().await);
-                assert!(!restarted
-                    .proxy_service
-                    .live_has_proxy_placeholder(&AppType::Codex));
-                assert_eq!(fs::read(&store_path).unwrap(), persisted_accounts);
-                assert_eq!(
-                    read_json_file::<Value>(&crate::codex_config::get_codex_auth_path()).unwrap(),
-                    native_auth
-                );
-                // Stub the network refresh only after proving the account survived on disk.
-                restarted
-                    .codex_oauth_manager
-                    .test_cache_access_token("new-local-id", "new-access")
-                    .await;
-            });
-            let target = managed_codex_provider("current", "new-local-id");
-            ProviderService::update(&restarted, AppType::Codex, None, target).unwrap();
-            runtime.block_on(async {
-                crate::mode::controller::enter(&restarted, &AppType::Codex)
-                    .await
-                    .unwrap();
-                assert!(
-                    restarted
-                        .db
-                        .get_proxy_config_for_app("codex")
-                        .await
-                        .unwrap()
-                        .enabled
-                );
-                assert!(restarted
-                    .proxy_service
-                    .live_has_proxy_placeholder(&AppType::Codex));
-                crate::mode::controller::exit(&restarted, &AppType::Codex)
-                    .await
-                    .unwrap();
-                assert!(!restarted.proxy_service.is_running().await);
-            });
-            let auth: Value = read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
-            assert_eq!(auth["tokens"]["access_token"], "new-access", "{exit_state}");
-        }
-    }
-
-    #[test]
-    #[serial]
     fn codex_auth_center_removal_waits_for_provider_switch_lock() {
         with_test_home(|state, _| {
             crate::settings::reload_settings().expect("reload settings");
@@ -3397,9 +2747,7 @@ wire_api = "responses"
             });
 
             let switch_guard = tauri::async_runtime::block_on(
-                state
-                    .proxy_service
-                    .lock_switch_for_app(AppType::Codex.as_str()),
+                state.switch_locks.lock_for_app(AppType::Codex.as_str()),
             );
             let (started_tx, started_rx) = std::sync::mpsc::channel();
             let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -3461,9 +2809,7 @@ wire_api = "responses"
             assert!(crate::codex_config::codex_managed_oauth_live_auth_marker_exists());
 
             let switch_guard = tauri::async_runtime::block_on(
-                state
-                    .proxy_service
-                    .lock_switch_for_app(AppType::Codex.as_str()),
+                state.switch_locks.lock_for_app(AppType::Codex.as_str()),
             );
             let (started_tx, started_rx) = std::sync::mpsc::channel();
             let (done_tx, done_rx) = std::sync::mpsc::channel();
@@ -3501,6 +2847,629 @@ wire_api = "responses"
                 !crate::codex_config::codex_managed_oauth_live_auth_marker_exists(),
                 "logout must clear the managed live auth marker"
             );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_accounts_switch_without_configuration_and_reuse_internal_targets() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a"),
+            )
+            .unwrap();
+            assert!(ProviderService::current(state, AppType::Codex)
+                .unwrap()
+                .is_empty());
+            assert!(!crate::codex_config::get_codex_auth_path().exists());
+            let first = ProviderService::switch_codex_account(state, "account-a", None).unwrap();
+            let config_before = fs::read(crate::codex_config::get_codex_config_path()).unwrap();
+            let auth_before = fs::read(crate::codex_config::get_codex_auth_path()).unwrap();
+            tauri::async_runtime::block_on(
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-b", "access-b", "user-b"),
+            )
+            .unwrap();
+            assert_eq!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                first.provider_id
+            );
+            assert_eq!(
+                fs::read(crate::codex_config::get_codex_config_path()).unwrap(),
+                config_before
+            );
+            assert_eq!(
+                fs::read(crate::codex_config::get_codex_auth_path()).unwrap(),
+                auth_before,
+                "adding a second login must leave the current login untouched"
+            );
+
+            let second = ProviderService::switch_codex_account(state, "account-b", None).unwrap();
+            assert_ne!(first.provider_id, second.provider_id);
+            for (account_id, provider_id) in [
+                ("account-a", &first.provider_id),
+                ("account-b", &second.provider_id),
+            ] {
+                let result =
+                    ProviderService::switch_codex_account(state, account_id, None).unwrap();
+                assert_eq!(&result.provider_id, provider_id);
+                assert_eq!(
+                    ProviderService::current(state, AppType::Codex).unwrap(),
+                    *provider_id
+                );
+                let live: Value =
+                    read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
+                assert_eq!(
+                    live.pointer("/tokens/account_id").and_then(Value::as_str),
+                    Some(account_id)
+                );
+            }
+            let providers = state.db.get_all_providers("codex").unwrap();
+            assert_eq!(
+                providers.len(),
+                2,
+                "repeated switches do not duplicate bindings"
+            );
+            assert!(providers.values().all(|provider| provider
+                .meta
+                .as_ref()
+                .unwrap()
+                .codex_account_managed
+                == Some(true)));
+            assert_eq!(
+                tauri::async_runtime::block_on(state.codex_oauth_manager.default_account_id())
+                    .as_deref(),
+                Some("account-a"),
+                "current use is distinct from the advanced default account"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_reuses_advanced_binding_and_preserves_api_connection() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a"),
+            )
+            .unwrap();
+            let mut advanced = managed_codex_provider("advanced-official", "account-a");
+            advanced.settings_config["config"] =
+                Value::String("model = \"gpt-custom\"\nmodel_reasoning_effort = \"high\"\n".into());
+            advanced.notes = Some("Existing advanced settings".into());
+            advanced.meta.as_mut().unwrap().codex_fast_mode = Some(true);
+            let mut api = Provider::with_id(
+                "api-connection".into(),
+                "My API".into(),
+                codex_settings("https://api.example.test/v1", "sk-test"),
+                None,
+            );
+            api.category = Some("custom".into());
+            state.db.save_provider("codex", &advanced).unwrap();
+            state.db.save_provider("codex", &api).unwrap();
+            let advanced_before = serde_json::to_value(&advanced).unwrap();
+            let api_before = serde_json::to_value(
+                state
+                    .db
+                    .get_provider_by_id(&api.id, "codex")
+                    .unwrap()
+                    .unwrap(),
+            )
+            .unwrap();
+            ProviderService::switch(state, AppType::Codex, &api.id).unwrap();
+            let result = ProviderService::switch_codex_account(state, "account-a", None).unwrap();
+            assert_eq!(result.provider_id, advanced.id);
+            assert_eq!(state.db.get_all_providers("codex").unwrap().len(), 2);
+            assert_eq!(
+                serde_json::to_value(
+                    state
+                        .db
+                        .get_provider_by_id(&advanced.id, "codex")
+                        .unwrap()
+                        .unwrap()
+                )
+                .unwrap(),
+                advanced_before
+            );
+            assert_eq!(
+                serde_json::to_value(
+                    state
+                        .db
+                        .get_provider_by_id(&api.id, "codex")
+                        .unwrap()
+                        .unwrap()
+                )
+                .unwrap(),
+                api_before
+            );
+            let live = fs::read_to_string(crate::codex_config::get_codex_config_path()).unwrap();
+            assert!(live.contains("gpt-custom"));
+            ProviderService::switch(state, AppType::Codex, &api.id).unwrap();
+            assert_eq!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                api.id
+            );
+            assert!(
+                fs::read_to_string(crate::codex_config::get_codex_config_path())
+                    .unwrap()
+                    .contains("https://api.example.test/v1")
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_failure_leaves_current_and_live_files_unchanged() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(async {
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a")
+                    .await
+                    .unwrap();
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-b", "access-b", "user-b")
+                    .await
+                    .unwrap();
+            });
+            let first = ProviderService::switch_codex_account(state, "account-a", None).unwrap();
+            let good_before = crate::codex_config::CodexLiveStateSnapshot::capture().unwrap();
+            assert!(ProviderService::switch_codex_account(state, "missing-account", None).is_err());
+            tauri::async_runtime::block_on(
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_access_token("expired-account", "old-access", None),
+            )
+            .unwrap();
+            assert!(
+                ProviderService::switch_codex_account(state, "expired-account", None)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("sign in again")
+            );
+            assert_eq!(
+                crate::codex_config::CodexLiveStateSnapshot::capture().unwrap(),
+                good_before
+            );
+            let mismatch =
+                ProviderService::switch_codex_account(state, "account-b", Some(&first.provider_id))
+                    .unwrap_err();
+            assert!(mismatch.to_string().contains("does not belong"));
+            fs::write(
+                crate::codex_config::get_codex_config_path(),
+                "[invalid TOML",
+            )
+            .unwrap();
+            let paths = [
+                crate::codex_config::get_codex_config_path(),
+                crate::codex_config::get_codex_auth_path(),
+                crate::codex_config::get_codex_managed_oauth_live_auth_marker_path(),
+                crate::codex_config::get_codex_model_catalog_path(),
+            ];
+            let before = paths
+                .iter()
+                .map(|path| fs::read(path).ok())
+                .collect::<Vec<_>>();
+            let error =
+                ProviderService::switch_codex_account(state, "account-b", None).unwrap_err();
+            assert!(!error.to_string().is_empty());
+            assert_eq!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                first.provider_id
+            );
+            assert_eq!(
+                paths
+                    .iter()
+                    .map(|path| fs::read(path).ok())
+                    .collect::<Vec<_>>(),
+                before
+            );
+            assert_eq!(
+                state.db.get_all_providers("codex").unwrap().len(),
+                1,
+                "failed first use must not leave a duplicate internal target"
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_resolves_interrupted_publication_before_reporting_result() {
+        for point in ["pending", "published:0", "target"] {
+            with_test_home(|state, _| {
+                crate::settings::reload_settings().unwrap();
+                tauri::async_runtime::block_on(async {
+                    state
+                        .codex_oauth_manager
+                        .add_test_account_with_user_identity("account-a", "access-a", "user-a")
+                        .await
+                        .unwrap();
+                    state
+                        .codex_oauth_manager
+                        .add_test_account_with_user_identity("account-b", "access-b", "user-b")
+                        .await
+                        .unwrap();
+                });
+                let first =
+                    ProviderService::switch_codex_account(state, "account-a", None).unwrap();
+                let before = crate::codex_config::CodexLiveStateSnapshot::capture().unwrap();
+                crate::mode::operation::failpoint::crash_at(Some(point));
+                let result = ProviderService::switch_codex_account(state, "account-b", None);
+                crate::mode::operation::failpoint::crash_at(None);
+                if point == "pending" {
+                    assert!(result.is_err(), "unpublished failure remains a failure");
+                    assert_eq!(
+                        ProviderService::current(state, AppType::Codex).unwrap(),
+                        first.provider_id
+                    );
+                    assert_eq!(
+                        crate::codex_config::CodexLiveStateSnapshot::capture().unwrap(),
+                        before
+                    );
+                    assert_eq!(state.db.get_all_providers("codex").unwrap().len(), 1);
+                } else {
+                    let result =
+                        result.expect("published switch is completed before returning success");
+                    assert_eq!(result.warnings, ["codex_account_switch_recovered"]);
+                    assert_eq!(
+                        ProviderService::current(state, AppType::Codex).unwrap(),
+                        result.provider_id
+                    );
+                    let auth: Value =
+                        read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
+                    assert_eq!(
+                        auth.pointer("/tokens/account_id").and_then(Value::as_str),
+                        Some("account-b")
+                    );
+                    assert_eq!(state.db.get_all_providers("codex").unwrap().len(), 2);
+                }
+                assert!(
+                    !crate::mode::operation::has_pending("codex"),
+                    "no later read can silently change the result"
+                );
+            });
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_uncertain_recovery_retains_target_and_reports_status() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(async {
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a")
+                    .await
+                    .unwrap();
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-b", "access-b", "user-b")
+                    .await
+                    .unwrap();
+            });
+            let first = ProviderService::switch_codex_account(state, "account-a", None).unwrap();
+            let replaced = Arc::new(Mutex::new(None));
+            let replaced_by_hook = replaced.clone();
+            crate::mode::operation::failpoint::on_before_publish(Some(Box::new(
+                move |index, path| {
+                    if index == 1 {
+                        let original = fs::read(path).ok();
+                        if path.is_file() {
+                            fs::remove_file(path).unwrap();
+                        }
+                        fs::create_dir(path).unwrap();
+                        *replaced_by_hook.lock().unwrap() = Some((path.to_path_buf(), original));
+                    }
+                },
+            )));
+            let result = ProviderService::switch_codex_account(state, "account-b", None);
+            crate::mode::operation::failpoint::on_before_publish(None);
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .starts_with("codex_account_switch_uncertain:"));
+            assert_eq!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                first.provider_id
+            );
+            assert!(crate::mode::operation::has_pending("codex"));
+            assert_eq!(
+                state.db.get_all_providers("codex").unwrap().len(),
+                2,
+                "the pending operation must retain its recoverable target"
+            );
+            let (path, original) = replaced
+                .lock()
+                .unwrap()
+                .take()
+                .expect("second publish attempted");
+            fs::remove_dir(&path).unwrap();
+            if let Some(original) = original {
+                fs::write(&path, original).unwrap();
+            }
+            crate::mode::operation::settle(&state.db, "codex").unwrap();
+            assert!(!crate::mode::operation::has_pending("codex"));
+            assert_ne!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                first.provider_id
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_rejects_live_nonfile_store_without_publishing_binding() {
+        for store in ["keyring", "auto", "ephemeral"] {
+            with_test_home(|state, _| {
+                crate::settings::reload_settings().unwrap();
+                tauri::async_runtime::block_on(
+                    state
+                        .codex_oauth_manager
+                        .add_test_account_with_user_identity("account-a", "access-a", "user-a"),
+                )
+                .unwrap();
+                let mut api = Provider::with_id(
+                    "api".into(),
+                    "API".into(),
+                    codex_settings("https://api.example.test/v1", "test-key"),
+                    None,
+                );
+                api.category = Some("custom".into());
+                state.db.save_provider("codex", &api).unwrap();
+                ProviderService::switch(state, AppType::Codex, &api.id).unwrap();
+                let path = crate::codex_config::get_codex_config_path();
+                let existing = fs::read_to_string(&path).unwrap();
+                fs::write(
+                    &path,
+                    format!("cli_auth_credentials_store = \"{store}\"\n{existing}"),
+                )
+                .unwrap();
+                // Existing API / advanced switching retains its storage behavior.
+                ProviderService::switch(state, AppType::Codex, &api.id).unwrap();
+                let before = crate::codex_config::CodexLiveStateSnapshot::capture().unwrap();
+                let error =
+                    ProviderService::switch_codex_account(state, "account-a", None).unwrap_err();
+                assert!(error.to_string().contains("file"));
+                assert!(error.to_string().contains(store));
+                assert_eq!(
+                    crate::codex_config::CodexLiveStateSnapshot::capture().unwrap(),
+                    before
+                );
+                assert_eq!(
+                    ProviderService::current(state, AppType::Codex).unwrap(),
+                    api.id
+                );
+                assert_eq!(state.db.get_all_providers("codex").unwrap().len(), 1);
+            });
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_rejects_explicit_advanced_nonfile_store_without_changing_rows() {
+        for store in ["keyring", "auto", "ephemeral"] {
+            with_test_home(|state, _| {
+                crate::settings::reload_settings().unwrap();
+                tauri::async_runtime::block_on(
+                    state
+                        .codex_oauth_manager
+                        .add_test_account_with_user_identity("account-a", "access-a", "user-a"),
+                )
+                .unwrap();
+                let mut advanced = managed_codex_provider("advanced", "account-a");
+                advanced.settings_config["config"] = Value::String(format!(
+                    "cli_auth_credentials_store = \"{store}\"\nmodel = \"gpt-custom\"\n"
+                ));
+                state.db.save_provider("codex", &advanced).unwrap();
+                fs::create_dir_all(
+                    crate::codex_config::get_codex_config_path()
+                        .parent()
+                        .unwrap(),
+                )
+                .unwrap();
+                fs::write(
+                    crate::codex_config::get_codex_config_path(),
+                    "cli_auth_credentials_store = \"file\"\n",
+                )
+                .unwrap();
+                let before = crate::codex_config::CodexLiveStateSnapshot::capture().unwrap();
+                let row_before = serde_json::to_value(
+                    state
+                        .db
+                        .get_provider_by_id("advanced", "codex")
+                        .unwrap()
+                        .unwrap(),
+                )
+                .unwrap();
+                let current_before = ProviderService::current(state, AppType::Codex).unwrap();
+                let error =
+                    ProviderService::switch_codex_account(state, "account-a", Some(&advanced.id))
+                        .unwrap_err();
+                assert!(error.to_string().contains("file"));
+                assert!(error.to_string().contains(store));
+                assert_eq!(
+                    crate::codex_config::CodexLiveStateSnapshot::capture().unwrap(),
+                    before
+                );
+                assert_eq!(
+                    ProviderService::current(state, AppType::Codex).unwrap(),
+                    current_before
+                );
+                assert_eq!(
+                    serde_json::to_value(
+                        state
+                            .db
+                            .get_provider_by_id("advanced", "codex")
+                            .unwrap()
+                            .unwrap()
+                    )
+                    .unwrap(),
+                    row_before
+                );
+                assert_eq!(state.db.get_all_providers("codex").unwrap().len(), 1);
+            });
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_checks_effective_common_config_without_merging_inactive_snippets() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(async {
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a")
+                    .await
+                    .unwrap();
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-b", "access-b", "user-b")
+                    .await
+                    .unwrap();
+            });
+            let common = "cli_auth_credentials_store = \"auto\"\n";
+            state
+                .db
+                .set_config_snippet("codex", Some(common.into()))
+                .unwrap();
+            fs::create_dir_all(
+                crate::codex_config::get_codex_config_path()
+                    .parent()
+                    .unwrap(),
+            )
+            .unwrap();
+            fs::write(
+                crate::codex_config::get_codex_config_path(),
+                "cli_auth_credentials_store = \"file\"\n",
+            )
+            .unwrap();
+            let first = ProviderService::switch_codex_account(state, "account-a", None).unwrap();
+            let path = crate::codex_config::get_codex_config_path();
+            let mut doc = fs::read_to_string(&path)
+                .unwrap()
+                .parse::<toml_edit::DocumentMut>()
+                .unwrap();
+            assert_eq!(
+                doc["cli_auth_credentials_store"].as_str(),
+                Some("file"),
+                "unused legacy common is not merged during switching"
+            );
+            doc["cli_auth_credentials_store"] = toml_edit::value("auto");
+            fs::write(&path, doc.to_string()).unwrap();
+            let before = crate::codex_config::CodexLiveStateSnapshot::capture().unwrap();
+            assert!(
+                ProviderService::switch_codex_account(state, "account-b", None)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("file")
+            );
+            assert_eq!(
+                crate::codex_config::CodexLiveStateSnapshot::capture().unwrap(),
+                before
+            );
+            assert_eq!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                first.provider_id
+            );
+            assert_eq!(state.db.get_all_providers("codex").unwrap().len(), 1);
+            assert_eq!(
+                state.db.get_config_snippet("codex").unwrap().as_deref(),
+                Some(common)
+            );
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_rejects_unreadable_auth_before_creating_binding() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a"),
+            )
+            .unwrap();
+            let mut api = Provider::with_id(
+                "api".into(),
+                "API".into(),
+                codex_settings("https://api.example.test/v1", "test-key"),
+                None,
+            );
+            api.category = Some("custom".into());
+            state.db.save_provider("codex", &api).unwrap();
+            ProviderService::switch(state, AppType::Codex, &api.id).unwrap();
+            let config_path = crate::codex_config::get_codex_config_path();
+            let config_before = fs::read(&config_path).unwrap();
+            let auth_path = crate::codex_config::get_codex_auth_path();
+            if auth_path.is_file() {
+                fs::remove_file(&auth_path).unwrap();
+            }
+            fs::create_dir(&auth_path).unwrap();
+            let rows_before =
+                serde_json::to_value(state.db.get_all_providers("codex").unwrap()).unwrap();
+            let error =
+                ProviderService::switch_codex_account(state, "account-a", None).unwrap_err();
+            assert!(error.to_string().contains("auth.json"));
+            assert_eq!(
+                ProviderService::current(state, AppType::Codex).unwrap(),
+                api.id
+            );
+            assert_eq!(fs::read(config_path).unwrap(), config_before);
+            assert!(
+                auth_path.is_dir(),
+                "the unreadable native auth path is preserved"
+            );
+            assert_eq!(
+                serde_json::to_value(state.db.get_all_providers("codex").unwrap()).unwrap(),
+                rows_before
+            );
+            assert!(!crate::mode::operation::has_pending("codex"));
+        });
+    }
+
+    #[test]
+    #[serial]
+    fn codex_account_switch_preflight_preserves_readable_non_json_auth_behavior() {
+        with_test_home(|state, _| {
+            crate::settings::reload_settings().unwrap();
+            tauri::async_runtime::block_on(
+                state
+                    .codex_oauth_manager
+                    .add_test_account_with_user_identity("account-a", "access-a", "user-a"),
+            )
+            .unwrap();
+            let auth_path = crate::codex_config::get_codex_auth_path();
+            fs::create_dir_all(auth_path.parent().unwrap()).unwrap();
+            let original = b"readable legacy non-JSON bytes";
+            fs::write(&auth_path, original).unwrap();
+            let provider = managed_codex_provider("advanced", "account-a");
+            codex_direct::preflight_account_auth_store(
+                &state.db,
+                &codex_direct::Owner::None,
+                &codex_direct::Target::Direct(Some(&provider)),
+            )
+            .expect("the new guard checks readability, not JSON validity");
+            assert_eq!(fs::read(&auth_path).unwrap(), original);
+            // The existing token-bundle preflight independently rejects an
+            // unparsable native auth file. Do not change that credential policy.
+            assert!(ProviderService::switch_codex_account(state, "account-a", None).is_err());
+            assert_eq!(fs::read(&auth_path).unwrap(), original);
+            assert!(ProviderService::current(state, AppType::Codex)
+                .unwrap()
+                .is_empty());
+            assert!(state.db.get_all_providers("codex").unwrap().is_empty());
         });
     }
 
@@ -4308,105 +4277,6 @@ wire_api = "responses"
 
     #[test]
     #[serial]
-    fn missing_codex_account_preserves_native_login_but_corrupt_store_blocks_recovery() {
-        for takeover in [false, true] {
-            for corrupt in [false, true] {
-                with_test_home(|state, _| {
-                    crate::settings::reload_settings().unwrap();
-                    crate::settings::update_settings(crate::settings::AppSettings {
-                        preserve_codex_official_auth_on_switch: true,
-                        ..Default::default()
-                    })
-                    .unwrap();
-                    let runtime = tauri::async_runtime::handle();
-                    runtime
-                        .block_on(
-                            state
-                                .codex_oauth_manager
-                                .add_test_account_with_user_identity("old", "access", "user"),
-                        )
-                        .unwrap();
-                    let current = managed_codex_provider("current", "old");
-                    state.db.save_provider("codex", &current).unwrap();
-                    ProviderService::switch(state, AppType::Codex, "current").unwrap();
-                    let mut auth: Value =
-                        read_json_file(&crate::codex_config::get_codex_auth_path()).unwrap();
-                    if takeover {
-                        runtime.block_on(async {
-                            // 端口 0 启动后实际端口会记进库，重开的 AppState 不启动代理
-                            // 也能算出契约地址。
-                            let mut config = state.db.get_proxy_config().await.unwrap();
-                            config.listen_port = 0;
-                            state.db.update_proxy_config(config).await.unwrap();
-                            crate::mode::controller::enter(state, &AppType::Codex)
-                                .await
-                                .unwrap();
-                        });
-                    }
-                    runtime
-                        .block_on(
-                            crate::commands::remove_codex_oauth_account_with_switch_lock(
-                                state, "old",
-                            ),
-                        )
-                        .unwrap();
-                    // A stale marker must not claim a later native login of the same user.
-                    auth["tokens"]["refresh_token"] = json!("native-rotated-token");
-                    write_json_file(&crate::codex_config::get_codex_auth_path(), &auth).unwrap();
-                    crate::codex_config::record_codex_managed_oauth_live_auth(&auth, "old")
-                        .unwrap();
-                    if corrupt {
-                        fs::write(
-                            crate::config::get_app_config_dir().join("codex_oauth_auth.json"),
-                            "{broken",
-                        )
-                        .unwrap();
-                    }
-                    let restarted = AppState::new(state.db.clone());
-                    let target = Provider::with_id(
-                        "target".into(),
-                        "Third party".into(),
-                        codex_settings("https://example.test/v1", "sk-target"),
-                        None,
-                    );
-                    state.db.save_provider("codex", &target).unwrap();
-                    let before = crate::codex_config::CodexLiveStateSnapshot::capture().unwrap();
-                    let result = ProviderService::switch(&restarted, AppType::Codex, "target");
-                    if corrupt {
-                        assert!(result.is_err());
-                        assert_eq!(
-                            crate::codex_config::CodexLiveStateSnapshot::capture().unwrap(),
-                            before
-                        );
-                        assert_eq!(
-                            crate::mode::current::provider_for(
-                                &state.db,
-                                &AppType::Codex,
-                                crate::mode::current::Purpose::InUse,
-                            )
-                            .unwrap()
-                            .as_deref(),
-                            Some("current")
-                        );
-                    } else {
-                        result.unwrap();
-                        assert!(
-                            !crate::codex_config::codex_managed_oauth_live_auth_marker_exists(),
-                            "missing account must relinquish ownership"
-                        );
-                    }
-                    assert_eq!(
-                        read_json_file::<Value>(&crate::codex_config::get_codex_auth_path())
-                            .unwrap(),
-                        auth
-                    );
-                });
-            }
-        }
-    }
-
-    #[test]
-    #[serial]
     fn managed_codex_switch_db_current_failure_rolls_forward_on_recovery() {
         with_test_home(|state, _| {
             crate::settings::reload_settings().expect("reload settings");
@@ -4638,9 +4508,7 @@ wire_api = "responses"
                 .account_id = Some("acct-managed-b".to_string());
 
             let switch_guard = tauri::async_runtime::block_on(
-                state
-                    .proxy_service
-                    .lock_switch_for_app(AppType::Codex.as_str()),
+                state.switch_locks.lock_for_app(AppType::Codex.as_str()),
             );
             let (started_tx, started_rx) = std::sync::mpsc::channel();
             let (update_result, live_after_switch) = std::thread::scope(|scope| {
@@ -4701,9 +4569,174 @@ wire_api = "responses"
             );
         });
     }
+    include!("direct_credential_tests.rs");
 }
 
 impl ProviderService {
+    /// OAuth accounts can be selected without going through the configuration
+    /// editor. Existing bindings keep all their settings; an absent binding gets
+    /// a private official target and never activates itself merely by creation.
+    pub fn switch_codex_account(
+        state: &AppState,
+        account_id: &str,
+        provider_id: Option<&str>,
+    ) -> Result<CodexAccountSwitchResult, AppError> {
+        use crate::provider::{AuthBinding, AuthBindingSource, ProviderMeta};
+
+        let account_id = account_id.trim();
+        if account_id.is_empty() {
+            return Err(AppError::Message("Codex account ID is required".into()));
+        }
+        let _guard = crate::mode::controller::lock_settled_blocking(state, &AppType::Codex)
+            .map_err(|error| {
+                AppError::Message(format!(
+                "codex_account_switch_uncertain: the previous transaction could not settle: {error}"
+            ))
+            })?;
+        let account = tauri::async_runtime::block_on(state.codex_oauth_manager.list_accounts())
+            .into_iter()
+            .find(|account| account.id == account_id)
+            .ok_or_else(|| AppError::Message("Codex account no longer exists".into()))?;
+        if account.reauth_required {
+            return Err(AppError::Message(
+                "This Codex account needs to sign in again before switching".into(),
+            ));
+        }
+
+        let mut providers = state.db.get_all_providers(AppType::Codex.as_str())?;
+        let belongs_to_account = |provider: &Provider| {
+            codex_direct::is_official(provider)
+                && Self::managed_codex_oauth_account_id(provider).as_deref() == Some(account_id)
+        };
+        let current_id = Self::current(state, AppType::Codex)?;
+        let existing = match provider_id.map(str::trim).filter(|id| !id.is_empty()) {
+            Some(id) => {
+                let provider = providers
+                    .get(id)
+                    .filter(|provider| belongs_to_account(provider))
+                    .ok_or_else(|| {
+                        AppError::Message(
+                            "The connection does not belong to this Codex account".into(),
+                        )
+                    })?;
+                Some(provider.clone())
+            }
+            None => providers
+                .get(&current_id)
+                .filter(|provider| belongs_to_account(provider))
+                .or_else(|| {
+                    providers
+                        .values()
+                        .find(|provider| belongs_to_account(provider))
+                })
+                .cloned(),
+        };
+        let created = existing.is_none();
+        let provider = existing.unwrap_or_else(|| {
+            let mut provider = Provider::with_id(
+                format!("codex-account-{}", uuid::Uuid::new_v4()),
+                account.login,
+                serde_json::json!({"auth": {}, "config": ""}),
+                None,
+            );
+            provider.category = Some("official".into());
+            provider.created_at = Some(chrono::Utc::now().timestamp_millis());
+            provider.meta = Some(ProviderMeta {
+                codex_account_managed: Some(true),
+                common_config_enabled: Some(true),
+                auth_binding: Some(AuthBinding {
+                    source: AuthBindingSource::ManagedAccount,
+                    auth_provider: Some("codex_oauth".into()),
+                    account_id: Some(account_id.to_string()),
+                }),
+                ..Default::default()
+            });
+            provider
+        });
+        let mode = crate::mode::current::mode_state(&AppType::Codex);
+        let owner = match mode.contract.as_ref().filter(|_| mode.attached) {
+            Some(contract) => codex_direct::Owner::Contract {
+                contract,
+                route: providers.get(&current_id),
+            },
+            None => providers
+                .get(&current_id)
+                .map_or(codex_direct::Owner::None, codex_direct::Owner::Provider),
+        };
+        let target = codex_direct::Target::Direct(Some(&provider));
+        codex_direct::preflight_account_auth_store(&state.db, &owner, &target)?;
+        if created {
+            // ProviderService::add may activate the first row. This association
+            // is DB-only until the explicit transaction below has succeeded.
+            state.db.save_provider(AppType::Codex.as_str(), &provider)?;
+            providers.insert(provider.id.clone(), provider.clone());
+        }
+        let result = Self::switch_normal(state, AppType::Codex, &provider.id, &providers);
+        match result {
+            Ok(result) => Ok(CodexAccountSwitchResult {
+                provider_id: provider.id,
+                warnings: result.warnings,
+            }),
+            Err(error) => {
+                // A late write error may leave a published operation. Complete
+                // the existing transaction while still holding the switch lock
+                // before reporting failure: otherwise the UI would retain the
+                // old badge while the next read silently commits the new login.
+                let pending = crate::mode::state::pending(
+                    &crate::live::engine::DeviceStore::for_device(),
+                    AppType::Codex.as_str(),
+                ).map_err(|pending_error| AppError::Message(format!(
+                    "codex_account_switch_uncertain: transaction status cannot be read: {pending_error}. Original error: {error}"
+                )))?;
+                if pending.is_some() {
+                    match crate::mode::operation::settle(&state.db, AppType::Codex.as_str()) {
+                        Ok(Some(crate::mode::operation::RecoveryOutcome::RolledForward)) => {
+                            let recovered_current = Self::current(state, AppType::Codex)
+                                .map_err(|current_error| AppError::Message(format!(
+                                    "codex_account_switch_uncertain: recovered account status cannot be read: {current_error}. Original error: {error}"
+                                )))?;
+                            if recovered_current != provider.id {
+                                return Err(AppError::Message(format!(
+                                    "codex_account_switch_uncertain: recovery resolved to an unexpected connection. Original error: {error}"
+                                )));
+                            }
+
+                            return Ok(CodexAccountSwitchResult {
+                                provider_id: provider.id,
+                                warnings: vec!["codex_account_switch_recovered".into()],
+                            });
+                        }
+                        Ok(Some(
+                            crate::mode::operation::RecoveryOutcome::RolledForwardExcept { .. },
+                        )) => {
+                            return Err(AppError::Message(format!(
+                                "codex_account_switch_uncertain: Codex files changed during recovery: {error}"
+                            )));
+                        }
+                        Err(recovery_error) => {
+                            return Err(AppError::Message(format!(
+                                "codex_account_switch_uncertain: transaction recovery failed: {recovery_error}. Original error: {error}"
+                            )));
+                        }
+                        _ => {}
+                    }
+                }
+                if created
+                    && !crate::mode::current::is_referenced(
+                        &state.db,
+                        &AppType::Codex,
+                        &provider.id,
+                    )?
+                {
+                    state
+                        .db
+                        .delete_provider(AppType::Codex.as_str(), &provider.id)?;
+                }
+                Err(error)
+            }
+        }
+    }
+
     pub(crate) fn managed_codex_oauth_account_id(provider: &Provider) -> Option<String> {
         provider
             .meta
@@ -4863,7 +4896,7 @@ impl ProviderService {
         if app_type.is_additive_mode() {
             return Ok(String::new());
         }
-        // 代理模式下界面上的「当前」是代理路由到的那家。
+        // The committed direct pointer is the current connection.
         crate::mode::current::provider_for(
             &state.db,
             &app_type,
@@ -4928,9 +4961,8 @@ impl ProviderService {
         if app_type == AppType::Mcode {
             // The key is user-chosen, and saving would overwrite an existing row or live node.
             // Adds are serialized here; the live write repeats the check under MCode's file lock.
-            let _guard = futures::executor::block_on(
-                state.proxy_service.lock_switch_for_app(app_type.as_str()),
-            );
+            let _guard =
+                futures::executor::block_on(state.switch_locks.lock_for_app(app_type.as_str()));
             if state
                 .db
                 .get_provider_by_id(&provider.id, "mcode")?
@@ -5007,6 +5039,7 @@ impl ProviderService {
     /// 免得留下一个看得见却用不了的供应商。
     fn add_codex(state: &AppState, provider: Provider) -> Result<bool, AppError> {
         let app_type = AppType::Codex;
+        codex_direct::ensure_direct(&provider)?;
         // 和切换互斥：等着的切换不能看到只存了一半的托管账号绑定。
         let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app_type)?;
         let current = crate::mode::current::provider_for(
@@ -5168,7 +5201,7 @@ impl ProviderService {
 
     /// 从编辑器新增或保存 Codex 供应商：关键字段、独有字段存回行，其余改动作为全局设置
     /// 写进 live（三方比较）。直连模式下编辑当前供应商、或新增第一个供应商时，关键字段在
-    /// 同一次写入里换进 live；代理模式下编辑路由那家，全局设置写完后按新行重写代理契约。
+    /// 同一次事务里写进 live。
     fn save_codex_from_editor(
         state: &AppState,
         provider: Provider,
@@ -5181,6 +5214,14 @@ impl ProviderService {
             .db
             .get_provider_by_id(&provider.id, app_type.as_str())?;
         let mut provider = provider;
+        if let Err(error) = codex_direct::ensure_direct(&provider) {
+            if existing.is_some() && kind == EditorSaveKind::Update {
+                Self::validate_provider_settings(&app_type, &provider)?;
+                state.db.save_provider(app_type.as_str(), &provider)?;
+                return Ok(true);
+            }
+            return Err(error);
+        }
         let plan = codex_editor::plan_save(
             existing.as_ref().map(|row| &row.settings_config),
             &provider.settings_config,
@@ -5201,9 +5242,7 @@ impl ProviderService {
             keep_common_config_for_old_versions(&mut provider);
         }
 
-        let mode = crate::mode::current::mode_state(&app_type);
-        let key_fields = kind.writes_key_fields(state, &app_type, &mode, &provider.id)?;
-        let is_route = mode.routes_to(&provider.id);
+        let key_fields = kind.writes_key_fields(state, &app_type, &provider.id)?;
 
         state.db.save_provider(app_type.as_str(), &provider)?;
         let written = if key_fields {
@@ -5224,15 +5263,13 @@ impl ProviderService {
                 &plan.edits,
                 codex_editor::KeyFields::None,
             )
-            .and_then(|()| Self::rewrite_route_if(is_route, state, &app_type, &provider))
         };
         Self::keep_row_if_written(state, &app_type, &provider.id, existing.as_ref(), written)
     }
 
     /// 从编辑器新增或保存 Gemini CLI、Grok Build 供应商：关键字段存回行，其余改动作为全局
     /// 设置写进 live（三方比较）。直连模式下编辑当前供应商、或新增第一个供应商时，关键
-    /// 字段在同一次写入里换进 live；代理模式下编辑路由那家，全局设置写完后按新行重写代理
-    /// 契约。
+    /// 字段在同一次事务里写进 live。
     fn save_gemini_or_grok_from_editor(
         state: &AppState,
         app_type: AppType,
@@ -5276,10 +5313,8 @@ impl ProviderService {
             keep_common_config_for_old_versions(&mut provider);
         }
 
-        let mode = crate::mode::current::mode_state(&app_type);
-        let key_fields = kind.writes_key_fields(state, &app_type, &mode, &provider.id)?;
+        let key_fields = kind.writes_key_fields(state, &app_type, &provider.id)?;
         let set_pointer = kind == EditorSaveKind::Add;
-        let is_route = mode.routes_to(&provider.id);
 
         state.db.save_provider(app_type.as_str(), &provider)?;
         let written = match &edits {
@@ -5295,8 +5330,7 @@ impl ProviderService {
                 key_fields.then_some((existing.as_ref(), &provider)),
                 set_pointer,
             ),
-        }
-        .and_then(|()| Self::rewrite_route_if(is_route, state, &app_type, &provider));
+        };
         Self::keep_row_if_written(state, &app_type, &provider.id, existing.as_ref(), written)
     }
 
@@ -5327,23 +5361,6 @@ impl ProviderService {
             );
         }
         Err(error)
-    }
-
-    /// 代理模式下保存的是路由那家（`is_route`）：按新行重写代理契约，契约没变就不碰客户端
-    /// 文件。调用方持有这个应用的切换锁。
-    fn rewrite_route_if(
-        is_route: bool,
-        state: &AppState,
-        app_type: &AppType,
-        provider: &Provider,
-    ) -> Result<(), AppError> {
-        if !is_route {
-            return Ok(());
-        }
-        futures::executor::block_on(crate::mode::controller::switch_route_locked(
-            state, app_type, provider,
-        ))
-        .map_err(AppError::Message)
     }
 
     fn add_claude_from_editor(
@@ -5405,12 +5422,9 @@ impl ProviderService {
         Self::validate_provider_settings(&app_type, &provider)?;
         Self::normalize_usage_script_credential_overrides(&app_type, &mut provider);
 
-        let mode = crate::mode::current::mode_state(&app_type);
-        let is_route = mode.routes_to(&provider.id);
-        // 代理模式下 live 的关键字段是代理契约，这里只写全局改动；编辑的是代理路由那家
-        // 时，写完按新行重写契约（契约没变就不动）。直连指针那家在退出代理时写回。
+        // Only editing the selected connection updates native key fields.
         let key_fields = EditorSaveKind::Update
-            .writes_key_fields(state, &app_type, &mode, &provider.id)?
+            .writes_key_fields(state, &app_type, &provider.id)?
             .then_some(claude_editor::KeyFieldWrite {
                 prev: existing.as_ref(),
                 target: &provider,
@@ -5419,8 +5433,7 @@ impl ProviderService {
 
         state.db.save_provider(app_type.as_str(), &provider)?;
         let written =
-            claude_editor::write_live(state.db.as_ref(), &plan, editor.on_conflict, key_fields)
-                .and_then(|()| Self::rewrite_route_if(is_route, state, &app_type, &provider));
+            claude_editor::write_live(state.db.as_ref(), &plan, editor.on_conflict, key_fields);
         Self::keep_row_if_written(state, &app_type, &provider.id, existing.as_ref(), written)
     }
 
@@ -5438,13 +5451,24 @@ impl ProviderService {
         let mut provider = provider;
         let original_id = original_id.unwrap_or(provider.id.as_str()).to_string();
         let provider_id_changed = original_id != provider.id;
-        // 读旧行、判断谁是当前供应商、存行、写 live 都在切换锁里：进入代理和切换都等这次
-        // 保存写完，这里也不会在读完模式之后、写 live 之前被它们改掉模式（否则直连的关键
-        // 字段会盖掉刚写的代理契约）。Codex 还要在锁里读旧行，看它是不是托管账号的行。
+        // Read ownership, save the row and publish native files under the same switch lock.
         let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app_type)?;
         let existing_provider = state
             .db
             .get_provider_by_id(&original_id, app_type.as_str())?;
+        if app_type == AppType::Codex
+            && existing_provider.is_some()
+            && codex_direct::ensure_direct(&provider).is_err()
+        {
+            if provider_id_changed {
+                return Err(AppError::InvalidInput(
+                    "Connection identity cannot change".into(),
+                ));
+            }
+            Self::validate_provider_settings(&app_type, &provider)?;
+            state.db.save_provider(app_type.as_str(), &provider)?;
+            return Ok(true);
+        }
         // Normalize Claude model keys
         Self::normalize_provider_if_claude(&app_type, &mut provider);
         Self::validate_provider_settings(&app_type, &provider)?;
@@ -5591,8 +5615,7 @@ impl ProviderService {
             return Ok(true);
         }
 
-        // For other apps: 是否是直连指针那家，或代理模式下的代理路由那家。
-        let mode = crate::mode::current::mode_state(&app_type);
+        // Only the current direct connection writes native key fields.
         let is_direct_current = crate::mode::current::provider_for(
             &state.db,
             &app_type,
@@ -5600,8 +5623,7 @@ impl ProviderService {
         )?
         .as_deref()
             == Some(provider.id.as_str());
-        let is_route = mode.routes_to(&provider.id);
-        let is_current = is_direct_current || is_route;
+        let is_current = is_direct_current;
 
         if matches!(app_type, AppType::Codex) {
             return Self::update_codex(
@@ -5609,7 +5631,6 @@ impl ProviderService {
                 &provider,
                 existing_provider.as_ref(),
                 is_direct_current,
-                is_route,
             );
         }
 
@@ -5617,7 +5638,7 @@ impl ProviderService {
         state.db.save_provider(app_type.as_str(), &provider)?;
 
         if is_current {
-            let outcome = live::sync_live_for_provider_respecting_mode(
+            let outcome = live::sync_live_for_provider(
                 state,
                 &app_type,
                 &provider,
@@ -5642,44 +5663,31 @@ impl ProviderService {
     ///
     /// - 直连模式下编辑直连那家：先存行，再只替换 live 里的关键字段和独有字段（换托管
     ///   账号时先采纳、再清掉旧账号的登录）；写 live 失败就把行恢复原样。
-    /// - 代理模式下编辑路由那家：按新行重写代理契约（契约没变就不碰客户端文件）。
     /// - 其余只存行。
     fn update_codex(
         state: &AppState,
         provider: &Provider,
         existing: Option<&Provider>,
         is_direct_current: bool,
-        is_route: bool,
     ) -> Result<bool, AppError> {
         let app_type = AppType::Codex;
-        let mode = crate::mode::current::mode_state(&app_type);
-        let writes_live = if mode.is_proxy() {
-            is_route
-        } else {
-            is_direct_current
-        };
+        let writes_live = is_direct_current;
         if !writes_live {
             state.db.save_provider(app_type.as_str(), provider)?;
             return Ok(true);
         }
-        if !mode.is_proxy() {
-            codex_direct::preflight(state.db.as_ref(), provider)?;
-        }
+        codex_direct::preflight(state.db.as_ref(), provider)?;
 
         state.db.save_provider(app_type.as_str(), provider)?;
-        let written = if mode.is_proxy() {
-            Self::rewrite_route_if(true, state, &app_type, provider)
-        } else {
-            codex_direct::write_direct(
-                state.db.as_ref(),
-                &state.codex_oauth_manager,
-                crate::mode::state::op::APPLY,
-                existing.map_or(codex_direct::Owner::None, codex_direct::Owner::Provider),
-                Some(provider),
-                crate::mode::state::PendingTarget::default(),
-            )
-            .map(|_| ())
-        };
+        let written = codex_direct::write_direct(
+            state.db.as_ref(),
+            &state.codex_oauth_manager,
+            crate::mode::state::op::APPLY,
+            existing.map_or(codex_direct::Owner::None, codex_direct::Owner::Provider),
+            Some(provider),
+            crate::mode::state::PendingTarget::default(),
+        )
+        .map(|_| ());
         if let Err(error) = written {
             if crate::mode::operation::has_pending(AppType::Codex.as_str()) {
                 return Err(error);
@@ -5840,7 +5848,6 @@ impl ProviderService {
 
     /// 切换供应商。
     ///
-    /// - 代理模式：只换代理路由，直连指针不变；契约没变时客户端文件不读也不写。
     /// - 直连模式：切换式应用只替换客户端文件里的关键字段（不回填），文件和指针在同一个
     ///   操作里提交；累加式应用按各自的规则写入。
     pub fn switch(state: &AppState, app_type: AppType, id: &str) -> Result<SwitchResult, AppError> {
@@ -5870,37 +5877,16 @@ impl ProviderService {
             return Self::switch_normal(state, app_type, id, &providers);
         }
 
-        // 切换和进入 / 退出代理都会改客户端文件和指针。按应用串行，拿到锁、补完上一次
-        // 没做完的写入之后再读模式和指针：刚进入代理的应用不会被一次直连写入覆盖，上次
-        // 失败后重试也按补完后的指针删上一家的独有字段。
-        let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app_type)?;
-
-        if crate::mode::current::is_proxy(&app_type) {
-            // 代理模式：只换代理路由，直连指针不变。契约没变时客户端文件不读也不写；
-            // 变了在同一个操作里先改写客户端，再发布路由。
-            if _provider.category.as_deref() == Some("official")
-                && !official_provider_supports_proxy_takeover(&app_type, _provider)
-            {
-                return Err(AppError::localized(
-                    "switch.official_blocked_by_proxy",
-                    "路由模式下不能切换到官方供应商，使用代理访问官方 API 可能导致账号被封禁。请先退出路由模式，或选择第三方供应商。",
-                    "Cannot switch to an official provider in routing mode. Using a proxy with official APIs may cause account bans.",
-                ));
-            }
-            log::info!("路由模式：{} 的代理路由切到 {}", app_type.as_str(), id);
-            futures::executor::block_on(crate::mode::controller::switch_route_locked(
-                state, &app_type, _provider,
-            ))
-            .map_err(|e| AppError::Message(format!("切换路由失败: {e}")))?;
-            // MCP 不随路由变：客户端文件没按直连重写。
-            return Ok(SwitchResult::default());
+        if app_type == AppType::Codex {
+            codex_direct::ensure_direct(_provider)?;
         }
-
-        // Normal mode: full switch with Live config write
+        // Serialize native writes and settle interrupted publications before switching.
+        let _switch_guard = crate::mode::controller::lock_settled_blocking(state, &app_type)?;
+        // Direct switch with transactional live config writes.
         Self::switch_normal(state, app_type, id, &providers)
     }
 
-    /// Normal switch flow (non-proxy mode)
+    /// Publish the selected direct connection.
     fn switch_normal(
         state: &AppState,
         app_type: AppType,
@@ -6126,8 +6112,8 @@ impl ProviderService {
         if app_type.is_additive_mode() {
             return sync_additive_app_to_live(state, &app_type);
         }
-        // 没有正在用的那家、或者在代理模式（客户端文件没按直连重写）时不重投影 MCP。
-        let outcome = live::sync_current_provider_for_app_respecting_mode(state, &app_type)?;
+        // Reproject MCP only after publishing the current connection.
+        let outcome = live::sync_current_provider_for_app(state, &app_type)?;
         if outcome != Some(LiveSyncOutcome::WroteLive) {
             return Ok(());
         }
@@ -6438,14 +6424,14 @@ impl ProviderService {
             }
         }
 
-        // cc-switch 写 live 时注入的产物一律不进共享片段：
+        // codex-switch 写 live 时注入的产物一律不进共享片段：
         // - experimental_bearer_token 正常写在 [model_providers.<id>] 内（上面
         //   整表已剥），但无活跃路由 / 内建保留 id / 路由表缺失三种 fallback
         //   会落在顶层——不剥等于把 API 密钥写进共享片段。
         root.remove("experimental_bearer_token");
         // - model_catalog_json 指向按供应商生成的 catalog 投影文件（DB 为 SSOT）。
         root.remove("model_catalog_json");
-        // - web_search 只剥 cc-switch 注入的 "disabled" 哨兵；用户手设的其它值
+        // - web_search 只剥 codex-switch 注入的 "disabled" 哨兵；用户手设的其它值
         //   属于可共享偏好，保留。
         if root
             .get(crate::codex_config::CODEX_WEB_SEARCH_FIELD)
@@ -7478,7 +7464,7 @@ impl ProviderService {
         child_id: &str,
         failures: &mut Vec<String>,
     ) {
-        // 正在用的那家（代理模式下是代理路由）才需要重投影。
+        // Only the selected direct connection needs reprojection.
         let is_current = match crate::mode::current::provider_for(
             &state.db,
             &app_type,

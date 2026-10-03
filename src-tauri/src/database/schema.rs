@@ -338,6 +338,8 @@ impl Database {
         )
         .map_err(|e| AppError::Database(e.to_string()))?;
 
+        Self::create_usage_attribution_tables(conn)?;
+
         // 19. Profiles 表（全应用共享的项目实体，payload 按 app 分槽快照
         //     供应商/MCP/Skills/Prompt；各应用分组的 current 标记在 settings 表）
         conn.execute(
@@ -432,6 +434,42 @@ impl Database {
             [],
         );
 
+        Ok(())
+    }
+
+    /// Attribution belongs to Switch, never to Codex logs or foreign-key cascades.
+    fn create_usage_attribution_tables(conn: &Connection) -> Result<(), AppError> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS usage_record_attributions (
+            request_id TEXT PRIMARY KEY,
+            account_id TEXT, account_name TEXT, provider_id TEXT, provider_name TEXT,
+            method TEXT NOT NULL CHECK(method IN ('auto','manual')),
+            tagged_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS usage_identity_observations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL, source_key TEXT NOT NULL,
+            start_at INTEGER NOT NULL, end_at INTEGER NOT NULL,
+            account_id TEXT, account_name TEXT, provider_id TEXT, provider_name TEXT,
+            identity_key TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_identity_coverage
+            ON usage_identity_observations(source_key, start_at, end_at);
+        CREATE TABLE IF NOT EXISTS usage_record_sources (
+            request_id TEXT PRIMARY KEY, source_key TEXT NOT NULL, event_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_record_source_event
+            ON usage_record_sources(source_key,event_at);
+        CREATE TABLE IF NOT EXISTS usage_attribution_actions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL,
+            undone_at INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS usage_attribution_changes (
+            action_id INTEGER NOT NULL, request_id TEXT NOT NULL,
+            before_json TEXT, after_json TEXT NOT NULL,
+            PRIMARY KEY(action_id, request_id)
+        );",
+        )?;
         Ok(())
     }
 
@@ -563,6 +601,10 @@ impl Database {
                             }
                         }
                         Self::set_user_version(conn, 19)?;
+                    }
+                    19 => {
+                        Self::create_usage_attribution_tables(conn)?;
+                        Self::set_user_version(conn, 20)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1065,7 +1107,7 @@ impl Database {
             .map_err(|e| AppError::Database(format!("序列化旧 skills 快照失败: {e}")))?;
 
         // 标记：需要在启动后从文件系统扫描并重建 Skills 数据
-        // 说明：v3 结构将 Skills 的 SSOT 迁移到 ~/.cc-switch/skills/，
+        // 说明：v3 结构将 Skills 的 SSOT 迁移到 ~/.codex-switch/skills/，
         // 旧表只存“安装记录”，无法直接无损迁移到新结构，因此改为启动后扫描 app 目录导入。
         let _ = conn.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('skills_ssot_migration_pending', 'true')",
@@ -3709,6 +3751,47 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_v19_usage_attribution_preserves_unassigned_history() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let conn = lock_conn!(db.conn);
+        conn.execute_batch(
+            "DROP TABLE usage_attribution_changes;
+             DROP TABLE usage_attribution_actions;
+             DROP TABLE usage_record_sources;
+             DROP TABLE usage_identity_observations;
+             DROP TABLE usage_record_attributions;",
+        )?;
+        conn.execute(
+            "INSERT INTO proxy_request_logs
+             (request_id,provider_id,app_type,model,input_tokens,output_tokens,total_cost_usd,latency_ms,status_code,created_at,data_source)
+             VALUES ('historical','_codex_session','codex','deepseek-flash',100,10,'0.02',0,200,1,'codex_session')", [],
+        )?;
+        Database::set_user_version(&conn, 19)?;
+        Database::apply_schema_migrations_on_conn(&conn)?;
+        assert_eq!(Database::get_user_version(&conn)?, SCHEMA_VERSION);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM usage_record_attributions", [], |r| {
+                r.get::<_, i64>(0)
+            })?,
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM usage_identity_observations",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?,
+            0
+        );
+        let original: (String, i64, i64, String) = conn.query_row(
+            "SELECT provider_id,input_tokens,output_tokens,total_cost_usd FROM proxy_request_logs WHERE request_id='historical'", [],
+            |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)),
+        )?;
+        assert_eq!(original, ("_codex_session".into(), 100, 10, "0.02".into()));
+        Ok(())
+    }
 
     #[test]
     fn migrate_v12_to_v13_adds_input_token_semantics_columns() -> Result<(), AppError> {

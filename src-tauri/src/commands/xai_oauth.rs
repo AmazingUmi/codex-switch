@@ -1,7 +1,7 @@
 //! xAI OAuth state and xAI-specific commands.
 
-use crate::proxy::providers::xai_oauth_auth::XaiOAuthManager;
-use crate::proxy::providers::XAI_API_BASE_URL;
+use crate::auth::xai_oauth::XaiOAuthManager;
+use crate::auth::xai_oauth::XAI_API_BASE_URL;
 use crate::services::model_fetch::FetchedModel;
 use crate::services::subscription::{CredentialStatus, SubscriptionQuota};
 use serde::Deserialize;
@@ -14,7 +14,7 @@ pub struct XaiOAuthState(pub Arc<RwLock<XaiOAuthManager>>);
 
 /// 查询 xAI OAuth (SuperGrok 反代) 订阅额度的共享核心
 ///
-/// 与 `get_codex_oauth_quota` 平行：数据走 cc-switch 自管的 xAI OAuth token，
+/// 与 `get_codex_oauth_quota` 平行：数据走 codex-switch 自管的 xAI OAuth token，
 /// 而非 Grok CLI 的 ~/.grok/auth.json。两者是同一个 OAuth client
 /// （client_id 与 Grok CLI 一致），token 对 grok.com 账单端点等效，因此
 /// 复用 `subscription_grok::query_grok_quota`，协议与 Grok CLI 路径完全一致。
@@ -60,7 +60,7 @@ pub(crate) async fn query_xai_oauth_quota_for(
     crate::services::subscription_grok::query_grok_quota(
         &token,
         "xai_oauth",
-        "Please re-login via cc-switch.",
+        "Please re-login via codex-switch.",
     )
     .await
 }
@@ -107,7 +107,7 @@ pub async fn get_xai_oauth_models(
         .await
         .map_err(|error| format!("xAI OAuth token unavailable: {error}"))?;
 
-    let response = crate::proxy::http_client::get()
+    let response = crate::http_client::get()
         .get(format!("{XAI_API_BASE_URL}/models"))
         .bearer_auth(token)
         .timeout(Duration::from_secs(15))

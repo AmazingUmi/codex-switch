@@ -6,17 +6,29 @@
  *
  * MSW 替身：投影在原内容上加一份「配置文件里已有的全局设置」，模拟真实的 live。
  */
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { QueryClientProvider } from "@tanstack/react-query";
-import { http, HttpResponse } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { ProviderForm } from "@/components/providers/forms/ProviderForm";
-import { codexProviderPresets } from "@/config/codexProviderPresets";
-import { geminiProviderPresets } from "@/config/geminiProviderPresets";
-import { grokBuildProviderPresets } from "@/config/grokBuildProviderPresets";
+import {
+  ProviderForm,
+  type ProviderFormValues,
+} from "@/components/providers/forms/ProviderForm";
+import { providersApi } from "@/lib/api/providers";
 import type { AppId } from "@/lib/api";
+import { QueryClientProvider } from "@tanstack/react-query";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { http, HttpResponse } from "msw";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { server } from "../msw/server";
 import { createTestQueryClient } from "../utils/testQueryClient";
+
+const toastError = vi.hoisted(() => vi.fn());
+vi.mock("sonner", () => ({
+  toast: { error: toastError, info: vi.fn(), success: vi.fn() },
+}));
 
 vi.mock("@/components/JsonEditor", () => ({
   default: ({
@@ -92,15 +104,25 @@ function projectAsLive() {
   );
 }
 
-function renderForm(appId: AppId, bases: Base[]) {
+function renderForm(
+  appId: AppId,
+  bases: Base[],
+  onSubmit = vi.fn(),
+  drafts: Record<string, unknown>[] = [],
+) {
   return render(
     <QueryClientProvider client={createTestQueryClient()}>
       <ProviderForm
         appId={appId}
+        productShell
+        apiKeyOnly
         submitLabel="save"
-        onSubmit={vi.fn()}
+        onSubmit={onSubmit}
         onCancel={vi.fn()}
-        onEditorBaseChange={(base) => bases.push(base)}
+        onEditorBaseChange={(base, draft) => {
+          bases.push(base);
+          if (draft) drafts.push(draft);
+        }}
       />
     </QueryClientProvider>,
   );
@@ -134,79 +156,232 @@ async function nextBase(bases: Base[], seen: number): Promise<Base> {
 describe("新增对话框的草稿投影", () => {
   beforeEach(() => {
     projectAsLive();
+    toastError.mockReset();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("waits for an API Key before projecting, then saves the real live base and credential draft", async () => {
+    const getView = vi.spyOn(providersApi, "getEditorView");
+    const bases: Base[] = [];
+    const drafts: Record<string, unknown>[] = [];
+    const onSubmit = vi.fn();
+    renderForm("codex", bases, onSubmit, drafts);
+    expect(screen.queryByTestId("json-editor")).not.toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    expect(getView).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "test-openai-key" },
+    });
+    expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+    const base = await nextBase(bases, bases.length);
+    expect(getView).toHaveBeenCalledTimes(1);
+    expect(drafts.at(-1)?.auth).toEqual({ OPENAI_API_KEY: "test-openai-key" });
+    expect(String(drafts.at(-1)?.config)).toContain(
+      "requires_openai_auth = true",
+    );
+    expect(String(drafts.at(-1)?.config)).not.toContain(LIVE_TOML.trim());
+    fireEvent.click(screen.getByRole("button", { name: "高级选项" }));
+    await waitFor(() => expect(editorTexts()).toContain(String(base!.config)));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "save" })).toBeEnabled(),
+    );
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "final-openai-key" },
+    });
+    fireEvent.change(screen.getByLabelText("codexConfig.apiUrlLabel"), {
+      target: { value: "https://final.example/v1" },
+    });
+    const rawConfig = screen
+      .getAllByTestId("json-editor")
+      .find((node) =>
+        (node as HTMLTextAreaElement).value.includes("model_provider"),
+      ) as HTMLTextAreaElement;
+    fireEvent.change(rawConfig, {
+      target: { value: `${rawConfig.value}\n[draft]\nkeep = true\n` },
+    });
+    expect(getView).toHaveBeenCalledTimes(1);
+    expect(bases.at(-1)).toEqual(base);
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(
+      JSON.parse(
+        (onSubmit.mock.calls[0][0] as ProviderFormValues).settingsConfig,
+      ),
+    ).toMatchObject({
+      auth: { OPENAI_API_KEY: "final-openai-key" },
+      config: expect.stringContaining("keep = true"),
+    });
+    const saved = JSON.parse(
+      (onSubmit.mock.calls[0][0] as ProviderFormValues).settingsConfig,
+    );
+    expect(saved.config).toContain("https://final.example/v1");
+    expect(saved.config).toContain(LIVE_TOML.trim());
+    expect(drafts.at(-1)?.auth).toEqual({ OPENAI_API_KEY: "test-openai-key" });
   });
 
-  it("Codex：打开、选预设、切回自定义，显示内容始终等于底", async () => {
+  it("switches API presets without projecting an empty key or automatically opening advanced options", async () => {
+    const getView = vi.spyOn(providersApi, "getEditorView");
     const bases: Base[] = [];
     renderForm("codex", bases);
-
-    let base = await nextBase(bases, 0);
-    await waitFor(() =>
-      expect(editorTexts()).toContain(String(base!.config)),
+    clickPreset("DeepSeek");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    expect(getView).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "高级选项" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
-
-    const preset = codexProviderPresets.find(
-      (item) => item.category !== "official" && item.name === "Nvidia",
-    )!;
-    let seen = bases.length;
-    clickPreset(preset.name);
-    base = await nextBase(bases, seen);
+    expect(screen.queryByLabelText("实际请求模型")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("json-editor")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "deepseek-key" },
+    });
+    let base = await nextBase(bases, bases.length);
     expect(String(base!.config)).toContain(LIVE_TOML.trim());
-    await waitFor(() =>
-      expect(editorTexts()).toContain(String(base!.config)),
-    );
+    expect(String(base!.config)).toContain("api.deepseek.com");
+    fireEvent.click(screen.getByRole("button", { name: "高级选项" }));
+    expect(screen.getAllByLabelText("实际请求模型").length).toBeGreaterThan(0);
+    await waitFor(() => expect(editorTexts()).toContain(String(base!.config)));
 
-    seen = bases.length;
-    clickPreset("providerPreset.custom");
-    base = await nextBase(bases, seen);
-    expect(String(base!.config)).not.toContain("nvidia");
-    await waitFor(() =>
-      expect(editorTexts()).toContain(String(base!.config)),
-    );
+    getView.mockClear();
+    clickPreset("OpenAI API");
+    expect(bases.at(-1)).toBeNull();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    });
+    expect(getView).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "new-openai-key" },
+    });
+    base = await nextBase(bases, bases.length);
+    expect(String(base!.config)).not.toContain("deepseek");
+    await waitFor(() => expect(editorTexts()).toContain(String(base!.config)));
   });
 
-  it("Gemini：选预设、切回自定义后，全局设置仍在显示内容和底里", async () => {
+  it("invalidates in-flight projections on preset changes and on later draft edits", async () => {
+    const requests: Array<{
+      settings: Record<string, unknown>;
+      resolve: (view: {
+        settings: Record<string, unknown>;
+        inactive: [];
+      }) => void;
+    }> = [];
+    vi.spyOn(providersApi, "getEditorView").mockImplementation(
+      (_app, settings) =>
+        new Promise((resolve) => requests.push({ settings, resolve })),
+    );
     const bases: Base[] = [];
-    renderForm("gemini", bases);
-    await nextBase(bases, 0);
-
-    const preset = geminiProviderPresets.find(
-      (item) => item.category !== "official",
-    )!;
-    let seen = bases.length;
-    clickPreset(preset.name);
-    let base = await nextBase(bases, seen);
-    expect((base!.env as Record<string, unknown>).GEMINI_SANDBOX).toBe(
-      "docker",
+    const onSubmit = vi.fn();
+    renderForm("codex", bases, onSubmit);
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "first-key" },
+    });
+    await waitFor(() => expect(requests).toHaveLength(1));
+    clickPreset("DeepSeek");
+    await act(async () =>
+      requests[0].resolve({
+        settings: { config: "stale = true" },
+        inactive: [],
+      }),
     );
-
-    seen = bases.length;
-    clickPreset("providerPreset.custom");
-    base = await nextBase(bases, seen);
-    expect((base!.env as Record<string, unknown>).GEMINI_SANDBOX).toBe(
-      "docker",
+    expect(bases.at(-1)).toBeNull();
+    expect(screen.getByLabelText("codexConfig.apiUrlLabel")).toHaveValue(
+      "https://api.deepseek.com",
     );
-    await waitFor(() =>
-      expect(
-        editorTexts().some((text) => text.includes("GEMINI_SANDBOX=docker")),
-      ).toBe(true),
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "second-key" },
+    });
+    await waitFor(() => expect(requests).toHaveLength(2));
+    fireEvent.change(screen.getByLabelText("默认模型"), {
+      target: { value: "new-model" },
+    });
+    await waitFor(() => expect(requests).toHaveLength(3));
+    await act(async () =>
+      requests[1].resolve({
+        settings: { config: "also_stale = true" },
+        inactive: [],
+      }),
     );
+    expect(bases.at(-1)).toBeNull();
+    expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+    fireEvent.submit(document.getElementById("provider-form")!);
+    expect(onSubmit).not.toHaveBeenCalled();
+    const latest = {
+      ...requests[2].settings,
+      config: `${requests[2].settings.config}${LIVE_TOML}`,
+    };
+    await act(async () =>
+      requests[2].resolve({ settings: latest, inactive: [] }),
+    );
+    await waitFor(() => expect(bases.at(-1)).toEqual(latest));
+    expect(screen.getByLabelText("默认模型")).toHaveValue("new-model");
+    expect(screen.getByLabelText("API Key")).toHaveValue("second-key");
+    expect(screen.getByRole("button", { name: "save" })).toBeEnabled();
+    expect(toastError).not.toHaveBeenCalled();
   });
 
-  it("Grok Build：选预设后显示投影内容，切到官方卡作废底", async () => {
-    const bases: Base[] = [];
-    renderForm("grokbuild", bases);
-    await nextBase(bases, 0);
-
-    const preset = grokBuildProviderPresets[0];
-    const seen = bases.length;
-    clickPreset(preset.nameKey ?? preset.name);
-    const base = await nextBase(bases, seen);
-    await waitFor(() =>
-      expect(editorTexts()).toContain(String(base!.config)),
+  it("reports a real live configuration failure after credentials are complete", async () => {
+    vi.spyOn(providersApi, "getEditorView").mockRejectedValue(
+      new Error("broken config.toml"),
     );
+    const bases: Base[] = [];
+    renderForm("codex", bases);
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "real-key" },
+    });
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith(
+        expect.stringContaining("broken config.toml"),
+      ),
+    );
+    expect(bases.at(-1)).toBeNull();
+    expect(screen.getByRole("button", { name: "save" })).toBeEnabled();
+  });
 
-    fireEvent.click(screen.getByRole("button", { name: /Grok Official/ }));
-    await waitFor(() => expect(bases.at(-1)).toBeNull());
+  it("clears the pending save lock when the key is removed and still offers soft-warning save", async () => {
+    let resolve!: (view: {
+      settings: Record<string, unknown>;
+      inactive: [];
+    }) => void;
+    vi.spyOn(providersApi, "getEditorView").mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const bases: Base[] = [];
+    const onSubmit = vi.fn();
+    renderForm("codex", bases, onSubmit);
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "temporary-key" },
+    });
+    await waitFor(() => expect(resolve).toBeDefined());
+    expect(screen.getByRole("button", { name: "save" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("API Key"), {
+      target: { value: "" },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "save" })).toBeEnabled(),
+    );
+    await act(async () =>
+      resolve({ settings: { config: "stale = true" }, inactive: [] }),
+    );
+    expect(bases.at(-1)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    expect(
+      await screen.findByRole("button", { name: "仍要保存" }),
+    ).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "仍要保存" }));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(onSubmit.mock.calls[0][0].settingsConfig).auth).toEqual({
+      OPENAI_API_KEY: "",
+    });
+    expect(toastError).not.toHaveBeenCalled();
   });
 });

@@ -106,6 +106,7 @@ pub async fn save_file_dialog<R: tauri::Runtime>(
     let result = dialog
         .file()
         .add_filter("SQL", &["sql"])
+        .set_directory(dirs::download_dir().unwrap_or_else(crate::config::get_home_dir))
         .set_file_name(&defaultName)
         .blocking_save_file();
 
@@ -121,6 +122,7 @@ pub async fn open_file_dialog<R: tauri::Runtime>(
     let result = dialog
         .file()
         .add_filter("SQL", &["sql"])
+        .set_directory(dirs::download_dir().unwrap_or_else(crate::config::get_home_dir))
         .blocking_pick_file();
 
     Ok(result.map(|p| p.to_string()))

@@ -4,10 +4,10 @@
 
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::calculator::ModelPricing;
 use crate::services::sql_helpers::{
     fresh_input_sql, INPUT_TOKEN_SEMANTICS_FRESH, INPUT_TOKEN_SEMANTICS_TOTAL,
 };
+use crate::usage::calculator::ModelPricing;
 use chrono::{Local, NaiveDate, TimeZone, Timelike};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -79,6 +79,9 @@ pub struct DailyStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderStats {
+    pub source_id: String,
+    pub account_id: Option<String>,
+    pub account_name: Option<String>,
     pub provider_id: String,
     pub provider_name: String,
     pub request_count: u64,
@@ -97,6 +100,13 @@ pub struct ModelStats {
     pub total_tokens: u64,
     pub total_cost: String,
     pub avg_cost_per_request: String,
+}
+
+/// Stable source identity, independent of display names and usage history.
+#[derive(Debug, Clone, Default)]
+pub struct UsageSourceFilter {
+    pub account_id: Option<String>,
+    pub provider_id: Option<String>,
 }
 
 /// 请求日志过滤器
@@ -209,17 +219,85 @@ fn row_to_request_log_detail(row: &rusqlite::Row<'_>) -> rusqlite::Result<Reques
 /// that don't exist in the providers table — the CASE expression below is the
 /// authoritative mapping from placeholder to readable name.
 fn provider_name_coalesce(log_alias: &str, provider_alias: &str) -> String {
-    format!(
+    let fallback = format!(
         "COALESCE({provider_alias}.name, CASE {log_alias}.provider_id \
          WHEN '_session' THEN 'Claude (Session)' \
-         WHEN '_codex_session' THEN 'Codex (Session)' \
+         WHEN '_codex_session' THEN 'Unassigned' \
          WHEN '_gemini_session' THEN 'Gemini (Session)' \
          WHEN '_opencode_session' THEN 'OpenCode (Session)' \
          WHEN '_grok_session' THEN 'Grok Build (Session)' \
          WHEN '_mcode_session' THEN 'MiniMax Code (Session)' \
          WHEN '_pi_session' THEN 'Pi (Session)' \
          ELSE {log_alias}.provider_id END)"
+    );
+    // Rollups have no request identity. Only retained detail rows can carry a
+    // Switch-owned attribution snapshot; never infer it from today's provider.
+    if log_alias == "l" {
+        format!(
+            "CASE WHEN EXISTS(SELECT 1 FROM usage_record_attributions a WHERE a.request_id={log_alias}.request_id) \
+             THEN COALESCE((SELECT a.provider_name FROM usage_record_attributions a \
+             WHERE a.request_id = {log_alias}.request_id),'Unassigned') ELSE {fallback} END"
+        )
+    } else {
+        fallback
+    }
+}
+
+fn attributed_provider_id_sql(log_alias: &str) -> String {
+    format!(
+        "COALESCE({},'_codex_session')",
+        source_provider_id_sql(log_alias, false)
     )
+}
+
+fn source_provider_id_sql(alias: &str, rollup: bool) -> String {
+    let fallback = format!(
+        "CASE WHEN {alias}.provider_id='_codex_session' THEN NULL ELSE {alias}.provider_id END"
+    );
+    if rollup {
+        fallback
+    } else {
+        format!("CASE WHEN EXISTS(SELECT 1 FROM usage_record_attributions a WHERE a.request_id={alias}.request_id) THEN (SELECT a.provider_id FROM usage_record_attributions a WHERE a.request_id={alias}.request_id) ELSE {fallback} END")
+    }
+}
+
+/// Apply source IDs uniformly to each detail and historical-rollup query.
+/// Rollups cannot identify subscription accounts; never assign their history
+/// to whichever account currently uses the corresponding configuration.
+fn push_source_filters(
+    conditions: &mut Vec<String>,
+    params: &mut Vec<Box<dyn rusqlite::ToSql>>,
+    alias: &str,
+    rollup: bool,
+    source: Option<&UsageSourceFilter>,
+) {
+    let Some(source) = source else {
+        return;
+    };
+    if let Some(account) = &source.account_id {
+        if rollup {
+            if account != "__unassigned__" {
+                conditions.push("0=1".into());
+            }
+        } else {
+            let account_expr=format!("(SELECT a.account_id FROM usage_record_attributions a WHERE a.request_id={alias}.request_id)");
+            if account == "__unassigned__" {
+                conditions.push(format!("{account_expr} IS NULL"));
+            } else {
+                conditions.push(format!("{account_expr}=?"));
+                params.push(Box::new(account.clone()));
+            }
+        }
+    }
+    if let Some(provider) = &source.provider_id {
+        let provider_expr = source_provider_id_sql(alias, rollup);
+        if provider == "__unassigned__" {
+            conditions.push(format!("({provider_expr}) IS NULL"));
+        } else {
+            conditions.push(format!("({provider_expr})=?"));
+            params.push(Box::new(provider.clone()));
+        }
+    }
 }
 
 pub(crate) const SESSION_PROXY_DEDUP_WINDOW_SECONDS: i64 = 10 * 60;
@@ -508,10 +586,10 @@ pub(crate) fn has_suspected_codex_session_duplicate(
 }
 
 #[derive(Debug, Clone, Default)]
-struct RollupDateBounds {
-    start: Option<String>,
-    end: Option<String>,
-    is_empty: bool,
+pub(crate) struct RollupDateBounds {
+    pub(crate) start: Option<String>,
+    pub(crate) end: Option<String>,
+    pub(crate) is_empty: bool,
 }
 
 fn local_datetime_from_timestamp(ts: i64) -> Result<chrono::DateTime<Local>, AppError> {
@@ -521,7 +599,7 @@ fn local_datetime_from_timestamp(ts: i64) -> Result<chrono::DateTime<Local>, App
         .ok_or_else(|| AppError::Database(format!("无法解析本地时间戳: {ts}")))
 }
 
-fn compute_rollup_date_bounds(
+pub(crate) fn compute_rollup_date_bounds(
     start_ts: Option<i64>,
     end_ts: Option<i64>,
 ) -> Result<RollupDateBounds, AppError> {
@@ -606,6 +684,7 @@ impl Database {
         app_type: Option<&str>,
         provider_name: Option<&str>,
         model: Option<&str>,
+        source: Option<&UsageSourceFilter>,
     ) -> Result<UsageSummary, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -633,6 +712,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_source_filters(&mut conditions, &mut params_vec, "l", false, source);
 
         let where_clause = if conditions.is_empty() {
             String::new()
@@ -667,6 +747,13 @@ impl Database {
             "p2",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            true,
+            source,
         );
 
         let rollup_where = if rollup_conditions.is_empty() {
@@ -766,6 +853,7 @@ impl Database {
         end_date: Option<i64>,
         provider_name: Option<&str>,
         model: Option<&str>,
+        source: Option<&UsageSourceFilter>,
     ) -> Result<Vec<UsageSummaryByApp>, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -786,6 +874,13 @@ impl Database {
             "p",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut detail_conditions,
+            &mut detail_params,
+            "l",
+            false,
+            source,
         );
         let detail_where = format!("WHERE {}", detail_conditions.join(" AND "));
         let detail_join = if provider_name.is_some() {
@@ -810,6 +905,13 @@ impl Database {
             "p2",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            true,
+            source,
         );
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
@@ -930,6 +1032,7 @@ impl Database {
         app_type: Option<&str>,
         provider_name: Option<&str>,
         model: Option<&str>,
+        source: Option<&UsageSourceFilter>,
     ) -> Result<Vec<DailyStats>, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -967,6 +1070,7 @@ impl Database {
                 provider_name,
                 model,
             );
+            push_source_filters(&mut extra_conditions, &mut extra_params, "l", false, source);
             let extra_filter = extra_conditions
                 .iter()
                 .map(|c| format!("AND {c}"))
@@ -1080,6 +1184,7 @@ impl Database {
             provider_name,
             model,
         );
+        push_source_filters(&mut extra_conditions, &mut extra_params, "l", false, source);
         let extra_filter = extra_conditions
             .iter()
             .map(|c| format!("AND {c}"))
@@ -1162,6 +1267,13 @@ impl Database {
             "p2",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            true,
+            source,
         );
 
         let rollup_where = if rollup_conditions.is_empty() {
@@ -1270,6 +1382,7 @@ impl Database {
         app_type: Option<&str>,
         provider_name: Option<&str>,
         model: Option<&str>,
+        source: Option<&UsageSourceFilter>,
     ) -> Result<Vec<ProviderStats>, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -1294,6 +1407,13 @@ impl Database {
             "p",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut detail_conditions,
+            &mut detail_params,
+            "l",
+            false,
+            source,
         );
         let detail_where = if detail_conditions.is_empty() {
             String::new()
@@ -1322,6 +1442,13 @@ impl Database {
             provider_name,
             model,
         );
+        push_source_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            true,
+            source,
+        );
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
         } else {
@@ -1330,46 +1457,58 @@ impl Database {
 
         // UNION detail logs + rollup data, then aggregate
         let detail_pname = provider_name_coalesce("l", "p");
+        let detail_pid = attributed_provider_id_sql("l");
+        let detail_source_pid = source_provider_id_sql("l", false);
+        let detail_account_id = "(SELECT a.account_id FROM usage_record_attributions a WHERE a.request_id=l.request_id AND a.account_id IS NOT NULL AND substr(a.account_id,1,4)<>'api:')";
+        let detail_account_name = "(SELECT a.account_name FROM usage_record_attributions a WHERE a.request_id=l.request_id AND a.account_id IS NOT NULL AND substr(a.account_id,1,4)<>'api:')";
+        let detail_source_id = format!("CASE WHEN {detail_account_id} IS NOT NULL THEN 'account:' || {detail_account_id} WHEN ({detail_source_pid}) IS NOT NULL THEN 'provider:' || ({detail_source_pid}) ELSE '__unassigned__' END");
+        let rollup_source_pid = source_provider_id_sql("r", true);
+        let rollup_source_id = format!("CASE WHEN ({rollup_source_pid}) IS NOT NULL THEN 'provider:' || ({rollup_source_pid}) ELSE '__unassigned__' END");
         let rollup_pname = provider_name_coalesce("r", "p2");
         let fresh_input_detail = fresh_input_sql("l");
         let fresh_input_rollup = fresh_input_sql("r");
         let sql = format!(
             "SELECT
-                provider_id, app_type, provider_name,
+                MIN(provider_id), app_type, MIN(provider_name),
                 SUM(request_count) as request_count,
                 SUM(total_tokens) as total_tokens,
                 SUM(total_cost) as total_cost,
                 SUM(success_count) as success_count,
                 CASE WHEN SUM(request_count) > 0
                     THEN SUM(latency_sum) / SUM(request_count)
-                    ELSE 0 END as avg_latency
+                    ELSE 0 END as avg_latency,
+                source_id, MIN(account_id), MIN(account_name)
             FROM (
-                SELECT l.provider_id, l.app_type,
-                    {detail_pname} as provider_name,
+                SELECT MIN({detail_pid}) as provider_id, l.app_type,
+                    MIN({detail_pname}) as provider_name,
                     COUNT(*) as request_count,
                     COALESCE(SUM({fresh_input_detail} + l.output_tokens), 0) as total_tokens,
                     COALESCE(SUM(CAST(l.total_cost_usd AS REAL)), 0) as total_cost,
                     COALESCE(SUM(CASE WHEN l.status_code >= 200 AND l.status_code < 300 THEN 1 ELSE 0 END), 0) as success_count,
-                    COALESCE(SUM(l.latency_ms), 0) as latency_sum
+                    COALESCE(SUM(l.latency_ms), 0) as latency_sum,
+                    {detail_source_id} as source_id,
+                    MIN({detail_account_id}) as account_id,
+                    MIN({detail_account_name}) as account_name
                 FROM proxy_request_logs l
                 LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
                 {detail_where}
-                GROUP BY l.provider_id, l.app_type
+                GROUP BY {detail_source_id}, l.app_type
                 UNION ALL
-                SELECT r.provider_id, r.app_type,
-                    {rollup_pname} as provider_name,
+                SELECT MIN(r.provider_id), r.app_type,
+                    MIN({rollup_pname}) as provider_name,
                     COALESCE(SUM(r.request_count), 0),
                     COALESCE(SUM({fresh_input_rollup} + r.output_tokens), 0),
                     COALESCE(SUM(CAST(r.total_cost_usd AS REAL)), 0),
                     COALESCE(SUM(r.success_count), 0),
-                    COALESCE(SUM(r.avg_latency_ms * r.request_count), 0)
+                    COALESCE(SUM(r.avg_latency_ms * r.request_count), 0),
+                    {rollup_source_id}, NULL, NULL
                 FROM usage_daily_rollups r
                 LEFT JOIN providers p2 ON r.provider_id = p2.id AND r.app_type = p2.app_type
                 {rollup_where}
-                GROUP BY r.provider_id, r.app_type
+                GROUP BY {rollup_source_id}, r.app_type
             )
-            GROUP BY provider_id, app_type
-            ORDER BY total_cost DESC"
+            GROUP BY source_id, app_type
+            ORDER BY total_cost DESC, source_id ASC"
         );
 
         let mut stmt = conn.prepare(&sql)?;
@@ -1386,6 +1525,9 @@ impl Database {
             };
 
             Ok(ProviderStats {
+                source_id: row.get(8)?,
+                account_id: row.get(9)?,
+                account_name: row.get(10)?,
                 provider_id: row.get(0)?,
                 provider_name: row.get(2)?,
                 request_count: request_count as u64,
@@ -1414,6 +1556,7 @@ impl Database {
         app_type: Option<&str>,
         provider_name: Option<&str>,
         model: Option<&str>,
+        source: Option<&UsageSourceFilter>,
     ) -> Result<Vec<ModelStats>, AppError> {
         let conn = lock_conn!(self.conn);
 
@@ -1438,6 +1581,13 @@ impl Database {
             "p",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut detail_conditions,
+            &mut detail_params,
+            "l",
+            false,
+            source,
         );
         let detail_where = if detail_conditions.is_empty() {
             String::new()
@@ -1470,6 +1620,13 @@ impl Database {
             "p2",
             provider_name,
             model,
+        );
+        push_source_filters(
+            &mut rollup_conditions,
+            &mut rollup_params,
+            "r",
+            true,
+            source,
         );
         let rollup_where = if rollup_conditions.is_empty() {
             String::new()
@@ -1617,8 +1774,9 @@ impl Database {
         params.push(Box::new(offset as i64));
 
         let logs_pname = provider_name_coalesce("l", "p");
+        let logs_pid = attributed_provider_id_sql("l");
         let sql = format!(
-            "SELECT l.request_id, l.provider_id, {logs_pname} as provider_name, l.app_type, l.model,
+            "SELECT l.request_id, {logs_pid}, {logs_pname} as provider_name, l.app_type, l.model,
                     l.request_model, l.cost_multiplier,
                     l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_creation_tokens,
                     l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
@@ -1661,13 +1819,14 @@ impl Database {
         let conn = lock_conn!(self.conn);
 
         let detail_pname = provider_name_coalesce("l", "p");
+        let detail_pid = attributed_provider_id_sql("l");
         let detail_sql = format!(
-            "SELECT l.request_id, l.provider_id, {detail_pname} as provider_name, l.app_type, l.model,
+            "SELECT l.request_id, {detail_pid}, {detail_pname} as provider_name, l.app_type, l.model,
                     l.request_model, l.cost_multiplier,
-                    input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
-                    input_cost_usd, output_cost_usd, cache_read_cost_usd, cache_creation_cost_usd, total_cost_usd,
-                    is_streaming, latency_ms, first_token_ms, duration_ms,
-                    status_code, error_message, created_at, l.data_source, l.pricing_model,
+                    l.input_tokens, l.output_tokens, l.cache_read_tokens, l.cache_creation_tokens,
+                    l.input_cost_usd, l.output_cost_usd, l.cache_read_cost_usd, l.cache_creation_cost_usd, l.total_cost_usd,
+                    l.is_streaming, l.latency_ms, l.first_token_ms, l.duration_ms,
+                    l.status_code, l.error_message, l.created_at, l.data_source, l.pricing_model,
                     l.input_token_semantics
              FROM proxy_request_logs l
              LEFT JOIN providers p ON l.provider_id = p.id AND l.app_type = p.app_type
@@ -2376,6 +2535,376 @@ mod tests {
         }
     }
 
+    fn assert_source_dashboard_totals(
+        db: &Database,
+        source: &UsageSourceFilter,
+        start: i64,
+        end: i64,
+        count: u64,
+        cost: &str,
+    ) -> Result<(), AppError> {
+        let summary = db.get_usage_summary(
+            Some(start),
+            Some(end),
+            Some("codex"),
+            None,
+            None,
+            Some(source),
+        )?;
+        assert_eq!(summary.total_requests, count);
+        assert_eq!(
+            rust_decimal::Decimal::from_str(&summary.total_cost).unwrap(),
+            rust_decimal::Decimal::from_str(cost).unwrap()
+        );
+        let apps = db.get_usage_summary_by_app(Some(start), Some(end), None, None, Some(source))?;
+        assert_eq!(
+            apps.iter()
+                .map(|app| app.summary.total_requests)
+                .sum::<u64>(),
+            count
+        );
+        let trends = db.get_daily_trends(
+            Some(start),
+            Some(end),
+            Some("codex"),
+            None,
+            None,
+            Some(source),
+        )?;
+        assert_eq!(
+            trends.iter().map(|day| day.request_count).sum::<u64>(),
+            count
+        );
+        assert_eq!(
+            trends
+                .iter()
+                .map(|day| rust_decimal::Decimal::from_str(&day.total_cost).unwrap())
+                .sum::<rust_decimal::Decimal>(),
+            rust_decimal::Decimal::from_str(cost).unwrap()
+        );
+        let providers = db.get_provider_stats(
+            Some(start),
+            Some(end),
+            Some("codex"),
+            None,
+            None,
+            Some(source),
+        )?;
+        let models = db.get_model_stats(
+            Some(start),
+            Some(end),
+            Some("codex"),
+            None,
+            None,
+            Some(source),
+        )?;
+        assert_eq!(
+            providers
+                .iter()
+                .map(|provider| provider.request_count)
+                .sum::<u64>(),
+            count
+        );
+        assert_eq!(
+            models.iter().map(|model| model.request_count).sum::<u64>(),
+            count
+        );
+        assert_eq!(
+            providers
+                .iter()
+                .map(|provider| provider.total_tokens)
+                .sum::<u64>(),
+            summary.total_input_tokens + summary.total_output_tokens
+        );
+        assert_eq!(
+            models.iter().map(|model| model.total_tokens).sum::<u64>(),
+            summary.total_input_tokens + summary.total_output_tokens
+        );
+        assert_eq!(
+            providers
+                .iter()
+                .map(|provider| rust_decimal::Decimal::from_str(&provider.total_cost).unwrap())
+                .sum::<rust_decimal::Decimal>(),
+            rust_decimal::Decimal::from_str(cost).unwrap()
+        );
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| rust_decimal::Decimal::from_str(&model.total_cost).unwrap())
+                .sum::<rust_decimal::Decimal>(),
+            rust_decimal::Decimal::from_str(cost).unwrap()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn usage_source_ids_isolate_accounts_sharing_provider_api_and_unknown_across_dashboard(
+    ) -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let start = local_ts(2026, 6, 10, 0, 0, 0);
+        let end = local_ts(2026, 6, 10, 23, 59, 59);
+        {
+            let conn = lock_conn!(db.conn);
+            for (index, id) in ["a", "b", "api", "unknown", "null-tag", "legacy-api"]
+                .iter()
+                .enumerate()
+            {
+                insert_usage_log(
+                    &conn,
+                    id,
+                    "codex",
+                    if matches!(*id, "null-tag" | "legacy-api") {
+                        "deepseek"
+                    } else {
+                        "_codex_session"
+                    },
+                    if matches!(*id, "api" | "legacy-api") {
+                        "deepseek"
+                    } else {
+                        "gpt"
+                    },
+                    "codex_session",
+                    start + 3600,
+                    100,
+                    10,
+                    20,
+                    0,
+                    200,
+                    &(index + 1).to_string(),
+                )?;
+            }
+            conn.execute_batch("INSERT INTO usage_record_attributions(request_id,account_id,account_name,provider_id,provider_name,method,tagged_at) VALUES ('a','account-a','A','official','Official','manual',0),('b','account-b','B','official','Official','manual',0),('api','api:deepseek','DeepSeek','deepseek','DeepSeek','manual',0),('null-tag',NULL,NULL,NULL,NULL,'manual',0);")?;
+        }
+        let a = UsageSourceFilter {
+            account_id: Some("account-a".into()),
+            provider_id: None,
+        };
+        let b = UsageSourceFilter {
+            account_id: Some("account-b".into()),
+            provider_id: None,
+        };
+        let api = UsageSourceFilter {
+            account_id: None,
+            provider_id: Some("deepseek".into()),
+        };
+        let unknown = UsageSourceFilter {
+            account_id: Some("__unassigned__".into()),
+            provider_id: Some("__unassigned__".into()),
+        };
+        for (source, count, cost) in [
+            (&a, 1, "1"),
+            (&b, 1, "2"),
+            (&api, 2, "9"),
+            (&unknown, 2, "9"),
+        ] {
+            assert_source_dashboard_totals(&db, source, start, end, count, cost)?;
+        }
+        let all = db.get_usage_summary(Some(start), Some(end), Some("codex"), None, None, None)?;
+        assert_eq!(all.total_requests, 6);
+        assert_eq!(all.total_input_tokens, 6 * 80);
+        assert_eq!(all.total_cost, "21.000000");
+        let sources =
+            db.get_provider_stats(Some(start), Some(end), Some("codex"), None, None, None)?;
+        assert_eq!(sources.len(), 4);
+        let counts: std::collections::BTreeMap<_, _> = sources
+            .iter()
+            .map(|source| (source.source_id.as_str(), source.request_count))
+            .collect();
+        assert_eq!(
+            counts,
+            std::collections::BTreeMap::from([
+                ("account:account-a", 1),
+                ("account:account-b", 1),
+                ("provider:deepseek", 2),
+                ("__unassigned__", 2)
+            ])
+        );
+        assert_eq!(
+            sources
+                .iter()
+                .find(|source| source.source_id == "account:account-a")
+                .unwrap()
+                .account_name
+                .as_deref(),
+            Some("A")
+        );
+        // Both short hourly and multi-day trend branches honor source IDs.
+        assert_source_dashboard_totals(&db, &a, start + 3599, start + 7199, 1, "1")?;
+        assert_source_dashboard_totals(&db, &b, start - 86400, end + 86400, 1, "2")?;
+        assert_eq!(
+            db.get_usage_summary(
+                Some(start),
+                Some(end),
+                Some("codex"),
+                Some("Official"),
+                Some("gpt"),
+                Some(&a)
+            )?
+            .total_requests,
+            1
+        );
+        assert_eq!(
+            db.get_usage_summary(
+                Some(start),
+                Some(end),
+                Some("codex"),
+                None,
+                Some("gpt"),
+                Some(&api)
+            )?
+            .total_requests,
+            0
+        );
+        assert_eq!(
+            db.get_usage_summary(
+                Some(start),
+                Some(end),
+                Some("codex"),
+                Some("Unassigned"),
+                None,
+                Some(&unknown)
+            )?
+            .total_requests,
+            2
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn usage_source_stats_merge_configuration_and_snapshot_changes_without_losing_metrics(
+    ) -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let start = local_ts(2026, 6, 10, 0, 0, 0);
+        let end = local_ts(2026, 6, 12, 23, 59, 59);
+        {
+            let conn = lock_conn!(db.conn);
+            for (index, id) in [
+                "a-first",
+                "a-second",
+                "api-first",
+                "api-second",
+                "api-legacy",
+                "unknown",
+            ]
+            .iter()
+            .enumerate()
+            {
+                insert_usage_log(
+                    &conn,
+                    id,
+                    "codex",
+                    if *id == "api-legacy" {
+                        "deepseek"
+                    } else {
+                        "_codex_session"
+                    },
+                    "model",
+                    "codex_session",
+                    start + 3600,
+                    100,
+                    10,
+                    20,
+                    0,
+                    if matches!(*id, "a-second" | "api-second") {
+                        500
+                    } else {
+                        200
+                    },
+                    &(index + 1).to_string(),
+                )?;
+            }
+            conn.execute_batch("INSERT INTO usage_record_attributions(request_id,account_id,account_name,provider_id,provider_name,method,tagged_at) VALUES ('a-first','account-a','A before rename','official-a','Official A','auto',0),('a-second','account-a','A after rename','official-b','Official B','manual',0),('api-first','api:first','First credential','deepseek','DeepSeek before rename','auto',0),('api-second','api:second','Second credential','deepseek','DeepSeek after rename','manual',0);
+                UPDATE proxy_request_logs SET latency_ms=CASE request_id WHEN 'a-first' THEN 10 WHEN 'a-second' THEN 30 WHEN 'api-first' THEN 20 WHEN 'api-second' THEN 60 WHEN 'api-legacy' THEN 40 ELSE 80 END;
+                INSERT INTO usage_daily_rollups(date,app_type,provider_id,model,request_count,success_count,input_tokens,output_tokens,total_cost_usd,avg_latency_ms) VALUES ('2026-06-11','codex','deepseek','model',2,1,200,20,'7',50),('2026-06-11','codex','_codex_session','model',3,3,300,30,'9',70);")?;
+        }
+        let stats =
+            db.get_provider_stats(Some(start), Some(end), Some("codex"), None, None, None)?;
+        assert_eq!(stats.len(), 3);
+        let account = stats
+            .iter()
+            .find(|source| source.source_id == "account:account-a")
+            .unwrap();
+        assert_eq!(account.account_id.as_deref(), Some("account-a"));
+        assert_eq!(account.provider_id, "official-a");
+        assert_eq!(account.request_count, 2);
+        assert_eq!(account.total_tokens, 180);
+        assert_eq!(account.total_cost, "3.000000");
+        assert_eq!(account.success_rate, 50.0);
+        assert_eq!(account.avg_latency_ms, 20);
+        let api = stats
+            .iter()
+            .find(|source| source.source_id == "provider:deepseek")
+            .unwrap();
+        assert!(api.account_id.is_none());
+        assert!(api.account_name.is_none());
+        assert_eq!(api.request_count, 5);
+        assert_eq!(api.total_tokens, 490);
+        assert_eq!(api.total_cost, "19.000000");
+        assert!((api.success_rate - 60.0).abs() < 0.00001);
+        assert_eq!(api.avg_latency_ms, 44);
+        let unknown = stats
+            .iter()
+            .find(|source| source.source_id == "__unassigned__")
+            .unwrap();
+        assert_eq!(unknown.request_count, 4);
+        assert_eq!(unknown.total_tokens, 420);
+        assert_eq!(unknown.total_cost, "15.000000");
+        assert_eq!(unknown.provider_name, "Unassigned");
+        let summary =
+            db.get_usage_summary(Some(start), Some(end), Some("codex"), None, None, None)?;
+        assert_eq!(
+            stats.iter().map(|source| source.request_count).sum::<u64>(),
+            summary.total_requests
+        );
+        assert_eq!(
+            stats.iter().map(|source| source.total_tokens).sum::<u64>(),
+            summary.total_input_tokens + summary.total_output_tokens
+        );
+        assert_eq!(
+            stats
+                .iter()
+                .map(|source| rust_decimal::Decimal::from_str(&source.total_cost).unwrap())
+                .sum::<rust_decimal::Decimal>(),
+            rust_decimal::Decimal::from_str(&summary.total_cost).unwrap()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn usage_source_rollups_remain_unknown_to_accounts_and_respect_full_day_boundaries(
+    ) -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let start = local_ts(2026, 6, 10, 0, 0, 0);
+        let end = local_ts(2026, 6, 12, 23, 59, 59);
+        {
+            let conn = lock_conn!(db.conn);
+            conn.execute_batch("INSERT INTO usage_daily_rollups(date,app_type,provider_id,model,request_count,success_count,input_tokens,output_tokens,total_cost_usd,avg_latency_ms) VALUES ('2026-06-11','codex','_codex_session','gpt',7,7,700,70,'7',50),('2026-06-11','codex','deepseek','deepseek',8,8,800,80,'8',50),('2026-06-11','codex','official','gpt',9,9,900,90,'9',50);")?;
+        }
+        let account = UsageSourceFilter {
+            account_id: Some("account-a".into()),
+            provider_id: None,
+        };
+        let api = UsageSourceFilter {
+            account_id: None,
+            provider_id: Some("deepseek".into()),
+        };
+        let unknown = UsageSourceFilter {
+            account_id: Some("__unassigned__".into()),
+            provider_id: Some("__unassigned__".into()),
+        };
+        assert_source_dashboard_totals(&db, &account, start, end, 0, "0")?;
+        assert_source_dashboard_totals(&db, &api, start, end, 8, "8")?;
+        assert_source_dashboard_totals(&db, &unknown, start, end, 7, "7")?;
+        assert_source_dashboard_totals(&db, &api, local_ts(2026, 6, 11, 12, 0, 0), end, 0, "0")?;
+        assert_source_dashboard_totals(&db, &api, start, local_ts(2026, 6, 11, 12, 0, 0), 0, "0")?;
+        assert_eq!(
+            db.get_usage_summary(Some(start), Some(end), Some("codex"), None, None, None)?
+                .total_requests,
+            24
+        );
+        Ok(())
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn insert_usage_log(
         conn: &Connection,
@@ -2434,6 +2963,93 @@ mod tests {
             )",
             [],
         )?;
+        Ok(())
+    }
+
+    #[test]
+    fn attribution_snapshots_drive_provider_stats_and_all_usage_filters() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        {
+            let conn = lock_conn!(db.conn);
+            for (id, cost) in [("tagged", "0.02"), ("unknown", "0.03")] {
+                insert_usage_log(
+                    &conn,
+                    id,
+                    "codex",
+                    "_codex_session",
+                    "deepseek-flash",
+                    "codex_session",
+                    1000,
+                    100,
+                    10,
+                    0,
+                    0,
+                    200,
+                    cost,
+                )?;
+            }
+            conn.execute(
+                "INSERT INTO usage_record_attributions
+                 (request_id, account_id, account_name, provider_id, provider_name, method, tagged_at)
+                 VALUES ('tagged', 'api-account', 'My API account', 'deleted-provider', 'DeepSeek', 'manual', 1001)",
+                [],
+            )?;
+        }
+        let all = db.get_usage_summary(None, None, Some("codex"), None, None, None)?;
+        assert_eq!(all.total_requests, 2);
+        let selected =
+            db.get_usage_summary(None, None, Some("codex"), Some("DeepSeek"), None, None)?;
+        assert_eq!(selected.total_requests, 1);
+        assert_eq!(selected.total_input_tokens, 100);
+        assert_eq!(selected.total_cost, "0.020000");
+        let stats = db.get_provider_stats(None, None, Some("codex"), None, None, None)?;
+        assert_eq!(stats.len(), 2);
+        assert!(stats.iter().any(|s| s.provider_id == "deleted-provider"
+            && s.provider_name == "DeepSeek"
+            && s.request_count == 1));
+        assert!(stats
+            .iter()
+            .any(|s| s.provider_name == "Unassigned" && s.request_count == 1));
+        let logs = db.get_request_logs(
+            &LogFilters {
+                provider_name: Some("DeepSeek".into()),
+                ..Default::default()
+            },
+            0,
+            20,
+        )?;
+        assert_eq!(logs.total, 1);
+        assert_eq!(logs.data[0].provider_id, "deleted-provider");
+        assert_eq!(
+            db.get_request_detail("tagged")?
+                .unwrap()
+                .provider_name
+                .as_deref(),
+            Some("DeepSeek")
+        );
+        assert_eq!(
+            db.get_model_stats(None, None, Some("codex"), Some("DeepSeek"), None, None)?[0]
+                .request_count,
+            1
+        );
+        assert_eq!(
+            db.get_daily_trends(
+                Some(0),
+                Some(2000),
+                Some("codex"),
+                Some("DeepSeek"),
+                None,
+                None
+            )?
+            .iter()
+            .map(|d| d.request_count)
+            .sum::<u64>(),
+            1
+        );
+        // Label edits never alter the imported source identity or token/cost data.
+        let conn = lock_conn!(db.conn);
+        let stored: (String, String) = conn.query_row("SELECT provider_id, total_cost_usd FROM proxy_request_logs WHERE request_id = 'tagged'", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        assert_eq!(stored, ("_codex_session".into(), "0.02".into()));
         Ok(())
     }
 
@@ -2593,7 +3209,7 @@ mod tests {
         }
 
         // ① 分应用汇总：desktop 折叠进 claude，不再单列 claude-desktop 桶。
-        let by_app = db.get_usage_summary_by_app(None, None, None, None)?;
+        let by_app = db.get_usage_summary_by_app(None, None, None, None, None)?;
         assert_eq!(by_app.len(), 1, "应只剩一个合并后的 claude 桶");
         assert_eq!(by_app[0].app_type, "claude");
         assert_eq!(by_app[0].summary.total_requests, 2, "两条行都计入 claude");
@@ -2603,7 +3219,7 @@ mod tests {
         );
 
         // ② 选中 claude 过滤：汇总应同时覆盖 desktop 行。
-        let claude_summary = db.get_usage_summary(None, None, Some("claude"), None, None)?;
+        let claude_summary = db.get_usage_summary(None, None, Some("claude"), None, None, None)?;
         assert_eq!(claude_summary.total_requests, 2);
 
         // ③ 请求日志按 claude 过滤返回两行，且 desktop 行投影仍是原始 app_type。
@@ -2622,7 +3238,7 @@ mod tests {
         );
 
         // ④ 折叠不外溢：codex 过滤为空。
-        let codex_summary = db.get_usage_summary(None, None, Some("codex"), None, None)?;
+        let codex_summary = db.get_usage_summary(None, None, Some("codex"), None, None, None)?;
         assert_eq!(codex_summary.total_requests, 0);
 
         Ok(())
@@ -3202,7 +3818,7 @@ mod tests {
             )?;
         }
 
-        let summary = db.get_usage_summary(None, None, None, None, None)?;
+        let summary = db.get_usage_summary(None, None, None, None, None, None)?;
         assert_eq!(summary.total_requests, 2);
         assert_eq!(summary.success_rate, 100.0);
 
@@ -3282,7 +3898,8 @@ mod tests {
             )?;
         }
 
-        let summary = db.get_usage_summary(Some(start), Some(end), Some("claude"), None, None)?;
+        let summary =
+            db.get_usage_summary(Some(start), Some(end), Some("claude"), None, None, None)?;
         assert_eq!(summary.total_requests, 20);
         assert_eq!(summary.total_input_tokens, 2000);
         assert_eq!(summary.total_output_tokens, 1000);
@@ -3385,38 +4002,40 @@ mod tests {
         }
 
         // ① 汇总按 Provider 展示名过滤：明细 + rollup 都命中。
-        let packy = db.get_usage_summary(None, None, None, Some("Packy"), None)?;
+        let packy = db.get_usage_summary(None, None, None, Some("Packy"), None, None)?;
         assert_eq!(packy.total_requests, 7, "a-1 + a-2 + rollup 5");
 
         // ② 汇总按模型过滤（有效计价模型口径）。
-        let deepseek = db.get_usage_summary(None, None, None, None, Some("deepseek-v3"))?;
+        let deepseek = db.get_usage_summary(None, None, None, None, Some("deepseek-v3"), None)?;
         assert_eq!(deepseek.total_requests, 8, "b-1 + rollup 7");
 
         // ③ pricing_model 优先于 model：alias-model 查不到，real-model 查得到。
-        let by_alias = db.get_usage_summary(None, None, None, None, Some("alias-model"))?;
+        let by_alias = db.get_usage_summary(None, None, None, None, Some("alias-model"), None)?;
         assert_eq!(by_alias.total_requests, 0);
-        let by_real = db.get_usage_summary(None, None, None, None, Some("real-model"))?;
+        let by_real = db.get_usage_summary(None, None, None, None, Some("real-model"), None)?;
         assert_eq!(by_real.total_requests, 1);
 
         // ④ 会话占位行可按可读名选中。
-        let session = db.get_usage_summary(None, None, None, Some("Claude (Session)"), None)?;
+        let session =
+            db.get_usage_summary(None, None, None, Some("Claude (Session)"), None, None)?;
         assert_eq!(session.total_requests, 1);
 
         // ⑤ Provider 统计 + 模型过滤：只剩 DeepSeek 一行。
-        let provider_stats = db.get_provider_stats(None, None, None, None, Some("deepseek-v3"))?;
+        let provider_stats =
+            db.get_provider_stats(None, None, None, None, Some("deepseek-v3"), None)?;
         assert_eq!(provider_stats.len(), 1);
         assert_eq!(provider_stats[0].provider_name, "DeepSeek");
         assert_eq!(provider_stats[0].request_count, 8);
 
         // ⑥ 模型统计 + Provider 过滤：只剩 Packy 名下的模型。
-        let model_stats = db.get_model_stats(None, None, None, Some("Packy"), None)?;
+        let model_stats = db.get_model_stats(None, None, None, Some("Packy"), None, None)?;
         let models: Vec<&str> = model_stats.iter().map(|m| m.model.as_str()).collect();
         assert!(models.contains(&"claude-sonnet-4-6"));
         assert!(models.contains(&"real-model"));
         assert!(!models.contains(&"deepseek-v3"));
 
         // ⑦ 分应用汇总（Hero 卡片数据源）同样受过滤影响。
-        let by_app = db.get_usage_summary_by_app(None, None, Some("Packy"), None)?;
+        let by_app = db.get_usage_summary_by_app(None, None, Some("Packy"), None, None)?;
         assert_eq!(by_app.len(), 1);
         assert_eq!(by_app[0].app_type, "claude");
         assert_eq!(by_app[0].summary.total_requests, 7);
@@ -3424,7 +4043,8 @@ mod tests {
         // ⑧ 趋势（>24h 走天分桶 + rollup 分支）。
         let t_start = local_ts(2026, 6, 8, 0, 0, 0);
         let t_end = local_ts(2026, 6, 10, 23, 59, 0);
-        let trends = db.get_daily_trends(Some(t_start), Some(t_end), None, Some("Packy"), None)?;
+        let trends =
+            db.get_daily_trends(Some(t_start), Some(t_end), None, Some("Packy"), None, None)?;
         let total_req: u64 = trends.iter().map(|d| d.request_count).sum();
         assert_eq!(total_req, 7, "明细 2 + rollup 5");
 
@@ -3438,6 +4058,7 @@ mod tests {
             None,
             Some("Packy"),
             Some("claude-sonnet-4-6"),
+            None,
         )?;
         let hourly_req: u64 = hourly.iter().map(|d| d.request_count).sum();
         assert_eq!(hourly_req, 1, "仅 a-1 命中（a-2 计价模型不同）");
@@ -3511,7 +4132,8 @@ mod tests {
             )?;
         }
 
-        let summary = db.get_usage_summary(Some(start), Some(end), Some("claude"), None, None)?;
+        let summary =
+            db.get_usage_summary(Some(start), Some(end), Some("claude"), None, None, None)?;
         assert_eq!(summary.total_requests, 30);
         assert_eq!(summary.total_input_tokens, 3000);
         assert_eq!(summary.total_output_tokens, 1500);
@@ -3632,7 +4254,7 @@ mod tests {
             )?;
         }
 
-        let summary = db.get_usage_summary(None, None, None, None, None)?;
+        let summary = db.get_usage_summary(None, None, None, None, None, None)?;
         assert_eq!(summary.total_requests, 4);
         // codex-proxy contributes 100-10=90; gemini-proxy contributes 200-30=170
         // (both cache-inclusive providers). claude-proxy=300, codex-session-only=50.
@@ -3647,10 +4269,10 @@ mod tests {
         let expected_hit_rate = 60.0_f64 / 682.0_f64;
         assert!((summary.cache_hit_rate - expected_hit_rate).abs() < 1e-9);
 
-        let trends = db.get_daily_trends(Some(0), Some(40_000), None, None, None)?;
+        let trends = db.get_daily_trends(Some(0), Some(40_000), None, None, None, None)?;
         assert_eq!(trends.iter().map(|stat| stat.request_count).sum::<u64>(), 4);
 
-        let provider_stats = db.get_provider_stats(None, None, None, None, None)?;
+        let provider_stats = db.get_provider_stats(None, None, None, None, None, None)?;
         assert_eq!(
             provider_stats
                 .iter()
@@ -3668,7 +4290,7 @@ mod tests {
             .iter()
             .any(|stat| stat.provider_id == "_session"));
 
-        let model_stats = db.get_model_stats(None, None, None, None, None)?;
+        let model_stats = db.get_model_stats(None, None, None, None, None, None)?;
         assert_eq!(
             model_stats
                 .iter()
@@ -3860,7 +4482,7 @@ mod tests {
             )?;
         }
 
-        let summary = db.get_usage_summary(None, None, None, None, None)?;
+        let summary = db.get_usage_summary(None, None, None, None, None, None)?;
         assert_eq!(summary.total_requests, 9);
 
         let logs = db.get_request_logs(&LogFilters::default(), 0, 10)?;
@@ -3908,7 +4530,7 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_model_stats(None, None, None, None, None)?;
+        let stats = db.get_model_stats(None, None, None, None, None, None)?;
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].model, "claude-3-sonnet");
         assert_eq!(stats[0].request_count, 1);
@@ -3940,7 +4562,8 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_provider_stats(Some(1500), Some(2500), Some("claude"), None, None)?;
+        let stats =
+            db.get_provider_stats(Some(1500), Some(2500), Some("claude"), None, None, None)?;
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].provider_id, "p1");
         assert_eq!(stats[0].request_count, 1);
@@ -3972,7 +4595,7 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_provider_stats(None, None, Some("opencode"), None, None)?;
+        let stats = db.get_provider_stats(None, None, Some("opencode"), None, None, None)?;
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].provider_id, "_opencode_session");
         assert_eq!(stats[0].provider_name, "OpenCode (Session)");
@@ -4053,7 +4676,8 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_provider_stats(Some(start), Some(end), Some("claude"), None, None)?;
+        let stats =
+            db.get_provider_stats(Some(start), Some(end), Some("claude"), None, None, None)?;
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].provider_id, "p-rollup");
         assert_eq!(stats[0].request_count, 8);
@@ -4089,7 +4713,14 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_daily_trends(Some(0), Some(15 * 60 * 60), Some("claude"), None, None)?;
+        let stats = db.get_daily_trends(
+            Some(0),
+            Some(15 * 60 * 60),
+            Some("claude"),
+            None,
+            None,
+            None,
+        )?;
         assert_eq!(stats.len(), 15);
         assert_eq!(stats[3].request_count, 1);
 
@@ -4166,7 +4797,8 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_daily_trends(Some(start), Some(end), Some("claude"), None, None)?;
+        let stats =
+            db.get_daily_trends(Some(start), Some(end), Some("claude"), None, None, None)?;
         assert_eq!(stats.len(), 3);
         assert_eq!(stats[0].request_count, 1);
         assert_eq!(stats[0].total_tokens, 150);
@@ -4251,7 +4883,7 @@ mod tests {
             )?;
         }
 
-        let stats = db.get_model_stats(Some(start), Some(end), Some("claude"), None, None)?;
+        let stats = db.get_model_stats(Some(start), Some(end), Some("claude"), None, None, None)?;
         assert_eq!(stats.len(), 1);
         assert_eq!(stats[0].model, "claude-3-haiku");
         assert_eq!(stats[0].request_count, 9);

@@ -120,4 +120,29 @@ describe("useDraftEditorProjection", () => {
     });
     expect(getEditorView).not.toHaveBeenCalled();
   });
+
+  it("ignores a late live error after the creation form closes", async () => {
+    const pending = deferred<{ settings: Record<string, unknown> }>();
+    getEditorView.mockReturnValueOnce(pending.promise);
+    const onBase = vi.fn();
+    const apply = vi.fn();
+    const { result, unmount } = renderHook(() =>
+      useDraftEditorProjection("codex", onBase),
+    );
+    act(() => {
+      void result.current.projectDraft(
+        { auth: { OPENAI_API_KEY: "valid-key" }, config: "model = 'test'" },
+        "custom",
+        apply,
+      );
+    });
+    unmount();
+    await act(async () => {
+      pending.reject(new Error("late live failure"));
+      await pending.promise.catch(() => undefined);
+    });
+    expect(apply).not.toHaveBeenCalled();
+    expect(onBase).toHaveBeenLastCalledWith(null);
+    expect(toastError).not.toHaveBeenCalled();
+  });
 });

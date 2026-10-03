@@ -48,7 +48,7 @@ vi.mock("@/lib/modelsDevAutoSync", () => ({
 import { ModelsDevAutoSyncPanel } from "@/components/usage/ModelsDevAutoSyncPanel";
 
 const state = {
-  configPath: "C:/Users/test/.cc-switch/model-pricing.json",
+  configPath: "C:/Users/test/.codex-switch/model-pricing.json",
   config: {
     autoSyncEnabled: false,
     includeCommonModels: true,
@@ -215,12 +215,12 @@ describe("ModelsDevAutoSyncPanel", () => {
       await screen.findByText("usage.modelsDevAutoSync.configureTitle"),
     ).toBeInTheDocument();
     expect(await screen.findByText("GPT-5")).toBeInTheDocument();
-    expect(screen.getByText("DeepSeek Chat")).toBeInTheDocument();
+    expect(screen.queryByText("DeepSeek Chat")).not.toBeInTheDocument();
     expect(
-      screen.getByText("usage.modelsDevAutoSync.selectedCount:2"),
+      screen.getByText("usage.modelsDevAutoSync.selectedCount:1"),
     ).toBeInTheDocument();
     expect(
       screen.getAllByText("usage.modelsDevAutoSync.commonBadge"),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 });

@@ -8,9 +8,6 @@ import {
 import {
   Download,
   Copy,
-  ExternalLink,
-  Github,
-  Globe,
   Info,
   Loader2,
   RefreshCw,
@@ -21,6 +18,7 @@ import {
   ChevronDown,
   Stethoscope,
 } from "lucide-react";
+import { HelpButton } from "@/components/ui/help-button";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -34,21 +32,22 @@ import { toast } from "sonner";
 import { getVersion } from "@tauri-apps/api/app";
 import { settingsApi } from "@/lib/api";
 import type {
+  ChatGptAppVersion,
   ToolInstallation,
   ToolInstallationReport,
 } from "@/lib/api/settings";
-import { useUpdate } from "@/contexts/UpdateContext";
 import { Badge } from "@/components/ui/badge";
 import { motion } from "framer-motion";
-import appIcon from "@/assets/icons/app-icon.png";
+import { IS_CODEX_PREVIEW } from "@/config/buildMode";
+import { CodexSwitchMark } from "@/components/branding/CodexSwitchMark";
 import { APP_ICON_MAP } from "@/config/appConfig";
 import type { AppId } from "@/lib/api/types";
 import { extractErrorMessage } from "@/utils/errorUtils";
-import { isWindows } from "@/lib/platform";
 import { isUpdateAvailable } from "@/lib/version";
 import { ToolUpgradeConfirmDialog } from "./ToolUpgradeConfirmDialog";
 import { ToolInstallRow } from "./ToolInstallRow";
 import { ToolErrorMessage } from "./ToolErrorMessage";
+import { ChatGptAppVersionCard } from "./ChatGptAppVersionCard";
 
 interface AboutSectionProps {
   isPortable: boolean;
@@ -66,17 +65,7 @@ interface ToolVersion {
   wsl_distro: string | null;
 }
 
-const TOOL_NAMES = [
-  "claude",
-  "codex",
-  "gemini",
-  "grok",
-  "opencode",
-  "openclaw",
-  "hermes",
-  "pi",
-  "mcode",
-] as const;
+const TOOL_NAMES = ["codex"] as const;
 type ToolName = (typeof TOOL_NAMES)[number];
 type ToolLifecycleAction = "install" | "update";
 
@@ -122,87 +111,9 @@ const ENV_BADGE_CONFIG: Record<
   },
 };
 
-const posixScriptInstallCommand = (url: string) =>
-  `bash -c 'tmp=$(mktemp) && curl -fsSL ${url} -o $tmp && bash $tmp; status=$?; rm -f $tmp; exit $status'`;
+const ONE_CLICK_INSTALL_COMMANDS = "npm i -g @openai/codex@latest";
 
-const HERMES_WINDOWS_INSTALL_SCRIPT =
-  "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex";
-
-const powershellEncodedCommand = (script: string): string => {
-  let binary = "";
-  for (let i = 0; i < script.length; i += 1) {
-    const code = script.charCodeAt(i);
-    binary += String.fromCharCode(code & 0xff, code >> 8);
-  }
-  return btoa(binary);
-};
-
-const HERMES_WINDOWS_INSTALL_COMMAND = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(
-  HERMES_WINDOWS_INSTALL_SCRIPT,
-)}`;
-
-const MCODE_WINDOWS_INSTALL_COMMAND = `powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${powershellEncodedCommand(
-  "irm https://filecdn.minimax.chat/public/install.ps1 | iex",
-)}`;
-
-// 与后端 npm_install_command_for("mcode") 保持一致：npm 12 默认拦截依赖的 install
-// 脚本，不放行 better-sqlite3 时 SQLite 不可用。
-const MCODE_NPM_INSTALL_COMMAND =
-  'npm i -g @minimax-ai/code@latest --ignore-scripts=false --include=optional "--allow-scripts=@minimax-ai/code,better-sqlite3"';
-
-const POSIX_ONE_CLICK_INSTALL_COMMANDS = `# Claude Code
-${posixScriptInstallCommand("https://claude.ai/install.sh")} || npm i -g @anthropic-ai/claude-code@latest
-# Codex
-npm i -g @openai/codex@latest
-# Gemini CLI
-npm i -g @google/gemini-cli@latest
-# Grok Build
-npm i -g @xai-official/grok@latest
-# OpenCode
-${posixScriptInstallCommand("https://opencode.ai/install")} || npm i -g opencode-ai@latest
-# OpenClaw
-npm i -g openclaw@latest
-# Hermes
-${posixScriptInstallCommand("https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh")}
-# Pi
-npm i -g @earendil-works/pi-coding-agent@latest
-# MiniMax Code
-${posixScriptInstallCommand("https://filecdn.minimax.chat/public/install.sh")} || ${MCODE_NPM_INSTALL_COMMAND}`;
-
-const WINDOWS_ONE_CLICK_INSTALL_COMMANDS = `# Claude Code
-npm i -g @anthropic-ai/claude-code@latest
-# Codex
-npm i -g @openai/codex@latest
-# Gemini CLI
-npm i -g @google/gemini-cli@latest
-# Grok Build
-npm i -g @xai-official/grok@latest
-# OpenCode
-npm i -g opencode-ai@latest
-# OpenClaw
-npm i -g openclaw@latest
-# Hermes
-${HERMES_WINDOWS_INSTALL_COMMAND}
-# Pi
-npm i -g @earendil-works/pi-coding-agent@latest
-# MiniMax Code
-${MCODE_WINDOWS_INSTALL_COMMAND}`;
-
-const ONE_CLICK_INSTALL_COMMANDS = isWindows()
-  ? WINDOWS_ONE_CLICK_INSTALL_COMMANDS
-  : POSIX_ONE_CLICK_INSTALL_COMMANDS;
-
-const TOOL_DISPLAY_NAMES: Record<ToolName, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  gemini: "Gemini CLI",
-  grok: "Grok Build",
-  opencode: "OpenCode",
-  openclaw: "OpenClaw",
-  hermes: "Hermes",
-  pi: "Pi",
-  mcode: "MiniMax Code",
-};
+const TOOL_DISPLAY_NAMES: Record<ToolName, string> = { codex: "Codex" };
 
 // 后端返回的 tool 是 string；这里收敛唯一的 ToolName 断言与兜底，供升级确认
 // 对话框按工具名展示（避免在 JSX 里内联 cast、且每次渲染都新建闭包）。
@@ -210,17 +121,7 @@ function toolDisplayName(tool: string): string {
   return TOOL_DISPLAY_NAMES[tool as ToolName] ?? tool;
 }
 
-const TOOL_APP_IDS: Record<ToolName, AppId> = {
-  claude: "claude",
-  codex: "codex",
-  gemini: "gemini",
-  grok: "grokbuild",
-  opencode: "opencode",
-  openclaw: "openclaw",
-  hermes: "hermes",
-  pi: "pi",
-  mcode: "mcode",
-};
+const TOOL_APP_IDS: Record<ToolName, AppId> = { codex: "codex" };
 
 // 工具版本探测代价高：每个工具一次 `--version` 子进程 + 一次 npm/github/pypi 网络请求。
 // 设置页用 Radix Tabs，非激活 Tab 会被卸载——每次切回「关于」都重挂 AboutSection，若都
@@ -231,10 +132,12 @@ const TOOL_APP_IDS: Record<ToolName, AppId> = {
 const TOOL_VERSIONS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 分钟
 const EMPTY_TOOL_VERSIONS: ToolVersion[] = [];
 let toolVersionRequestSequence = 0;
+let chatGptAppRequestSequence = 0;
 const latestToolVersionRequests = new Map<string, number>();
 
 interface ToolManagementState {
   toolVersionsCache: { data: ToolVersion[]; at: number } | null;
+  chatGptAppCache: { data: ChatGptAppVersion; at: number } | null;
   busyTools: ReadonlyMap<ToolName, ToolLifecycleAction>;
   pendingUpgrades: readonly PendingUpgrade[];
   batchAction: ToolLifecycleAction | null;
@@ -244,6 +147,7 @@ interface ToolManagementState {
 // 让新挂载的页面立即恢复进度，并收到原任务的完成结果。
 let toolManagementState: ToolManagementState = {
   toolVersionsCache: null,
+  chatGptAppCache: null,
   busyTools: new Map(),
   pendingUpgrades: [],
   batchAction: null,
@@ -289,9 +193,13 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingVersion, setIsLoadingVersion] = useState(
     () => appVersionCache === null,
   );
-  const [isDownloading, setIsDownloading] = useState(false);
-  const { toolVersionsCache, busyTools, pendingUpgrades, batchAction } =
-    useSyncExternalStore(subscribeToolManagement, getToolManagementState);
+  const {
+    toolVersionsCache,
+    chatGptAppCache,
+    busyTools,
+    pendingUpgrades,
+    batchAction,
+  } = useSyncExternalStore(subscribeToolManagement, getToolManagementState);
   const toolVersions = toolVersionsCache?.data ?? EMPTY_TOOL_VERSIONS;
   const pendingUpgrade = pendingUpgrades[0] ?? null;
   // 有缓存（哪怕已超期）就先展示旧值、初始不 loading；超期时由挂载副作用触发后台
@@ -299,10 +207,11 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
   const [isLoadingTools, setIsLoadingTools] = useState(
     () => toolVersionsCache === null,
   );
+  const [isLoadingChatGptApp, setIsLoadingChatGptApp] = useState(
+    () => chatGptAppCache === null,
+  );
+  const isLoadingEnvironment = isLoadingTools || isLoadingChatGptApp;
   const [showInstallCommands, setShowInstallCommands] = useState(false);
-
-  const { hasUpdate, updateInfo, checkUpdate, resetDismiss, isChecking } =
-    useUpdate();
 
   const [wslShellByTool, setWslShellByTool] = useState<
     Record<string, WslShellPreference>
@@ -443,6 +352,31 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     [wslShellByTool, refreshToolVersions],
   );
 
+  const loadChatGptAppVersion = useCallback(async (force = false) => {
+    const cache = toolManagementState.chatGptAppCache;
+    if (!force && cache && Date.now() - cache.at < TOOL_VERSIONS_CACHE_TTL_MS) {
+      setIsLoadingChatGptApp(false);
+      return;
+    }
+    const requestId = ++chatGptAppRequestSequence;
+    setIsLoadingChatGptApp(true);
+    let data: ChatGptAppVersion;
+    try {
+      data = await settingsApi.getChatGptAppVersion();
+    } catch (error) {
+      data = {
+        status: "unavailable",
+        version: null,
+        build_version: null,
+        path: null,
+        error: extractErrorMessage(error),
+      };
+    }
+    if (requestId !== chatGptAppRequestSequence) return;
+    updateToolManagementState({ chatGptAppCache: { data, at: Date.now() } });
+    setIsLoadingChatGptApp(false);
+  }, []);
+
   const handleToolShellChange = async (toolName: ToolName, value: string) => {
     const wslShell = value === "auto" ? null : value;
     const nextPref: WslShellPreference = {
@@ -494,6 +428,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
 
     void loadAppVersion();
     void loadAllToolVersions();
+    void loadChatGptAppVersion();
     return () => {
       active = false;
     };
@@ -502,89 +437,6 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
     // refreshes are handled by refreshToolVersions in the shell/flag handlers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // ... (handlers like handleOpenReleaseNotes, handleCheckUpdate) ...
-
-  const handleOpenReleaseNotes = useCallback(async () => {
-    try {
-      const targetVersion = updateInfo?.availableVersion ?? version ?? "";
-      const displayVersion = targetVersion.startsWith("v")
-        ? targetVersion
-        : targetVersion
-          ? `v${targetVersion}`
-          : "";
-
-      if (!displayVersion) {
-        await settingsApi.openExternal(
-          "https://github.com/farion1231/cc-switch/releases",
-        );
-        return;
-      }
-
-      await settingsApi.openExternal(
-        `https://github.com/farion1231/cc-switch/releases/tag/${displayVersion}`,
-      );
-    } catch (error) {
-      console.error("[AboutSection] Failed to open release notes", error);
-      toast.error(t("settings.openReleaseNotesFailed"));
-    }
-  }, [t, updateInfo?.availableVersion, version]);
-
-  const handleOpenGithub = useCallback(() => {
-    void settingsApi.openExternal("https://github.com/farion1231/cc-switch");
-  }, []);
-
-  const handleCheckUpdate = useCallback(async () => {
-    if (hasUpdate) {
-      if (isPortable) {
-        try {
-          await settingsApi.checkUpdates();
-        } catch (error) {
-          console.error("[AboutSection] Portable update failed", error);
-        }
-        return;
-      }
-
-      setIsDownloading(true);
-      try {
-        resetDismiss();
-        const installed = await settingsApi.installUpdateAndRestart();
-        if (!installed) {
-          toast.success(t("settings.upToDate"), { closeButton: true });
-        }
-      } catch (error) {
-        console.error("[AboutSection] Update failed", error);
-        toast.error(t("settings.updateFailed"), {
-          description: extractErrorMessage(error) || undefined,
-          closeButton: true,
-        });
-        try {
-          await settingsApi.checkUpdates();
-        } catch (fallbackError) {
-          console.error(
-            "[AboutSection] Failed to open fallback updater",
-            fallbackError,
-          );
-        }
-      } finally {
-        setIsDownloading(false);
-      }
-      return;
-    }
-
-    try {
-      const available = await checkUpdate();
-      if (!available) {
-        toast.success(t("settings.upToDate"), { closeButton: true });
-      }
-    } catch (error) {
-      console.error("[AboutSection] Check update failed", error);
-      toast.error(t("settings.checkUpdateFailed"), {
-        description: extractErrorMessage(error) || undefined,
-        closeButton: true,
-      });
-    }
-  }, [checkUpdate, hasUpdate, isPortable, resetDismiss, t]);
 
   const handleCopyInstallCommands = useCallback(async () => {
     try {
@@ -978,10 +830,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
       className="space-y-6"
     >
       <header className="space-y-1">
-        <h3 className="text-sm font-medium">{t("common.about")}</h3>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.aboutHint")}
-        </p>
+        <h2 className="settings-page-title">{t("common.about")}</h2>
       </header>
 
       <motion.div
@@ -994,10 +843,8 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           <div className="flex items-center gap-8">
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-2">
-                <img src={appIcon} alt="CC Switch" className="h-5 w-5" />
-                <h4 className="text-lg font-semibold text-foreground">
-                  CC Switch
-                </h4>
+                <CodexSwitchMark className="h-7 w-7 text-zinc-900 dark:text-zinc-100" />
+                <h3 className="settings-section-title">Codex Switch</h3>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="gap-1.5 bg-background/80">
@@ -1010,6 +857,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                     <span className="font-medium">{`v${displayVersion}`}</span>
                   )}
                 </Badge>
+                <HelpButton label={t("common.version")}>
+                  {t("settings.localBuildHint")}
+                </HelpButton>
                 {isPortable && (
                   <Badge variant="secondary" className="gap-1.5">
                     <Info className="h-3 w-3" />
@@ -1019,117 +869,20 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               </div>
             </div>
           </div>
-
-          <p className="min-w-0 flex-1 text-xs leading-relaxed sm:text-right">
-            <a
-              href="https://github.com/farion1231/cc-switch"
-              onClick={(event) => {
-                event.preventDefault();
-                handleOpenGithub();
-              }}
-              className="font-medium text-primary hover:underline"
-            >
-              {t("settings.starPrompt")}
-            </a>
-            <span aria-hidden="true" className="ml-1.5">
-              👉
-            </span>
-          </p>
-
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleOpenGithub}
-              className="h-8 gap-1.5 border-primary/30 bg-primary/10 text-xs text-primary hover:bg-primary/20 hover:text-primary"
-            >
-              <Github className="h-3.5 w-3.5" />
-              {t("settings.github")}
-              <span
-                aria-hidden="true"
-                className="inline-block animate-[spin_4s_linear_infinite] motion-reduce:animate-none"
-              >
-                ⭐
-              </span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => settingsApi.openExternal("https://ccswitch.io")}
-              className="h-8 gap-1.5 text-xs"
-            >
-              <Globe className="h-3.5 w-3.5" />
-              {t("settings.officialWebsite")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleOpenReleaseNotes}
-              className="h-8 gap-1.5 text-xs"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              {t("settings.releaseNotes")}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleCheckUpdate}
-              disabled={isChecking || isDownloading}
-              className="h-8 gap-1.5 text-xs"
-            >
-              {isDownloading ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {t("settings.updating")}
-                </>
-              ) : hasUpdate ? (
-                <>
-                  <Download className="h-3.5 w-3.5" />
-                  {t("settings.updateTo", {
-                    version: updateInfo?.availableVersion ?? "",
-                  })}
-                </>
-              ) : isChecking ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  {t("settings.checking")}
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  {t("settings.checkForUpdates")}
-                </>
-              )}
-            </Button>
-          </div>
         </div>
 
-        {hasUpdate && updateInfo && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="rounded-lg bg-primary/10 border border-primary/20 px-4 py-3 text-sm"
-          >
-            <p className="font-medium text-primary mb-1">
-              {t("settings.updateAvailable", {
-                version: updateInfo.availableVersion,
-              })}
-            </p>
-            {updateInfo.notes && (
-              <p className="text-muted-foreground line-clamp-3 leading-relaxed">
-                {updateInfo.notes}
-              </p>
-            )}
-          </motion.div>
+        {IS_CODEX_PREVIEW && (
+          <p className="settings-description">
+            {t("settings.previewDataNotice")}
+          </p>
         )}
       </motion.div>
 
       <div className="space-y-3">
         <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-sm font-medium">{t("settings.localEnvCheck")}</h3>
+          <h3 className="settings-section-title">
+            {t("settings.localEnvCheck")}
+          </h3>
           <div className="flex flex-wrap items-center gap-2">
             <Button
               size="sm"
@@ -1151,15 +904,22 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               size="sm"
               variant="outline"
               className="h-7 gap-1.5 text-xs"
-              onClick={() => loadAllToolVersions({ force: true })}
-              disabled={isLoadingTools || isAnyBusy}
+              onClick={() => {
+                void loadAllToolVersions({ force: true });
+                void loadChatGptAppVersion(true);
+              }}
+              disabled={isLoadingEnvironment || isAnyBusy}
             >
               <RefreshCw
                 className={
-                  isLoadingTools ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"
+                  isLoadingEnvironment
+                    ? "h-3.5 w-3.5 animate-spin"
+                    : "h-3.5 w-3.5"
                 }
               />
-              {isLoadingTools ? t("common.refreshing") : t("common.refresh")}
+              {isLoadingEnvironment
+                ? t("common.refreshing")
+                : t("common.refresh")}
             </Button>
             <Button
               size="sm"
@@ -1241,7 +1001,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                       </div>
                       {tool?.env_type && ENV_BADGE_CONFIG[tool.env_type] && (
                         <span
-                          className={`mt-1 inline-flex w-fit text-[9px] px-1.5 py-0.5 rounded-full border ${ENV_BADGE_CONFIG[tool.env_type].className}`}
+                          className={`mt-1 inline-flex w-fit text-xs px-1.5 py-0.5 rounded-full border ${ENV_BADGE_CONFIG[tool.env_type].className}`}
                         >
                           {t(ENV_BADGE_CONFIG[tool.env_type].labelKey)}
                           {tool.wsl_distro ? ` · ${tool.wsl_distro}` : ""}
@@ -1253,7 +1013,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                     <Loader2 className="mt-1 h-4 w-4 animate-spin text-muted-foreground" />
                   ) : tool?.version ? (
                     isOutdated ? (
-                      <span className="mt-1 shrink-0 rounded-full border border-yellow-500/20 bg-yellow-500/10 px-1.5 py-0.5 text-[10px] text-yellow-600 dark:text-yellow-400">
+                      <span className="mt-1 shrink-0 rounded-full border border-yellow-500/20 bg-yellow-500/10 px-1.5 py-0.5 text-xs text-yellow-600 dark:text-yellow-400">
                         {t("settings.updateAvailableShort")}
                       </span>
                     ) : (
@@ -1307,7 +1067,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                       <SelectTrigger className="h-7 w-[82px] text-xs">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="settings-control-menu">
                         <SelectItem value="auto">{t("common.auto")}</SelectItem>
                         {WSL_SHELL_OPTIONS.map((shell) => (
                           <SelectItem key={shell} value={shell}>
@@ -1326,7 +1086,7 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                       <SelectTrigger className="h-7 w-[82px] text-xs">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent className="settings-control-menu">
                         <SelectItem value="auto">{t("common.auto")}</SelectItem>
                         {WSL_SHELL_FLAG_OPTIONS.map((flag) => (
                           <SelectItem key={flag} value={flag}>
@@ -1341,10 +1101,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
                 {/* 多处安装冲突诊断结果：仅在懒触发后有数据时渲染。 */}
                 {conflicts && conflicts.length > 0 && (
                   <div className="space-y-1.5 rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-2.5">
-                    <div className="text-[11px] font-medium text-yellow-600 dark:text-yellow-400">
+                    <div className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
                       {t("settings.toolConflictTitle")}
                     </div>
-                    <p className="text-[10px] leading-snug text-muted-foreground">
+                    <p className="text-xs leading-snug text-muted-foreground">
                       {t("settings.toolConflictHint")}
                     </p>
                     <ul className="space-y-1.5">
@@ -1399,6 +1159,10 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
               </motion.div>
             );
           })}
+          <ChatGptAppVersionCard
+            report={chatGptAppCache?.data ?? null}
+            isLoading={isLoadingChatGptApp}
+          />
         </div>
       </div>
 
@@ -1425,7 +1189,9 @@ export function AboutSection({ isPortable }: AboutSectionProps) {
           <div className="rounded-xl border border-border bg-gradient-to-br from-card/80 to-card/40 p-4 space-y-3 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                {t("settings.oneClickInstallHint")}
+                {t("settings.oneClickInstallHint", {
+                  defaultValue: "Install or upgrade Codex CLI.",
+                })}
               </p>
               <Button
                 size="sm"

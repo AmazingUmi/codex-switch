@@ -7,29 +7,58 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useProviderStats } from "@/lib/query/usage";
+import {
+  useProviderStats,
+  useUsageAttributionChoices,
+} from "@/lib/query/usage";
+import {
+  flatSourceChoices,
+  sourceIdentity,
+  sourceOptionLabel,
+  usageSourceName,
+} from "@/lib/usageSource";
 import { fmtUsd } from "./format";
-import type { UsageRangeSelection } from "@/types/usage";
+import { UsageStatsPanel } from "./UsageStatsPanel";
+import type { ProviderStats, UsageRangeSelection } from "@/types/usage";
 
 interface ProviderStatsTableProps {
   range: UsageRangeSelection;
   appType?: string;
   providerName?: string;
+  accountId?: string;
+  providerId?: string;
   model?: string;
   refreshIntervalMs: number;
 }
 
 export function ProviderStatsTable({
   range,
-  appType,
   providerName,
+  accountId,
+  providerId,
   model,
   refreshIntervalMs,
 }: ProviderStatsTableProps) {
   const { t } = useTranslation();
+  const choices = useUsageAttributionChoices();
+  const sources = flatSourceChoices(choices.data ?? []);
+  const sourceLabel = (stat: ProviderStats) => {
+    const current = sources.find(
+      (source) =>
+        sourceIdentity(source.accountId, source.providerId) === stat.sourceId,
+    );
+    return current
+      ? sourceOptionLabel(
+          current,
+          sources,
+          t("usage.records.accountType", "Subscription account"),
+          t("usage.records.apiType", "API source"),
+        )
+      : usageSourceName(stat) || t("usage.records.untagged", "Unassigned");
+  };
   const { data: stats, isLoading } = useProviderStats(
     range,
-    { appType, providerName, model },
+    { appType: "codex", providerName, accountId, providerId, model },
     {
       refetchInterval: refreshIntervalMs > 0 ? refreshIntervalMs : false,
     },
@@ -40,25 +69,27 @@ export function ProviderStatsTable({
   }
 
   return (
-    <div className="rounded-lg border border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden">
-      <Table>
+    <UsageStatsPanel
+      comparisonTitle={t("usage.comparison.sources", "Source comparison")}
+      items={(stats ?? []).map((stat) => ({
+        id: stat.sourceId,
+        label: sourceLabel(stat),
+        totalTokens: stat.totalTokens,
+        totalCost: stat.totalCost,
+      }))}
+    >
+      <Table className="min-w-[420px]">
         <TableHeader>
           <TableRow>
-            <TableHead>{t("usage.provider", "Provider")}</TableHead>
+            <TableHead>{t("usage.source", "Source")}</TableHead>
             <TableHead className="text-right">
-              {t("usage.requests", "请求数")}
+              {t("usage.requests", "用量记录数")}
             </TableHead>
             <TableHead className="text-right">
               {t("usage.tokens", "Tokens")}
             </TableHead>
             <TableHead className="text-right">
-              {t("usage.cost", "成本")}
-            </TableHead>
-            <TableHead className="text-right">
-              {t("usage.successRate", "成功率")}
-            </TableHead>
-            <TableHead className="text-right">
-              {t("usage.avgLatency", "平均延迟")}
+              {t("usage.estimatedCost", "Estimated cost")}
             </TableHead>
           </TableRow>
         </TableHeader>
@@ -66,7 +97,7 @@ export function ProviderStatsTable({
           {stats?.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={6}
+                colSpan={4}
                 className="text-center text-muted-foreground"
               >
                 {t("usage.noData", "暂无数据")}
@@ -74,9 +105,12 @@ export function ProviderStatsTable({
             </TableRow>
           ) : (
             stats?.map((stat) => (
-              <TableRow key={stat.providerId}>
-                <TableCell className="font-medium">
-                  {stat.providerName}
+              <TableRow key={stat.sourceId}>
+                <TableCell
+                  className="max-w-[240px] truncate font-medium"
+                  title={sourceLabel(stat)}
+                >
+                  {sourceLabel(stat)}
                 </TableCell>
                 <TableCell className="text-right">
                   {stat.requestCount.toLocaleString()}
@@ -87,17 +121,11 @@ export function ProviderStatsTable({
                 <TableCell className="text-right">
                   {fmtUsd(stat.totalCost, 4)}
                 </TableCell>
-                <TableCell className="text-right">
-                  {stat.successRate.toFixed(1)}%
-                </TableCell>
-                <TableCell className="text-right">
-                  {stat.avgLatencyMs}ms
-                </TableCell>
               </TableRow>
             ))
           )}
         </TableBody>
       </Table>
-    </div>
+    </UsageStatsPanel>
   );
 }

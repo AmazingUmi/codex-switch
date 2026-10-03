@@ -10,7 +10,7 @@
 //!   值就算冲突，由用户选保留哪一边。
 //!
 //! 改动的粒度：顶层的值；顶层表里的每个键（`[mcp_servers.fs]` 这类子表按整张算）；
-//! `[model_providers]` 下 CC Switch 路由表以外的每张表。嵌在用户表里的模型名是关键字段，
+//! `[model_providers]` 下 Codex Switch 路由表以外的每张表。嵌在用户表里的模型名是关键字段，
 //! 不算全局改动。
 
 use std::sync::Arc;
@@ -19,6 +19,7 @@ use serde_json::{Map, Value};
 use toml_edit::{DocumentMut, Item};
 
 use crate::app_config::AppType;
+use crate::auth::codex_oauth::CodexOAuthManager;
 use crate::codex_config::get_codex_config_path;
 use crate::database::Database;
 use crate::error::AppError;
@@ -31,7 +32,6 @@ use crate::live::project::codex::{
 use crate::mode::operation::{AppWrite, FileChange};
 use crate::mode::state::{op, PendingTarget};
 use crate::provider::Provider;
-use crate::proxy::providers::codex_oauth_auth::CodexOAuthManager;
 use crate::store::AppState;
 
 use super::claude_editor::{ConflictPolicy, EditorView, InactiveField};
@@ -48,7 +48,7 @@ fn is_nested_floor(parent: &str, key: &str) -> bool {
         .any(|segments| segments.len() == 2 && segments[0] == parent && segments[1] == key)
 }
 
-/// 全局设置的每个位置：关键字段、独有字段、CC Switch 的路由表不算。`skip_routes` 是
+/// 全局设置的每个位置：关键字段、独有字段、Codex Switch 的路由表不算。`skip_routes` 是
 /// 配置选中的路由表：它归供应商（投影时按内容收成 custom 表），也不算。
 fn entries(doc: &DocumentMut, skip_routes: &[&str]) -> Vec<Entry> {
     let mut entries = Vec::new();
@@ -106,13 +106,20 @@ pub fn view(
     settings_config: &Value,
     category: Option<&str>,
 ) -> Result<EditorView, AppError> {
-    let path = get_codex_config_path();
-    let pre = read_current(&path)?;
-    let mut doc = parse(&path, pre.as_deref())?;
-
     let mut provider =
         Provider::with_id(String::new(), String::new(), settings_config.clone(), None);
     provider.category = category.map(str::to_string);
+    if codex_direct::ensure_direct(&provider).is_err() {
+        // Stored legacy records remain editable without projecting them onto the
+        // native client or rewriting their protocol. Activation validates separately.
+        return Ok(EditorView {
+            settings: settings_config.clone(),
+            inactive: Vec::new(),
+        });
+    }
+    let path = get_codex_config_path();
+    let pre = read_current(&path)?;
+    let mut doc = parse(&path, pre.as_deref())?;
     let live_owner = LiveOwner::read(state)?;
     let planned = codex_direct::plan(
         &state.db,
@@ -260,7 +267,17 @@ pub(crate) fn plan_save(
     on_conflict: ConflictPolicy,
 ) -> Result<CodexEditorPlan, AppError> {
     let edited_doc = parse_text(config_text(edited), "edited")?;
-    let base_doc = parse_text(config_text(base), "base")?;
+    let mut candidate = Provider::with_id(String::new(), String::new(), edited.clone(), None);
+    candidate.category = official.then(|| "official".to_string());
+    let base_doc = parse_text(config_text(base), "base");
+    if proxy_injected_oauth || codex_direct::ensure_direct(&candidate).is_err() || base_doc.is_err()
+    {
+        return Ok(CodexEditorPlan {
+            row_settings: edited.clone(),
+            edits: TomlEdits::between(&[], &[], on_conflict),
+        });
+    }
+    let base_doc = base_doc?;
     let mut projection = CodexProjection::of(&RowInput {
         settings: edited,
         official,
@@ -535,5 +552,33 @@ mod tests {
             !text.contains("approval_policy"),
             "global settings go to live, not the row: {text}"
         );
+    }
+    #[test]
+    fn unsupported_saved_protocol_stays_editable_without_live_edits() {
+        let stored = json!({
+            "auth": {"OPENAI_API_KEY": "sk-legacy"},
+            "config": "# original\nmodel_provider = 'relay'\nmodel = 'old'\napproval_policy = 'never'\n[model_providers.relay]\nbase_url = 'https://relay.example/v1'\nwire_api = 'chat'\n"
+        });
+        let mut edited = stored.clone();
+        edited["config"] =
+            json!(config_text(&stored).replace("model = 'old'", "model = 'renamed'"));
+        let plan = plan_save(
+            Some(&stored),
+            &edited,
+            &stored,
+            &Origin::row(&stored).unwrap(),
+            false,
+            false,
+            ConflictPolicy::Refuse,
+        )
+        .unwrap();
+        assert_eq!(plan.row_settings, edited);
+        assert!(
+            plan.edits.is_empty(),
+            "legacy metadata edits cannot change native live globals"
+        );
+        assert!(config_text(&plan.row_settings).contains("wire_api = 'chat'"));
+        assert!(config_text(&plan.row_settings).contains("[model_providers.relay]"));
+        assert!(config_text(&plan.row_settings).starts_with("# original"));
     }
 }

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="frame" x1="32" y1="6" x2="32" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e7efed"/>
+    </linearGradient>
+    <linearGradient id="codex-teal" x1="20" y1="8" x2="45" y2="57" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5eead4"/>
+      <stop offset=".45" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6.5" width="52" height="52" rx="11.75" fill="#0f172a" fill-opacity=".16"/>
+  <rect x="6" y="5.5" width="52" height="52" rx="11.75" fill="url(#frame)" stroke="#cbd5d1" stroke-width=".5"/>
+  <rect x="6.75" y="6.25" width="50.5" height="50.5" rx="11" stroke="#ffffff" stroke-opacity=".8" stroke-width=".5"/>
+  <g transform="translate(9.6 9.1) scale(.7)" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M28 9C35 5 43 8 46 15C54 14 60 22 56 31C61 39 56 49 47 49C43 58 32 61 25 54C15 58 7 50 10 41C3 34 5 23 14 20C13 12 21 6 28 9Z" fill="url(#codex-teal)"/>
+    <path d="m23 24 5 8-5 8m12 0h9" stroke="#ffffff" stroke-width="4"/>
+  </g>
+</svg>

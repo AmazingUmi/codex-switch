@@ -57,7 +57,8 @@ fn compute_local_midnight_cutoff(
 
 impl Database {
     /// Aggregate proxy_request_logs older than `retain_days` into usage_daily_rollups,
-    /// then delete the aggregated detail rows.
+    /// then delete the aggregated detail rows. All Codex details remain
+    /// available for session grouping and durable per-record attribution.
     /// Returns the number of deleted detail rows.
     pub fn rollup_and_prune(&self, retain_days: i64) -> Result<u64, AppError> {
         let cutoff = compute_local_midnight_cutoff(Local::now(), retain_days)?;
@@ -66,7 +67,8 @@ impl Database {
         // Check if there are any rows to process
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM proxy_request_logs WHERE created_at < ?1",
+                "SELECT COUNT(*) FROM proxy_request_logs WHERE created_at < ?1
+                 AND app_type != 'codex' AND COALESCE(data_source, 'proxy') != 'codex_session'",
                 [cutoff],
                 |row| row.get(0),
             )
@@ -159,6 +161,7 @@ impl Database {
                     COALESCE(AVG(l.latency_ms), 0) as new_lat
                 FROM proxy_request_logs l
                 WHERE l.created_at < ?1 AND {effective_filter}
+                  AND l.app_type != 'codex' AND COALESCE(l.data_source, 'proxy') != 'codex_session'
                 GROUP BY d, a, p, m, rm, pm
             ) agg
             LEFT JOIN usage_daily_rollups old
@@ -174,7 +177,8 @@ impl Database {
         // DELETE intentionally prunes all old details so those duplicates are discarded.
         let deleted = conn
             .execute(
-                "DELETE FROM proxy_request_logs WHERE created_at < ?1",
+                "DELETE FROM proxy_request_logs WHERE created_at < ?1
+                 AND app_type != 'codex' AND COALESCE(data_source, 'proxy') != 'codex_session'",
                 [cutoff],
             )
             .map_err(|e| AppError::Database(format!("Pruning old logs failed: {e}")))?;
@@ -294,7 +298,7 @@ mod tests {
                     request_id, provider_id, app_type, model, request_model,
                     input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                     total_cost_usd, latency_ms, status_code, created_at, data_source
-                ) VALUES (?1, 'openai', 'codex', 'gpt-5.4', 'gpt-5.4', 100, 20, 10, 0, '0.10', 100, 200, ?2, 'proxy')",
+                ) VALUES (?1, 'openai', 'gemini', 'gpt-5.4', 'gpt-5.4', 100, 20, 10, 0, '0.10', 100, 200, ?2, 'proxy')",
                 rusqlite::params!["codex-proxy-old", old_ts],
             )?;
             conn.execute(
@@ -302,7 +306,7 @@ mod tests {
                     request_id, provider_id, app_type, model, request_model,
                     input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                     total_cost_usd, latency_ms, status_code, created_at, data_source
-                ) VALUES (?1, '_codex_session', 'codex', 'gpt-5.4', 'gpt-5.4', 100, 20, 10, 0, '0.10', 0, 200, ?2, 'codex_session')",
+                ) VALUES (?1, '_gemini_session', 'gemini', 'gpt-5.4', 'gpt-5.4', 100, 20, 10, 0, '0.10', 0, 200, ?2, 'gemini_session')",
                 rusqlite::params!["codex-session-old-dup", old_ts + 60],
             )?;
         }
@@ -313,7 +317,7 @@ mod tests {
         let conn = crate::database::lock_conn!(db.conn);
         let mut stmt = conn.prepare(
             "SELECT provider_id, request_count, input_tokens, output_tokens, cache_read_tokens
-             FROM usage_daily_rollups WHERE app_type = 'codex'",
+             FROM usage_daily_rollups WHERE app_type = 'gemini'",
         )?;
         let rows = stmt
             .query_map([], |row| {
@@ -357,7 +361,7 @@ mod tests {
                     input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
                     input_token_semantics, total_cost_usd,
                     latency_ms, status_code, created_at
-                ) VALUES ('total-semantics-rollup', 'p1', 'codex', 'gpt-5.5',
+                ) VALUES ('total-semantics-rollup', 'p1', 'gemini', 'gpt-5.5',
                           100, 5, 10, 20, 1, '0.10', 100, 200, ?1)",
                 [old_ts],
             )?;
@@ -492,7 +496,7 @@ mod tests {
                     request_id, provider_id, app_type, model, request_model, pricing_model,
                     input_tokens, output_tokens, total_cost_usd,
                     latency_ms, status_code, created_at
-                ) VALUES ('prune-backfill', 'p1', 'codex', 'gpt-5.5', 'gpt-5.5', 'gpt-5.5',
+                ) VALUES ('prune-backfill', 'p1', 'gemini', 'gpt-5.5', 'gpt-5.5', 'gpt-5.5',
                           1000000, 0, '0', 100, 200, ?1)",
                 rusqlite::params![old_ts],
             )?;
@@ -568,6 +572,94 @@ mod tests {
         )?;
         assert_eq!(count, 13, "10 existing + 3 new");
         assert_eq!(input, 1300, "1000 existing + 300 new");
+        Ok(())
+    }
+
+    #[test]
+    fn pruning_preserves_codex_details_without_adding_duplicate_rollups() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO proxy_request_logs
+                 (request_id, provider_id, app_type, model, created_at, data_source, input_tokens, output_tokens, total_cost_usd, latency_ms, status_code)
+                 VALUES ('old-codex', '_codex_session', 'codex', 'deepseek-flash', 1, 'codex_session', 100, 10, '0.02', 0, 200)", [],
+            )?;
+            conn.execute(
+                "INSERT INTO proxy_request_logs
+                 (request_id, provider_id, app_type, model, created_at, data_source, input_tokens, output_tokens, total_cost_usd, latency_ms, status_code)
+                 VALUES ('old-proxy', 'provider', 'claude', 'model', 1, 'proxy', 50, 5, '0.01', 0, 200)", [],
+            )?;
+        }
+        assert_eq!(db.rollup_and_prune(30)?, 1);
+        assert_eq!(db.rollup_and_prune(30)?, 0);
+        let conn = crate::database::lock_conn!(db.conn);
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM proxy_request_logs WHERE request_id = 'old-codex'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?,
+            1
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM usage_daily_rollups WHERE app_type = 'codex'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?,
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT SUM(request_count) FROM usage_daily_rollups WHERE app_type = 'claude'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )?,
+            1
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn pruning_keeps_codex_proxy_and_session_dedup_evidence_together() -> Result<(), AppError> {
+        let db = Database::memory()?;
+        let old = chrono::Utc::now().timestamp() - 40 * 86400;
+        {
+            let conn = crate::database::lock_conn!(db.conn);
+            conn.execute(
+                "INSERT INTO proxy_request_logs
+                 (request_id, provider_id, app_type, model, created_at, data_source, input_tokens, output_tokens, total_cost_usd, latency_ms, status_code)
+                 VALUES ('proxy-codex', 'provider', 'codex', 'model', ?1, 'proxy', 100, 10, '0.02', 0, 200)", [old],
+            )?;
+            conn.execute(
+                "INSERT INTO proxy_request_logs
+                 (request_id, provider_id, app_type, model, created_at, data_source, input_tokens, output_tokens, total_cost_usd, latency_ms, status_code)
+                 VALUES ('session-duplicate', '_codex_session', 'codex', 'model', ?1, 'codex_session', 100, 10, '0.02', 0, 200)", [old + 1],
+            )?;
+        }
+        assert_eq!(
+            db.get_usage_summary(None, None, Some("codex"), None, None, None)?
+                .total_requests,
+            1
+        );
+        assert_eq!(db.rollup_and_prune(30)?, 0);
+        assert_eq!(
+            db.get_usage_summary(None, None, Some("codex"), None, None, None)?
+                .total_requests,
+            1
+        );
+        let conn = crate::database::lock_conn!(db.conn);
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM proxy_request_logs", [], |r| r
+                .get::<_, i64>(0))?,
+            2
+        );
+        assert_eq!(
+            conn.query_row("SELECT COUNT(*) FROM usage_daily_rollups", [], |r| r
+                .get::<_, i64>(0))?,
+            0
+        );
         Ok(())
     }
 }

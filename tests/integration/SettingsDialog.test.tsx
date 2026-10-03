@@ -46,10 +46,14 @@ vi.mock("@/components/ui/tabs", () => {
       </TabsContext.Provider>
     ),
     TabsList: ({ children }: any) => <div>{children}</div>,
-    TabsTrigger: ({ value, children }: any) => {
+    TabsTrigger: ({ value, children, ...props }: any) => {
       const ctx = React.useContext(TabsContext);
       return (
-        <button type="button" onClick={() => ctx.onValueChange?.(value)}>
+        <button
+          type="button"
+          {...props}
+          onClick={() => ctx.onValueChange?.(value)}
+        >
           {children}
         </button>
       );
@@ -135,6 +139,11 @@ const renderDialog = (
 
 beforeEach(() => {
   resetProviderState();
+  server.use(
+    http.post("http://tauri.local/list_db_backups", () =>
+      HttpResponse.json([]),
+    ),
+  );
   toastSuccessMock.mockReset();
   toastErrorMock.mockReset();
 });
@@ -150,24 +159,46 @@ describe("SettingsPage integration", () => {
     await waitFor(() =>
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
     const appInput = await screen.findByPlaceholderText(
       "settings.browsePlaceholderApp",
     );
-    expect((appInput as HTMLInputElement).value).toBe("/home/mock/.cc-switch");
+    expect((appInput as HTMLInputElement).value).toBe(
+      "/home/mock/.codex-switch",
+    );
   });
 
   it("imports configuration and triggers success callback", async () => {
     const onImportSuccess = vi.fn();
+    server.use(
+      http.post("http://tauri.local/list_db_backups", () =>
+        HttpResponse.json(
+          getSettings().language === "en"
+            ? [
+                {
+                  filename: "import-safety.db",
+                  sizeBytes: 1024,
+                  createdAt: "2026-10-02T16:00:00Z",
+                },
+              ]
+            : [],
+        ),
+      ),
+    );
     renderDialog({ onImportSuccess });
 
     await waitFor(() =>
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
-    fireEvent.click(screen.getByText("settings.advanced.data.title"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Backup & Restore" }));
+    await screen.findByText("No backups yet");
     fireEvent.click(screen.getByText("settings.selectConfigFile"));
     await waitFor(() =>
       expect(screen.getByTestId("selected-file").textContent).toContain(
@@ -181,6 +212,7 @@ describe("SettingsPage integration", () => {
       timeout: 4000,
     });
     expect(getSettings().language).toBe("en");
+    expect(await screen.findByText("import-safety")).toBeInTheDocument();
   });
 
   it("saves settings and handles restart prompt", async () => {
@@ -190,7 +222,9 @@ describe("SettingsPage integration", () => {
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
     const appInput = await screen.findByPlaceholderText(
       "settings.browsePlaceholderApp",
@@ -217,7 +251,9 @@ describe("SettingsPage integration", () => {
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
 
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
     fireEvent.click(screen.getByText("settings.advanced.configDir.title"));
 
     const browseButtons = screen.getAllByTitle("settings.browseDirectory");
@@ -226,29 +262,29 @@ describe("SettingsPage integration", () => {
     const appInput = (await screen.findByPlaceholderText(
       "settings.browsePlaceholderApp",
     )) as HTMLInputElement;
-    expect(appInput.value).toBe("/home/mock/.cc-switch");
+    expect(appInput.value).toBe("/home/mock/.codex-switch");
 
     fireEvent.click(browseButtons[0]);
     await waitFor(() =>
-      expect(appInput.value).toBe("/home/mock/.cc-switch/picked"),
+      expect(appInput.value).toBe("/home/mock/.codex-switch/picked"),
     );
 
     fireEvent.click(resetButtons[0]);
-    await waitFor(() => expect(appInput.value).toBe("/home/mock/.cc-switch"));
-
-    const claudeInput = (await screen.findByPlaceholderText(
-      "settings.browsePlaceholderClaude",
-    )) as HTMLInputElement;
-    fireEvent.change(claudeInput, { target: { value: "/custom/claude" } });
-    await waitFor(() => expect(claudeInput.value).toBe("/custom/claude"));
-
-    fireEvent.click(browseButtons[1]);
     await waitFor(() =>
-      expect(claudeInput.value).toBe("/custom/claude/picked"),
+      expect(appInput.value).toBe("/home/mock/.codex-switch"),
     );
 
+    const codexInput = (await screen.findByPlaceholderText(
+      "settings.browsePlaceholderCodex",
+    )) as HTMLInputElement;
+    fireEvent.change(codexInput, { target: { value: "/custom/codex" } });
+    await waitFor(() => expect(codexInput.value).toBe("/custom/codex"));
+
+    fireEvent.click(browseButtons[1]);
+    await waitFor(() => expect(codexInput.value).toBe("/custom/codex/picked"));
+
     fireEvent.click(resetButtons[1]);
-    await waitFor(() => expect(claudeInput.value).toBe("/home/mock/.claude"));
+    await waitFor(() => expect(codexInput.value).toBe("/home/mock/.codex"));
   });
 
   it("notifies when export fails", async () => {
@@ -257,8 +293,10 @@ describe("SettingsPage integration", () => {
     await waitFor(() =>
       expect(screen.getByText("language:zh")).toBeInTheDocument(),
     );
-    fireEvent.click(screen.getByText("settings.tabAdvanced"));
-    fireEvent.click(screen.getByText("settings.advanced.data.title"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "settings.tabAdvanced" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Backup & Restore" }));
 
     server.use(
       http.post("http://tauri.local/save_file_dialog", () =>

@@ -102,6 +102,27 @@ export function getLocaleFromLanguage(language: string): string {
   return "en-US";
 }
 
+export function getUsageTimeZone(): string {
+  return new Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+export function formatUsageDateTime(
+  date: Date,
+  locale: string,
+  options: { includeYear?: boolean; includeTimeZone?: boolean } = {},
+): string {
+  return date.toLocaleString(locale, {
+    year: options.includeYear ? "numeric" : undefined,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    // h23 keeps midnight at 00:00, including in English locales.
+    hourCycle: "h23",
+    timeZoneName: options.includeTimeZone ? "longOffset" : undefined,
+  });
+}
+
 interface I18nLike {
   resolvedLanguage?: string;
   language?: string;

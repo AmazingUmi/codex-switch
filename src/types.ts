@@ -21,7 +21,7 @@ export interface Provider {
   notes?: string;
   // 新增：是否为商业合作伙伴
   isPartner?: boolean;
-  // 可选：供应商元数据（仅存于 ~/.cc-switch/config.json，不写入 live 配置）
+  // 可选：供应商元数据（仅存于 ~/.codex-switch/config.json，不写入 live 配置）
   meta?: ProviderMeta;
   // 图标配置
   icon?: string; // 图标名称（如 "openai", "anthropic"）
@@ -173,6 +173,8 @@ export interface LocalProxyRequestOverrides {
 
 // 供应商元数据（字段名与后端一致，保持 snake_case）
 export interface ProviderMeta {
+  /** Internal OAuth account connection; advanced user configurations stay visible. */
+  codexAccountManaged?: boolean;
   // 自定义端点：以 URL 为键，值为端点信息
   custom_endpoints?: Record<string, CustomEndpoint>;
   // 是否在切换/同步到 live 时应用通用配置片段
@@ -238,7 +240,7 @@ export interface ProviderMeta {
 export type SkillSyncMethod = "auto" | "symlink" | "copy";
 
 // Skill 存储位置
-export type SkillStorageLocation = "cc_switch" | "unified";
+export type SkillStorageLocation = "codex_switch" | "unified";
 
 // Claude API 格式类型
 // - "anthropic": 原生 Anthropic Messages API 格式，直接透传
@@ -350,11 +352,17 @@ export interface RemoteSnapshotInfo {
 }
 
 // 应用设置类型（用于设置对话框与 Tauri API）
-// 存储在本地 ~/.cc-switch/settings.json，不随数据库同步
+// 存储在本地 ~/.codex-switch/settings.json，不随数据库同步
 export interface Settings {
   // ===== 设备级 UI 设置 =====
   // 是否在系统托盘（macOS 菜单栏）显示图标
   showInTray: boolean;
+  // macOS menu bar appearance; omitted values keep the existing icon.
+  trayDisplayMode?: "icon" | "quotaRing" | "quotaRingOnly";
+  trayQuotaWindow?: "fiveHour" | "sevenDay";
+  trayQuotaColorMode?: "system" | "quota";
+  /** Shared quota refresh interval, in seconds. Zero disables polling. */
+  quotaRefreshIntervalSeconds?: number;
   // 点击关闭按钮时是否最小化到托盘而不是关闭应用
   minimizeToTrayOnClose: boolean;
   // 是否启用应用级窗口控制按钮（最小化/最大化/关闭）
@@ -374,8 +382,13 @@ export interface Settings {
   // User has confirmed the usage query first-run notice
   usageConfirmed?: boolean;
   usageDashboardRefreshIntervalMs?: number;
+  // Remaining-percent boundaries for warning and low quota battery colors.
+  quotaBatteryWarningThresholdPercent?: number;
+  quotaBatteryLowThresholdPercent?: number;
   // 会话用量自动扫描开关（默认开启=自动模式；关闭后仅手动同步时扫描会话日志，代理记账不受影响）
   sessionAutoSyncEnabled?: boolean;
+  // Independent Codex root used only for session token usage scanning.
+  codexUsageSourceDir?: string;
   // Whether to show the failover toggle independently on the main page
   enableFailoverToggle?: boolean;
   // Whether to show the project profile switcher on the main page header
@@ -385,7 +398,7 @@ export interface Settings {
   // Run official Codex under the shared "custom" provider id so future
   // sessions share one resume-history bucket with third-party providers
   unifyCodexSessionHistory?: boolean;
-  // User opted in (enable dialog checkbox) to migrate existing official sessions
+  // Persisted opt-in to migrate existing official sessions
   unifyCodexMigrateExisting?: boolean;
   // User has confirmed the failover toggle first-run notice
   failoverConfirmed?: boolean;
@@ -432,7 +445,7 @@ export interface Settings {
   // ===== Skill 同步设置 =====
   // Skill 同步方式：auto（默认，优先 symlink）、symlink、copy
   skillSyncMethod?: SkillSyncMethod;
-  // Skill 存储位置：cc_switch（默认）或 unified（~/.agents/skills/）
+  // Skill 存储位置：codex_switch（默认）或 unified（~/.agents/skills/）
   skillStorageLocation?: SkillStorageLocation;
 
   // ===== WebDAV v2 同步设置 =====

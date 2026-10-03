@@ -7,14 +7,17 @@ import {
   useState,
 } from "react";
 import { motion } from "framer-motion";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   Save,
   FolderSearch,
-  Database,
   Cloud,
   ScrollText,
   HardDriveDownload,
+  Settings2,
+  SlidersHorizontal,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -35,22 +38,17 @@ import { Button } from "@/components/ui/button";
 import { settingsApi } from "@/lib/api";
 import { LanguageSettings } from "@/components/settings/LanguageSettings";
 import { ThemeSettings } from "@/components/settings/ThemeSettings";
+import { QuotaBatterySettings } from "@/components/settings/QuotaBatterySettings";
+import { TraySettings } from "@/components/settings/TraySettings";
+import { QuotaRefreshSettings } from "@/components/settings/QuotaRefreshSettings";
 import { WindowSettings } from "@/components/settings/WindowSettings";
-import { AppVisibilitySettings } from "@/components/settings/AppVisibilitySettings";
-import { SkillStorageLocationSettings } from "@/components/settings/SkillStorageLocationSettings";
-import { SkillSyncMethodSettings } from "@/components/settings/SkillSyncMethodSettings";
 import { TerminalSettings } from "@/components/settings/TerminalSettings";
 import { DirectorySettings } from "@/components/settings/DirectorySettings";
 import { ImportExportSection } from "@/components/settings/ImportExportSection";
 import { BackupListSection } from "@/components/settings/BackupListSection";
 import { WebdavSyncSection } from "@/components/settings/WebdavSyncSection";
 import { AboutSection } from "@/components/settings/AboutSection";
-import { ProxyTabContent } from "@/components/settings/ProxyTabContent";
-import { UsageDashboard } from "@/components/usage/UsageDashboard";
 import { LogConfigPanel } from "@/components/settings/LogConfigPanel";
-import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
-import { CodexAuthSettings } from "@/components/settings/CodexAuthSettings";
-import { useInstalledSkills } from "@/hooks/useSkills";
 import { useSettings } from "@/hooks/useSettings";
 import { useImportExport } from "@/hooks/useImportExport";
 import { useTranslation } from "react-i18next";
@@ -70,6 +68,7 @@ export function SettingsPage({
   defaultTab = "general",
 }: SettingsDialogProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const {
     settings,
     isLoading,
@@ -90,6 +89,11 @@ export function SettingsPage({
     acknowledgeRestart,
   } = useSettings();
 
+  const handleImportSuccess = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ["db-backups"] });
+    return onImportSuccess?.();
+  }, [onImportSuccess, queryClient]);
+
   const {
     selectedFile,
     status: importStatus,
@@ -101,17 +105,19 @@ export function SettingsPage({
     exportConfig,
     clearSelection,
     resetStatus,
-  } = useImportExport({ onImportSuccess });
+  } = useImportExport({ onImportSuccess: handleImportSuccess });
 
-  const { data: installedSkills } = useInstalledSkills();
-
-  const [activeTab, setActiveTab] = useState<string>("general");
+  const normalizeTab = (tab: string) =>
+    ["general", "advanced", "about"].includes(tab) ? tab : "general";
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    normalizeTab(defaultTab),
+  );
   const [showRestartPrompt, setShowRestartPrompt] = useState(false);
   const tabScrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (open) {
-      setActiveTab(defaultTab);
+      setActiveTab(normalizeTab(defaultTab));
       resetStatus();
     }
   }, [open, resetStatus, defaultTab]);
@@ -175,15 +181,11 @@ export function SettingsPage({
 
   // 通用设置即时保存（无需手动点击）
   // 使用 autoSaveSettings 避免误触发系统 API（开机自启、Claude 插件等）
-  // 返回保存是否成功：需要在保存成功后追加动作的调用方（如统一会话历史
-  // 关闭后的备份还原）据此短路，其余调用方可忽略返回值。
+  // 返回保存是否成功，供调用方在成功后追加动作。
   const handleAutoSave = useCallback(
     async (updates: Partial<SettingsFormState>): Promise<boolean> => {
       if (!settings) return false;
-      // 乐观更新前捕获旧值：autoSaveSettings 发送的是全量表单状态，后端按
-      // diff 触发副作用（如统一会话开关的 live 重写与历史迁移）。保存失败
-      // 不回滚的话，失败的变更会滞留在表单里，被之后任意一次无关保存原样
-      // 重放，绕过确认弹窗。
+      // 保存失败时回滚乐观更新，避免后续无关保存重新提交失败的变更。
       const previousValues = Object.fromEntries(
         Object.keys(updates).map((key) => [
           key,
@@ -208,10 +210,24 @@ export function SettingsPage({
     [autoSaveSettings, settings, t, updateSettings],
   );
 
+  const settingsTabs = [
+    {
+      value: "general",
+      label: t("settings.tabGeneral"),
+      Icon: Settings2,
+    },
+    {
+      value: "advanced",
+      label: t("settings.tabAdvanced"),
+      Icon: SlidersHorizontal,
+    },
+    { value: "about", label: t("common.about"), Icon: Info },
+  ];
+
   const isBusy = useMemo(() => isLoading && !settings, [isLoading, settings]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden px-6">
+    <div className="settings-page page-frame flex flex-1 min-h-0 flex-col overflow-hidden">
       {isBusy ? (
         <div className="flex flex-1 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -220,27 +236,34 @@ export function SettingsPage({
         <Tabs
           value={activeTab}
           onValueChange={setActiveTab}
-          className="flex flex-col h-full"
+          className="flex flex-1 min-h-0 flex-col"
         >
-          <TabsList className="grid w-full grid-cols-6 mb-6 glass rounded-lg">
-            <TabsTrigger value="general">
-              {t("settings.tabGeneral")}
-            </TabsTrigger>
-            <TabsTrigger value="proxy">{t("settings.tabProxy")}</TabsTrigger>
-            <TabsTrigger value="auth">
-              {t("settings.tabAuth", { defaultValue: "认证" })}
-            </TabsTrigger>
-            <TabsTrigger value="advanced">
-              {t("settings.tabAdvanced")}
-            </TabsTrigger>
-            <TabsTrigger value="usage">{t("usage.title")}</TabsTrigger>
-            <TabsTrigger value="about">{t("common.about")}</TabsTrigger>
+          <TabsList
+            aria-label={t("settings.title")}
+            className="self-start mb-6"
+          >
+            {settingsTabs.map(({ value, label, Icon }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                aria-label={label}
+                title={label}
+                className="capsule-option-icon"
+              >
+                <Icon className="h-5 w-5" aria-hidden="true" />
+              </TabsTrigger>
+            ))}
           </TabsList>
+          {activeTab !== "about" && (
+            <h2 className="settings-page-title mb-6">
+              {settingsTabs.find((tab) => tab.value === activeTab)?.label}
+            </h2>
+          )}
 
           <div className="flex-1 min-h-0 flex flex-col">
             <div
               ref={tabScrollContainerRef}
-              className="flex-1 overflow-y-auto overflow-x-hidden pr-2"
+              className="app-scroll page-shadow-scroll flex-1 overflow-y-auto overflow-x-hidden"
             >
               <TabsContent value="general" className="space-y-6 mt-0">
                 {settings ? (
@@ -248,31 +271,22 @@ export function SettingsPage({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="space-y-6"
+                    className="settings-general"
                   >
                     <LanguageSettings
                       value={settings.language}
                       onChange={(lang) => handleAutoSave({ language: lang })}
                     />
                     <ThemeSettings />
-                    <AppVisibilitySettings
+                    <QuotaRefreshSettings
                       settings={settings}
                       onChange={handleAutoSave}
                     />
-                    <SkillStorageLocationSettings
-                      value={settings.skillStorageLocation ?? "cc_switch"}
-                      installedCount={installedSkills?.length ?? 0}
-                      onMigrated={(location) =>
-                        updateSettings({ skillStorageLocation: location })
-                      }
+                    <QuotaBatterySettings
+                      settings={settings}
+                      onChange={handleAutoSave}
                     />
-                    <SkillSyncMethodSettings
-                      value={settings.skillSyncMethod ?? "auto"}
-                      onChange={(method) =>
-                        handleAutoSave({ skillSyncMethod: method })
-                      }
-                    />
-                    <CodexAuthSettings
+                    <TraySettings
                       settings={settings}
                       onChange={handleAutoSave}
                     />
@@ -288,26 +302,6 @@ export function SettingsPage({
                     />
                   </motion.div>
                 ) : null}
-              </TabsContent>
-
-              <TabsContent value="proxy" className="space-y-6 mt-0 pb-4">
-                {settings ? (
-                  <ProxyTabContent
-                    settings={settings}
-                    onAutoSave={handleAutoSave}
-                  />
-                ) : null}
-              </TabsContent>
-
-              <TabsContent value="auth" className="space-y-6 mt-0 pb-4">
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6"
-                >
-                  <AuthCenterPanel />
-                </motion.div>
               </TabsContent>
 
               <TabsContent value="advanced" className="space-y-6 mt-0 pb-4">
@@ -331,12 +325,9 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <FolderSearch className="h-5 w-5 text-primary" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.configDir.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.configDir.description")}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -347,49 +338,10 @@ export function SettingsPage({
                             onAppConfigChange={updateAppConfigDir}
                             onBrowseAppConfig={browseAppConfigDir}
                             onResetAppConfig={resetAppConfigDir}
-                            claudeDir={settings.claudeConfigDir}
                             codexDir={settings.codexConfigDir}
-                            geminiDir={settings.geminiConfigDir}
-                            grokDir={settings.grokConfigDir}
-                            opencodeDir={settings.opencodeConfigDir}
-                            openclawDir={settings.openclawConfigDir}
-                            hermesDir={settings.hermesConfigDir}
-                            piDir={settings.piConfigDir}
                             onDirectoryChange={updateDirectory}
                             onBrowseDirectory={browseDirectory}
                             onResetDirectory={resetDirectory}
-                          />
-                        </AccordionContent>
-                      </AccordionItem>
-
-                      <AccordionItem
-                        value="data"
-                        className="rounded-xl glass-card overflow-hidden"
-                      >
-                        <AccordionTrigger className="px-6 py-4 hover:no-underline hover:bg-muted/50 data-[state=open]:bg-muted/50">
-                          <div className="flex items-center gap-3">
-                            <Database className="h-5 w-5 text-blue-500" />
-                            <div className="text-left">
-                              <h3 className="text-base font-semibold">
-                                {t("settings.advanced.data.title")}
-                              </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.data.description")}
-                              </p>
-                            </div>
-                          </div>
-                        </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
-                          <ImportExportSection
-                            status={importStatus}
-                            selectedFile={selectedFile}
-                            errorMessage={errorMessage}
-                            backupId={backupId}
-                            isImporting={isImporting}
-                            onSelectFile={selectImportFile}
-                            onImport={importConfig}
-                            onExport={exportConfig}
-                            onClear={clearSelection}
                           />
                         </AccordionContent>
                       </AccordionItem>
@@ -402,21 +354,15 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <HardDriveDownload className="h-5 w-5 text-amber-500" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.backup.title", {
                                   defaultValue: "Backup & Restore",
                                 })}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.backup.description", {
-                                  defaultValue:
-                                    "Manage automatic backups, view and restore database snapshots",
-                                })}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
-                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50">
+                        <AccordionContent className="px-6 pb-6 pt-4 border-t border-border/50 space-y-6">
                           <BackupListSection
                             backupIntervalHours={settings.backupIntervalHours}
                             backupRetainCount={settings.backupRetainCount}
@@ -424,6 +370,19 @@ export function SettingsPage({
                               handleAutoSave(updates)
                             }
                           />
+                          <div className="border-t border-border/50 pt-6">
+                            <ImportExportSection
+                              status={importStatus}
+                              selectedFile={selectedFile}
+                              errorMessage={errorMessage}
+                              backupId={backupId}
+                              isImporting={isImporting}
+                              onSelectFile={selectImportFile}
+                              onImport={importConfig}
+                              onExport={exportConfig}
+                              onClear={clearSelection}
+                            />
+                          </div>
                         </AccordionContent>
                       </AccordionItem>
 
@@ -435,12 +394,9 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <Cloud className="h-5 w-5 text-blue-500" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.cloudSync.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.cloudSync.description")}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -462,12 +418,9 @@ export function SettingsPage({
                           <div className="flex items-center gap-3">
                             <ScrollText className="h-5 w-5 text-cyan-500" />
                             <div className="text-left">
-                              <h3 className="text-base font-semibold">
+                              <h3 className="settings-section-title">
                                 {t("settings.advanced.logConfig.title")}
                               </h3>
-                              <p className="text-sm text-muted-foreground font-normal">
-                                {t("settings.advanced.logConfig.description")}
-                              </p>
                             </div>
                           </div>
                         </AccordionTrigger>
@@ -483,26 +436,11 @@ export function SettingsPage({
               <TabsContent value="about" className="mt-0">
                 <AboutSection isPortable={isPortable} />
               </TabsContent>
-
-              <TabsContent value="usage" className="mt-0">
-                <UsageDashboard
-                  refreshIntervalMs={settings?.usageDashboardRefreshIntervalMs}
-                  onRefreshIntervalChange={(usageDashboardRefreshIntervalMs) =>
-                    handleAutoSave({ usageDashboardRefreshIntervalMs })
-                  }
-                  sessionAutoSyncEnabled={
-                    settings?.sessionAutoSyncEnabled ?? true
-                  }
-                  onSessionAutoSyncEnabledChange={(sessionAutoSyncEnabled) =>
-                    handleAutoSave({ sessionAutoSyncEnabled })
-                  }
-                />
-              </TabsContent>
             </div>
 
             {activeTab === "advanced" && settings && (
               <div
-                className="flex-shrink-0 pt-4 border-t border-border-default"
+                className="flex-shrink-0 pt-4 pb-3 border-t border-border-default"
                 style={{ backgroundColor: "hsl(var(--background))" }}
               >
                 <div className="px-6 flex items-center justify-end gap-3">

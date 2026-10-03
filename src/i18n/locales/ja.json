@@ -1,7 +1,7 @@
 {
   "app": {
-    "title": "CC Switch",
-    "description": "Claude Code・Codex・Gemini CLI のためのオールインワンアシスタント"
+    "title": "Codex Switch",
+    "description": "OpenAI Codex / ChatGPT Codex のアカウント管理と使用量モニタリング"
   },
   "common": {
     "add": "追加",
@@ -46,9 +46,9 @@
     "collapse": "折りたたむ"
   },
   "firstRunNotice": {
-    "title": "CC Switch へようこそ",
-    "bodyDefault": "CC Switch は Claude Code / Codex / Gemini CLI の複数プロバイダーをワンクリックで切り替えられるツールです。すでにこれらのツールを設定済みの場合、CC Switch は現在の設定を「default」という名前のプロバイダーとして自動的に保存するので、既存の設定が失われることはありません。",
-    "bodyOfficial": "リストには「Official（公式）」プリセットも用意されており、公式バージョンに戻したくなったらクリックするだけで切り替えられます。切り替える前に現在の設定は自動で default にバックアップされるので、自由に行き来できます。これが CC Switch の仕組みです 😊",
+    "title": "Codex Switch へようこそ",
+    "bodyDefault": "複数の ChatGPT アカウントを管理し、使用中の Codex アカウントを切り替え、各アカウントの利用枠を確認できます。既存の Codex 設定は従来のプロバイダー管理フローで保持されます。",
+    "bodyOfficial": "「設定 → 認証」で ChatGPT アカウントの追加や再認証ができます。デフォルトの OAuth アカウントと使用中の Codex アカウントは個別に管理されます。",
     "confirm": "了解しました"
   },
   "apiKeyInput": {
@@ -88,6 +88,8 @@
     "windowClose": "ウィンドウを閉じる"
   },
   "provider": {
+    "switchConnection": "この接続に切り替え",
+    "deleteCurrentDisabled": "使用中の接続は削除できません。先に別の接続に切り替えてください。",
     "connectivityCheck": "接続チェック",
     "tabProvider": "プロバイダー",
     "tabUniversal": "統一プロバイダー",
@@ -100,11 +102,7 @@
     "currentlyUsing": "現在使用中",
     "enable": "有効化",
     "inUse": "使用中",
-    "needsRouting": "ルーティングが必要",
-    "directProvider": "直接接続",
-    "directProviderHint": "ルーティングを終了するとこのプロバイダに戻ります",
     "noRoutingSupport": "ルーティング非対応",
-    "blockedByProxyHint": "プロキシ引き継ぎモードでは公式プロバイダーに切り替えできません",
     "editProvider": "プロバイダーを編集",
     "editProviderHint": "保存すると現在のプロバイダーにすぐ反映されます。",
     "deleteProvider": "プロバイダーを削除",
@@ -143,7 +141,7 @@
     "terminalOpened": "ターミナルを開きました",
     "terminalOpenFailed": "ターミナルを開けませんでした",
     "name": "プロバイダー名",
-    "namePlaceholder": "例: Claude Official",
+    "namePlaceholder": "例: OpenAI Official",
     "websiteUrl": "Web サイト URL",
     "notes": "メモ",
     "notesPlaceholder": "例: 会社用アカウント",
@@ -170,7 +168,8 @@
       "message": "エディターを開いた後、以下の設定が他のプログラム（Claude Code など）によって変更されました。自分の編集で上書きしますか？それとも外部の変更を残しますか？その他の編集はどちらでも保存されます。",
       "keepTheirs": "外部の変更を残す",
       "keepMine": "自分の編集で上書き"
-    }
+    },
+    "unsupportedDirect": "直接接続に非対応"
   },
   "claudeCode": {
     "needsRouting": "ルーティングが必要",
@@ -201,7 +200,7 @@
     "modeProxy": "ルーティング必要",
     "modelMappingToggle": "モデルマッピングが必要",
     "modelMappingOffHint": "プロバイダーが Claude Desktop の三つの役割 ID（claude-sonnet-* / claude-opus-* / claude-haiku-*）を受け付ける場合のみ直結できます。それ以外のモデル名（claude-3-5-sonnet-… などの旧式 ID を含む）は「モデルマッピング」を選択してください。",
-    "modelMappingOnHint": "Claude Desktop は claude-sonnet-* / claude-opus-* / claude-haiku-* の三つの役割 ID のみ受け付けます。「モデルマッピング」を選択すると、CC Switch がこの三役割をプロバイダーの実モデルにマッピングし、使用中はローカルルーティングを起動したままにします。",
+    "modelMappingOnHint": "Claude Desktop は claude-sonnet-* / claude-opus-* / claude-haiku-* の三つの役割 ID のみ受け付けます。「モデルマッピング」を選択すると、Codex Switch がこの三役割をプロバイダーの実モデルにマッピングし、使用中はローカルルーティングを起動したままにします。",
     "routeMapTitle": "モデルマッピング",
     "routeMapHint": "Sonnet・Opus・Haiku の各区分に実際のリクエストモデルを入力してください。DeepSeek や Kimi などのブランド名はメニュー表示名に入れられます。空欄の区分は Sonnet（または最初に入力した区分）のモデルを引き継ぐため、サブ agent が呼び出す Haiku が常に利用可能になります。",
     "routeModelLabel": "モデル役割",
@@ -240,11 +239,10 @@
     "providerSaved": "プロバイダー設定を保存しました",
     "providerDeleted": "プロバイダーを削除しました",
     "switchSuccess": "切り替え成功！",
-    "codexRestartRequired": "切り替えました。反映するにはクライアントを再起動してください",
+    "codexRestartRequired": "アカウントを切り替えました。実行中の Codex が以前のアカウントを表示する場合は、開き直してください。",
     "geminiRestartRequired": "切り替えました。反映するには Gemini CLI を再起動してください",
     "grokBuildRestartRequired": "切り替えました。反映するには Grok Build を再起動してください",
     "claudeDesktopRestartRequired": "切り替えました。反映するには Claude Desktop を再起動してください",
-    "claudeDesktopProxyRestartRequired": "切り替えました。CC Switch を起動したまま Claude Desktop を再起動してください",
     "addToConfigSuccess": "設定に追加しました",
     "removeFromConfigSuccess": "設定から削除しました",
     "removeFromConfigFailed": "プロバイダーを削除できません",
@@ -265,14 +263,6 @@
     "deleteFailed": "プロバイダーの削除に失敗しました: {{error}}",
     "settingsSaved": "設定を保存しました",
     "settingsSaveFailed": "設定の保存に失敗しました: {{error}}",
-    "proxyRequiredForSwitch": "このプロバイダーは{{reason}}、ルーティングサービスが必要です。先にルーティングを起動してください",
-    "proxyReasonCopilot": "GitHub Copilot を Claude プロバイダーとして使用しており",
-    "proxyReasonOpenAIChat": "OpenAI Chat API フォーマットを使用しており",
-    "proxyReasonOpenAIResponses": "OpenAI Responses API フォーマットを使用しており",
-    "proxyReasonAnthropicMessages": "Anthropic Messages API フォーマットを使用しており",
-    "proxyReasonFullUrl": "完全 URL 接続モードが有効になっており",
-    "proxyReasonManagedOAuth": "マネージド OAuth ログイン（トークンはローカルルーティングが注入）を使用しており",
-    "proxyReasonRoutingRequired": "リクエスト処理にローカルルーティングが必要であり",
     "openAIFormatHint": "このプロバイダーは OpenAI 互換フォーマットを使用しており、ルーティングサービスの有効化が必要です",
     "copilotProxyHint": "GitHub Copilot を Claude プロバイダーとして使用する場合、ローカルルーティングが常に必要です。ルーティングは現在のモデルに応じて Chat Completions または Responses を自動的に選択します。",
     "openLinkFailed": "リンクを開けませんでした",
@@ -284,38 +274,14 @@
     "backfillWarning": "切り替え成功しましたが、前のプロバイダーへの設定保存に失敗しました",
     "codexAuthCleanupFailed": "切り替えは成功しましたが、auth.json を削除できませんでした。公式ログイン資格情報がディスクに残っています。完全に削除するには Codex 設定ディレクトリの auth.json を手動で削除してください",
     "windowControlFailed": "ウィンドウ操作に失敗しました: {{error}}",
-    "officialBlockedByProxy": "ローカルルーティングモード中は公式プロバイダーに切り替えできません。ルーティング経由で公式 API にアクセスするとアカウントが停止される可能性があります。",
-    "proxyOfficialWarning": "現在のプロバイダー {{name}} は公式です。ローカルルーティングを使用する前にサードパーティプロバイダーに切り替えてください。",
-    "proxyReasonClaudeDesktop": "Claude Desktop ローカルルーティングモードを使用中"
+    "directConnectionRequired": "Codex のネイティブ Responses 接続と OpenAI 公式アカウントのみ有効にできます。保存済み設定を編集してから有効にしてください。"
   },
   "confirm": {
     "deleteProvider": "プロバイダーを削除",
     "deleteProviderMessage": "プロバイダー「{{name}}」を削除してもよろしいですか？この操作は元に戻せません。",
     "removeProvider": "プロバイダーを解除",
-    "removeProviderMessage": "プロバイダー「{{name}}」を設定から解除してもよろしいですか？\n\n解除後、このプロバイダーは無効になりますが、設定データは CC Switch に保持されます。いつでも再追加できます。",
+    "removeProviderMessage": "プロバイダー「{{name}}」を設定から解除してもよろしいですか？\n\n解除後、このプロバイダーは無効になりますが、設定データは Codex Switch に保持されます。いつでも再追加できます。",
     "piDefaultProviderWarning": "Pi のグローバルデフォルトは現在このプロバイダーを参照しています。続行すると、Pi は別の利用可能なモデルを試します。/model で再選択するか、/login で別のプロバイダーにログインできます。",
-    "proxy": {
-      "title": "ローカルルーティングの有効化",
-      "message": "ローカルルーティングは上級機能です。有効にする前に、その仕組みを理解していることをご確認ください。\n\n適切な設定方法については、関連ドキュメントまたはプロバイダーにご相談ください。",
-      "confirm": "理解しました、有効にする"
-    },
-    "failover": {
-      "title": "フェイルオーバーの有効化",
-      "message": "フェイルオーバーは上級機能です。有効にする前に、その仕組みを理解していることをご確認ください。\n\nフェイルオーバーキューでプロバイダーの優先順位を先に設定することをお勧めします。",
-      "confirm": "理解しました、有効にする"
-    },
-    "unifyCodexHistory": {
-      "title": "Codex セッション履歴を統一",
-      "message": "オンにすると、公式サブスクリプションとサードパーティが同じセッション履歴リストを共有します。注意：プロバイダーをまたいで古いセッションを再開すると、encrypted_content を相手のバックエンドが復号できず失敗する場合があります。\n\n既存の公式セッション履歴を共有リストへ移行することもできます（移行前に ~/.cc-switch/backups へ自動バックアップされ、オフにする際に復元を選択できます）。",
-      "migrateExisting": "既存の公式セッション履歴も移行する",
-      "confirm": "理解しました、オンにする"
-    },
-    "unifyCodexHistoryOff": {
-      "title": "セッション履歴の統一をオフにする",
-      "message": "オフにすると、公式サブスクリプションとサードパーティはそれぞれ独立した履歴リストに戻ります。オン期間中に作成されたセッションは提供元を判別できないため、サードパーティの履歴に残り、公式サブスクリプションからは見えなくなります。",
-      "restoreBackup": "オンにした際に移行した公式セッションを公式履歴へ復元する（バックアップから正確に復元）",
-      "confirm": "オフにする"
-    },
     "usage": {
       "title": "使用量クエリの設定",
       "message": "使用量クエリにはカスタムスクリプトまたは API パラメータが必要です。プロバイダーから必要な情報を取得していることをご確認ください。\n\n設定方法が不明な場合は、プロバイダーのドキュメントを先にご確認ください。",
@@ -328,15 +294,15 @@
     }
   },
   "settings": {
+    "previewManualBuild": "プレビュー版 · 手動更新",
+    "previewDataNotice": "プレビューのアカウントと設定は分離されています。Token 使用量は選択したローカルのセッションログを変更せずに読み取り、統計をプレビュー用データベースに保存します。",
     "title": "設定",
     "general": "一般",
     "tabGeneral": "一般",
-    "tabAuth": "認証",
     "tabAdvanced": "詳細",
-    "tabProxy": "ルーティング",
     "authCenter": {
       "title": "OAuth 認証センター",
-      "description": "Claude Code で他のサブスクリプションをご利用いただけます。コンプライアンスリスクにご注意ください。",
+      "description": "Codex CLI と Codex Desktop で使う ChatGPT アカウントを管理します。",
       "beta": "Beta",
       "copilotDescription": "GitHub Copilot アカウントを管理します",
       "codexOauthDescription": "ChatGPT アカウントを管理します",
@@ -345,37 +311,15 @@
     "advanced": {
       "configDir": {
         "title": "設定ディレクトリ",
-        "description": "Claude、Codex、Gemini の設定保存パスを管理"
-      },
-      "proxy": {
-        "title": "ローカルルーティング",
-        "description": "ルーティングサービスの切り替え、ステータスとポート情報を表示",
-        "enableFeature": "メインページにルーティング切り替えを表示",
-        "enableFeatureDescription": "有効にすると、メインページ上部にルーティングとフェイルオーバーの切り替えが表示されます",
-        "enableFailoverToggle": "メインページにフェイルオーバー切り替えを表示",
-        "enableFailoverToggleDescription": "有効にすると、メインページ上部にフェイルオーバー切り替えが独立して表示されます",
-        "running": "実行中",
-        "stopped": "停止中"
-      },
-      "failover": {
-        "title": "自動フェイルオーバー",
-        "description": "フェイルオーバーキューとサーキットブレーカー戦略を設定"
+        "description": "Codex 設定の保存先を管理"
       },
       "pricing": {
         "title": "コスト計算",
         "description": "各モデルのトークン料金ルールを管理"
       },
-      "globalProxy": {
-        "title": "グローバル送信プロキシ",
-        "description": "CC Switch が外部 API にアクセスする際のプロキシを設定"
-      },
-      "data": {
-        "title": "データ管理",
-        "description": "ローカル設定データのインポートとエクスポート"
-      },
       "backup": {
         "title": "バックアップと復元",
-        "description": "自動バックアップの管理、データベーススナップショットの表示と復元"
+        "description": "データベースの自動バックアップ、スナップショット復元、SQL のインポートとエクスポートを管理"
       },
       "cloudSync": {
         "title": "クラウド同期",
@@ -410,7 +354,7 @@
         "title": "アプリ診断ログ",
         "description": "アプリ診断ログの出力レベルを制御",
         "enabled": "診断ログを有効化",
-        "enabledDescription": "cc-switch.log を制御します。リクエスト使用量記録と crash.log には影響しません",
+        "enabledDescription": "codex-switch.log を制御します。リクエスト使用量記録と crash.log には影響しません",
         "level": "ログレベル",
         "levelDescription": "出力する最小ログレベルを設定",
         "levels": {
@@ -431,14 +375,39 @@
       }
     },
     "language": "言語",
-    "languageHint": "切り替えるとすぐにプレビューされ、保存後に永続化されます。",
+    "languageHint": "言語の変更は自動保存されます。",
     "theme": "テーマ",
+    "quotaBattery": {
+      "title": "利用枠のバッテリー",
+      "warning": "警告しきい値",
+      "low": "低残量しきい値",
+      "help": "電池下側の赤いハンドルで低残量、上側の琥珀色のハンドルで警告しきい値を調整します。残量の範囲は赤・琥珀・緑で表示され、境界は滑らかに変化します。矢印キーは1%、Shift+矢印キーまたはPage Up/Downは5%、Home/Endは調整可能な端まで移動します。操作を終えると自動保存されます。",
+      "invalid": "0–100% の値を入力し、低残量しきい値を警告しきい値より小さくしてください。",
+      "lowShort": "低残量",
+      "warningShort": "警告",
+      "availableShort": "余裕あり"
+    },
+    "tray": {
+      "title": "メニューバー",
+      "display": "メニューバー表示",
+      "icon": "アプリアイコン",
+      "quotaRing": "リング + 残量パーセント",
+      "window": "利用枠の期間",
+      "fiveHour": "5 時間",
+      "sevenDay": "週間",
+      "color": "リングの色",
+      "system": "システム",
+      "quota": "残量",
+      "hint": "現在のアカウントの残量を表示します。",
+      "help": "アプリアイコン、残量リングと割合のコンパクト表示、またはリングのみを選べます。5時間または週間枠を選択できます。選択した期間の枠がない場合は、もう一方の利用可能な枠を表示します。ホバーで表示中の期間、アカウント、両方の枠と更新時刻を確認できます。システム色はメニューバーに追従し、使用枠色は警告しきい値に従います。不明な残量は — と表示します。変更は自動保存されます。",
+      "quotaRingOnly": "リングのみ"
+    },
     "themeHint": "アプリのテーマを選択します。すぐに反映されます。",
     "themeLight": "ライト",
     "themeDark": "ダーク",
     "themeSystem": "システム",
     "importExport": "SQL インポート/エクスポート",
-    "importExportHint": "移行や復元用にデータベースの SQL バックアップをインポート/エクスポートします（インポートは CC Switch がエクスポートしたバックアップのみ対応）。",
+    "importExportHint": "移行や復元用にデータベースの SQL バックアップをインポート/エクスポートします（インポートは Codex Switch がエクスポートしたバックアップのみ対応）。",
     "exportConfig": "SQL バックアップをエクスポート",
     "selectConfigFile": "SQL ファイルを選択",
     "noFileSelected": "ファイルが選択されていません。",
@@ -528,7 +497,7 @@
         "synologyHint": "Synology の「パッケージセンター」で WebDAV Server パッケージをインストール・有効化してください。",
         "custom": "カスタム"
       },
-      "remoteRootDefault": "デフォルト: cc-switch-sync",
+      "remoteRootDefault": "デフォルト: codex-switch-sync",
       "profileDefault": "デフォルト: default",
       "saveAndTestSuccess": "設定を保存しました。接続正常です",
       "saveAndTestFailed": "設定を保存しましたが、接続テストに失敗しました：{{error}}",
@@ -593,7 +562,7 @@
       "region": "リージョン",
       "regionPlaceholder": "例: us-east-1",
       "bucket": "バケット",
-      "bucketPlaceholder": "例: my-cc-switch-bucket",
+      "bucketPlaceholder": "例: my-codex-switch-bucket",
       "accessKeyId": "Access Key ID",
       "accessKeyIdPlaceholder": "例: AKIA...",
       "secretAccessKey": "Secret Access Key",
@@ -602,7 +571,7 @@
       "endpointHint": "多くの S3 互換サービスでは必須です",
       "endpointPlaceholder": "例: https://s3-compatible.example.com",
       "remoteRoot": "リモートルートディレクトリ",
-      "remoteRootDefault": "デフォルト: cc-switch-sync",
+      "remoteRootDefault": "デフォルト: codex-switch-sync",
       "profile": "同期プロファイル名",
       "profileDefault": "デフォルト: default",
       "autoSync": "自動同期",
@@ -674,29 +643,22 @@
     "languageOptionEnglish": "English",
     "languageOptionJapanese": "日本語",
     "windowBehavior": "ウィンドウ動作",
+    "toggleOff": "オフ",
+    "toggleOn": "オン",
     "windowBehaviorHint": "最小化動作や Claude プラグイン連携を設定します。",
     "launchOnStartup": "起動時に自動実行",
-    "launchOnStartupDescription": "システム起動時に CC Switch を自動起動します",
+    "launchOnStartupDescription": "システム起動時に Codex Switch を自動起動します",
     "silentStartup": "サイレント起動",
     "silentStartupDescription": "起動時にメインウィンドウを表示せず、トレイのみで起動",
     "autoLaunchFailed": "自動起動の設定に失敗しました",
     "minimizeToTray": "閉じるときトレイへ最小化",
-    "minimizeToTrayDescription": "チェックすると閉じるボタンでトレイに隠し、オフならアプリを終了します。",
+    "minimizeToTrayDescription": "オンの場合、閉じるボタンでシステムトレイに隠します。オフの場合はアプリを終了します。",
     "useAppWindowControls": "アプリ内ウィンドウボタンを有効化",
     "useAppWindowControlsDescription": "有効にすると、アプリヘッダーに最小化・最大化/復元・閉じるボタンを表示します。",
     "enableClaudePluginIntegration": "Claude Code 拡張に適用",
     "enableClaudePluginIntegrationDescription": "オンにすると VS Code の Claude Code 拡張のプロバイダーも同期します",
     "skipClaudeOnboarding": "Claude Code の初回確認をスキップ",
     "skipClaudeOnboardingDescription": "オンにすると Claude Code の初回インストール確認をスキップします",
-    "codexAuth": "Codex アプリ拡張",
-    "preserveCodexOfficialAuthOnSwitch": "直接切替時に公式ログインを保持",
-    "preserveCodexOfficialAuthOnSwitchDescription": "ローカルルーティングが無効な場合のサードパーティ切替を制御します。ルーティング接管中は常に Codex の公式ログインを保持します。",
-    "unifyCodexSessionHistory": "Codex セッション履歴を統一",
-    "unifyCodexSessionHistoryDescription": "オンにすると、公式サブスクリプションも共有の custom プロバイダー ID で動作し、公式とサードパーティのセッションが同じ履歴リストに表示されます。既存の公式セッションの移行も選択できます（移行前に自動バックアップ）。オフにする際はバックアップから復元できます。注意：プロバイダーをまたいで古いセッションを再開すると、encrypted_content の推論内容を相手のバックエンドが復号できず、再開に失敗する場合があります。",
-    "unifyCodexHistoryRestoreCompleted": "バックアップから公式セッション履歴を復元しました（セッションファイル {{files}} 件、インデックス {{rows}} 行）",
-    "unifyCodexHistoryRestoreFailed": "公式セッション履歴の復元に失敗しました。もう一度お試しください",
-    "unifyCodexHistoryRestoreNothing": "現在の Codex ディレクトリに復元可能な移行バックアップはありません",
-    "unifyCodexHistoryRestoreSkippedToggleOn": "統一セッション履歴が再度有効化されたため、復元をスキップしました",
     "appVisibility": {
       "title": "ホームページ表示",
       "description": "ホームページに表示するアプリを選択",
@@ -709,10 +671,10 @@
     },
     "skillStorage": {
       "title": "スキル保存場所",
-      "description": "CC Switch がスキルのマスターコピーを保存するディレクトリを選択します",
-      "ccSwitch": "CC Switch",
+      "description": "Codex Switch がスキルのマスターコピーを保存するディレクトリを選択します",
+      "codexSwitch": "Codex Switch",
       "unified": "~/.agents/skills",
-      "ccSwitchHint": "スキルは ~/.cc-switch/skills/ に保存され、シンボリックリンクまたはコピーで各アプリに同期されます。",
+      "codexSwitchHint": "スキルは ~/.codex-switch/skills/ に保存され、シンボリックリンクまたはコピーで各アプリに同期されます。",
       "unifiedHint": "スキルは ~/.agents/skills/ に保存されます（Agent Skills オープン標準）。対応ツール（Claude Code、Codex、Gemini CLI など）はこのディレクトリのスキルを直接検出します。",
       "confirmTitle": "スキル保存場所の移行",
       "confirmMessage": "{{count}} 個のスキルを新しい場所に移動します。続行しますか？",
@@ -759,9 +721,9 @@
     },
     "configDirectoryOverride": "設定ディレクトリの上書き（詳細）",
     "configDirectoryDescription": "WSL などで Claude Code や Codex を使う場合、ここで設定ディレクトリを WSL 側に合わせるとデータを揃えられます。",
-    "appConfigDir": "CC Switch 設定ディレクトリ",
-    "appConfigDirDescription": "CC Switch の保存場所をカスタマイズします（クラウド同期フォルダを指定すると設定を同期できます）",
-    "browsePlaceholderApp": "例: C:\\\\Users\\\\Administrator\\\\.cc-switch",
+    "appConfigDir": "Codex Switch 設定ディレクトリ",
+    "appConfigDirDescription": "Codex Switch のアプリデータの保存先を選択します。",
+    "browsePlaceholderApp": "例: C:\\\\Users\\\\Administrator\\\\.codex-switch",
     "claudeConfigDir": "Claude Code 設定ディレクトリ",
     "claudeConfigDirDescription": "Claude の設定ディレクトリ（settings.json）を上書きします。カスタムディレクトリでは .claude.json（MCP）をその中に保存し、既定の ~/.claude では Claude Code の既定どおり ~/.claude.json を使います。",
     "codexConfigDir": "Codex 設定ディレクトリ",
@@ -793,7 +755,7 @@
     "updating": "更新中...",
     "checking": "確認中...",
     "upToDate": "最新バージョンです",
-    "aboutHint": "バージョン情報と更新状況を表示します。",
+    "aboutHint": "バージョン情報と Codex CLI のインストール管理。",
     "portableMode": "ポータブルモード: 更新は手動ダウンロードが必要です。",
     "updateAvailable": "新しいバージョンがあります: {{version}}",
     "updateBadge": "更新あり",
@@ -805,10 +767,16 @@
     "viewCurrentReleaseNotes": "現在のバージョンのリリースノートを見る",
     "officialWebsite": "公式サイト",
     "github": "GitHub",
-    "starPrompt": "CC Switch がお役に立てたなら、GitHub でスターをお願いします。私たちにとって大きな励みになります",
+    "starPrompt": "Codex Switch がお役に立てたなら、GitHub でスターをお願いします。私たちにとって大きな励みになります",
     "manualInstallCommands": "手動インストールコマンド",
-    "oneClickInstallHint": "Claude Code / Codex / Gemini CLI / Grok Build / OpenCode / OpenClaw / Hermes / Pi / MiniMax Code をインストールまたは更新",
+    "oneClickInstallHint": "Codex CLI をインストールまたは更新",
     "localEnvCheck": "ローカル環境チェック",
+    "desktopApp": "デスクトップアプリ",
+    "buildVersion": "ビルド",
+    "appVersionUnsupported": "確認に未対応",
+    "appVersionUnavailable": "バージョンを取得できません",
+    "chatGptAppVersionHelp": "ChatGPT アプリのバージョン確認",
+    "chatGptAppVersionHint": "macOS の /Applications または ~/Applications にインストールされた ChatGPT アプリを確認します。更新ボタンでローカルのバージョンを再取得できます。アップデートの確認には ChatGPT アプリ自身の機能を使用してください。",
     "updateAllTools": "すべて更新（{{count}}）",
     "currentVersion": "現在のバージョン",
     "latestVersion": "最新バージョン",
@@ -841,7 +809,7 @@
     "toolUpgradeConfirmBtn": "アップグレードを実行",
     "toolUpgradeUnanchoredHint": "コマンドラインが実際に使用する箇所を特定できません。既定のアップグレードコマンドを実行します（PATH 上の最初の npm にインストールされる場合があります）。",
     "toolUpgradeUnmanagedTitle": "次のツールのアップグレードをスキップしました",
-    "toolUpgradeUnmanagedDetail": "{{tool}}（{{path}}）は npm または認識できるインストーラーでインストールされていないため、CC Switch ではアップグレード方法を判断できません。元のインストール方法でアップグレードしてください（例：winget、Scoop、公式インストールスクリプトの再実行）。",
+    "toolUpgradeUnmanagedDetail": "{{tool}}（{{path}}）は npm または認識できるインストーラーでインストールされていないため、Codex Switch ではアップグレード方法を判断できません。元のインストール方法でアップグレードしてください（例：winget、Scoop、公式インストールスクリプトの再実行）。",
     "envBadge": {
       "wsl": "WSL",
       "windows": "Win",
@@ -855,25 +823,13 @@
     "importFailedError": "設定のインポートに失敗しました: {{message}}",
     "exportFailedError": "設定のエクスポートに失敗しました:",
     "restartRequired": "再起動が必要です",
-    "restartRequiredMessage": "CC Switch の設定ディレクトリを変更すると再起動が必要です。今すぐ再起動しますか？",
+    "restartRequiredMessage": "Codex Switch の設定ディレクトリを変更すると再起動が必要です。今すぐ再起動しますか？",
     "restartNow": "今すぐ再起動",
     "restartLater": "後で再起動",
     "restartFailed": "アプリの再起動に失敗しました。手動で閉じて再度開いてください。",
     "devModeRestartHint": "開発モードでは自動再起動をサポートしていません。手動で再起動してください。",
     "saving": "保存中...",
     "globalProxy": {
-      "label": "グローバルプロキシ",
-      "hint": "すべてのリクエスト（API、Skills ダウンロードなど）をプロキシ経由で送信します。ローカルルーティング有効時、アプリのリクエストもこのプロキシを経由します。空欄で直接接続。",
-      "username": "ユーザー名（任意）",
-      "password": "パスワード（任意）",
-      "test": "接続テスト",
-      "scan": "ローカルプロキシをスキャン",
-      "clear": "クリア",
-      "scanFailed": "スキャンに失敗しました: {{error}}",
-      "saved": "ルーティング設定を保存しました",
-      "saveFailed": "保存に失敗しました: {{error}}",
-      "testSuccess": "接続成功！遅延 {{latency}}ms",
-      "testFailed": "接続に失敗しました: {{error}}",
       "pricingDefaultsTitle": "課金のデフォルト設定",
       "pricingDefaultsDescription": "アプリごとに、リクエストモデルとレスポンスモデルのどちらで価格を照合するかを設定します。ローカルルーティングを経由するリクエストにのみ適用されます。",
       "pricingAppLabel": "アプリ",
@@ -885,7 +841,19 @@
       "pricingSaveFailed": "課金設定の保存に失敗しました: {{error}}",
       "pricingLoadFailed": "課金設定の読み込みに失敗しました: {{error}}"
     },
-    "saveFailedGeneric": "保存に失敗しました。もう一度お試しください"
+    "saveFailedGeneric": "保存に失敗しました。もう一度お試しください",
+    "localBuildHint": "Codex Switch はローカルビルドとして配布されます。アプリの更新は外部で管理します。",
+    "quotaRefresh": {
+      "title": "使用枠の自動更新",
+      "off": "オフ",
+      "custom": "カスタム",
+      "seconds": "{{count}} 秒",
+      "minutes": "{{count}} 分",
+      "secondsUnit": "秒",
+      "secondsUnitShort": "秒",
+      "invalid": "30〜3600 秒の整数を入力してください。",
+      "help": "ホームとメニューバーは更新間隔とアカウントごとのリクエストを共有します。使用中のアカウントはバックグラウンドで、他のアカウントはホームが表示されている間に更新します。オフでも手動更新は利用できます。"
+    }
   },
   "apps": {
     "claude": "Claude",
@@ -976,7 +944,7 @@
     },
     "current": {
       "readFailed": "Pi のプロバイダー設定を読み込めません",
-      "stateUnavailableHint": "CC Switch が Pi のプロバイダー設定を読み込むまで、プロバイダーの変更は無効です。"
+      "stateUnavailableHint": "Codex Switch が Pi のプロバイダー設定を読み込むまで、プロバイダーの変更は無効です。"
     },
     "prompts": {
       "globalTab": "グローバルプロンプト",
@@ -1193,48 +1161,6 @@
     "officialHint": "💡 公式プロバイダーはブラウザログインで、API Key は不要です",
     "providerKeyStatusLoading": "プロバイダー識別子の状態を読み込んでいます。しばらくしてからもう一度お試しください",
     "getApiKey": "API Key を取得",
-    "partnerPromotion": {
-      "kimi": "Kimi の新規ユーザーは、初回チャージに成功するとチャージ金額の 10%（最大 CNY ¥1,000）が API クレジットとして進呈されます。",
-      "a6api": "A6API はトークンアグリゲーションサイトです。リアルタイム価格ランキングを内蔵し、全ネット最安値を自動で選択。動作は滑らかで安定し、面倒な価格比較も不要。登録するだけで体験クレジットがもらえます！",
-      "sudocode": "SudoCode の1つのキーで、Claude Code と Claude Desktop では Claude Opus 5、Codex では GPT-5.6 を利用できます。登録後 QQ グループ 726213516 に参加し、管理者へ連絡すると CNY ¥10 のトライアルクレジットを受け取れます。",
-      "code0": "code0.ai は開発者向けの AI コーディングサービスプラットフォームで、Claude Code、Codex、Gemini に対応。CC Switch ユーザー限定特典：公式サイトからサポートに連絡してテストクレジットを受け取れます！",
-      "packycode": "PackyCode は CC Switch の公式パートナーです。登録後チャージ時に \"cc-switch\" を入力すると 10% オフ",
-      "apikeyfun": "APIKEY.FUN は CC Switch ユーザー向けに特別優待を提供しています。専用リンクから登録すると、最大でチャージ永久 5% オフを受けられます。",
-      "apinebula": "APINEBULA は CC Switch ユーザー向けに特別割引を提供しています。専用リンクから登録し、チャージ時にプロモコード「ccswitch」を入力すると、さらに 10% OFF の割引が適用されます。",
-      "patewayai": "PatewayAI は CC Switch ユーザーに特別な特典を提供しています。このリンクから登録すると $3 のクレジットがもらえます。",
-      "claudeapi": "ClaudeAPI は CC Switch ユーザーに特別な特典を提供しています。このリンクから登録するとテストクレジットを受け取ることができます。",
-      "claudecn": "ClaudeCN は登録企業が運営するエンタープライズグレードの AI ゲートウェイプラットフォームで、企業調達プロセスをサポートし、法人支払い、契約、コンプライアンス保証を提供します。",
-      "runapi": "RunAPI は CC Switch ユーザーに特別な特典を提供しています。このリンクから登録すると、初回チャージが 10% オフになります。",
-      "opencode_go": "OpenCode Go は、複数のコーディングモデルを利用できるサブスクリプションサービスです。このリンクからプランの詳細確認と申し込みができます。",
-      "dmxapi": "Claude Code 専用モデル 66% OFF 実施中！",
-      "cubence": "Cubence は CC Switch の公式パートナーです。登録後チャージ時に \"CCSWITCH\" を入力すると、毎回 10% オフ",
-      "aigocode": "AIGoCode は CC Switch の公式パートナーです。このリンクから登録すると、初回チャージ時に 10% のボーナスクレジットがもらえます！",
-      "rightcode": "RightCode は CC Switch の公式パートナーです。このリンクから登録すると、毎回のチャージに 5% のボーナスクレジットがもらえます！",
-      "aicodemirror": "AICodeMirror は CC Switch の公式パートナーです。このリンクから登録すると20%オフ！",
-      "aicoding": "AI Coding は CC Switch ユーザー向けに特別割引を提供しています。初回チャージが 10% オフ！",
-      "crazyrouter": "CrazyRouter は CC Switch ユーザー向けに特別ボーナスを提供しています。初回チャージで 30% の追加クレジットがもらえます！",
-      "sssaicode": "SSAI Code は CC Switch ユーザー向けに特別ボーナスを提供しています。チャージごとに $10 の追加クレジットがもらえます！",
-      "siliconflow": "SiliconFlow は CC Switch の公式パートナーです",
-      "ucloud": "Compshare は CC Switch ユーザー向けに特別ボーナスを提供しています。このリンクから登録すると、5元のプラットフォーム体験クレジットがもらえます！",
-      "micu": "Micu は CC Switch の公式パートナーです",
-      "etok": "公式サイトで ETok コミュニティに参加し、プランを購読してください。",
-      "shengsuanyun": "胜算云はCC Switchユーザーに特別特典を提供しています。このリンクから登録すると、10元分の無料クレジットと初回チャージ10%ボーナスがもらえます！",
-      "doubaoseed": "豆包大モデルは CC Switch ユーザーに専属特典を提供しています：このリンクから登録すると、豆包全テキストモデル50万トークンの推論クレジットおよびSeedance2.0の500万トークン無料クレジットがもらえます。",
-      "volcengine_agentplan": "火山方舟 Agent Plan は CC Switch ユーザーに専属特典を提供しています：このリンクから方舟 Agent Plan を購読すると、新規のお客様は最初の 2 か月が 75% オフ、さらに専用招待コード 6J6FV5N2 で 5% オフが加算され、月額 9.4 元から！",
-      "volcengine_codingplan": "火山方舟 Coding Plan は CC Switch ユーザーに専属特典を提供しています：このリンクから方舟 Coding Plan を購読すると、新規のお客様は最初の 2 か月が 75% オフ、さらに専用招待コード 6J6FV5N2 で 5% オフが加算され、月額 9.4 元から！",
-      "byteplus": "このリンクから登録すると、各モデルごとに50万トークンの無料推論クォータがもらえます。",
-      "ccsub": "CCSub は安定・低価格の AI API リレーサービスです。Claude Code の公式サブスクリプションの代替として、1つのキーで全モデルを公式比約1/3のコストで利用できます。",
-      "subrouter": "SubRouter は、1つのキーで複数のモデルとプロバイダーにアクセスできる AI 中継アグリゲーターです。",
-      "qiniu": "Qiniu Cloud（七牛云）はマルチプロトコル対応の AI 中継プラットフォームです。1つのキーでネイティブの Claude・GPT・Gemini モデルを利用でき、Anthropic／OpenAI／Gemini の各 API に対応します。",
-      "fenno": "Fenno.ai は安定・高効率な API 中継サービスで、幅広い主要モデルを利用できます。CC Switch 利用者限定特典：このリンクから 1.99 ドルで 50 ドル相当の Trial プランを購入できます（有効期間 7 日間）！",
-      "zetaapi": "ZetaAPI はモデルを水増し・劣化させず、公式価格の 35% から利用できます。CC Switch 利用者限定特典：このリンクから登録し、初回チャージ時にプロモコード CC-SWITCH を使うと初回チャージ 10% オフ！",
-      "teamorouter": "TeamoRouter はエンタープライズグレードの Agentic LLM ゲートウェイで、料金は最大 90% オフ。CC Switch ユーザーに特別特典を提供しています：このリンクから新規登録すると初回チャージが 10% オフ！",
-      "ppio": "PPIO は中国有数の独立系 Agentic Cloud プロバイダーで、API キー 1 つで主要なオープンソースモデルをすべて利用できます。このリンクから登録し実名認証を完了すると、¥10 のクーポンがもらえます。",
-      "xycai": "XycAi はエンタープライズグレードのトークンファクトリー：200+ のグローバルモデルにワンクリック接続、SLA 自動補償、異常キャッシュは 100% 返金！",
-      "9527code": "9527 CODE はエンタープライズ級のフルスペック AI 中継プラットフォームで、Claude Code や Codex などの主要モデルに高速・安定した中継サービスを提供します。1 年間の継続運営、サービス安定性 99.9%、7×24 時間の有人技術サポート。新規ユーザーはサポートへのご連絡で体験クレジットを進呈、紹介キャッシュバックは上限なし！",
-      "soleapi": "SoleAPI は開発者と企業向けの AI モデルゲートウェイ。API キー 1 つで Claude・GPT・Gemini など 30 以上の主要モデルを利用でき、OpenAI / Anthropic プロトコルにネイティブ対応。リアルタイムのスマートルーティングとミリ秒単位の自動切替で可用性 99.99%、24 時間 365 日サポート。専用リンクから登録すると無料のお試しクレジット、友人招待で継続的なキャッシュバック！",
-      "fluxa": "FluxA と Baidu AI Cloud が共同で提供する AgenticPlan は、AI エージェントがモデル・API・ツールを自ら購入し、管理し、利用できるようにします。百度千帆 TokenPlan を最大 40% オフで含み、DeepSeek V4・GLM 5.2・Kimi などの主力モデルを利用可能。さらに FluxA AgentMarket の API クレジットが付き、検索・データ取得・ソーシャルメディア・金融・暗号資産・画像生成・動画など 13,000 以上の有料 API を利用できます。"
-    },
     "presets": {
       "ucloud": "Compshare",
       "ucloudCoding": "Compshare Coding Plan",
@@ -1330,6 +1256,11 @@
     "quickSetModels": "一括設定",
     "quickSetSuccess": "モデル名をすべての役割に適用しました",
     "advancedOptionsToggle": "高級オプション",
+    "connectionHelp": "接続設定の説明",
+    "endpointHelp": "API エンドポイントの説明",
+    "defaultModelHelp": "デフォルトモデルの説明",
+    "advancedHelp": "詳細設定の説明",
+    "catalogHelp": "モデル一覧の説明",
     "advancedOptionsHint": "API フォーマット、認証フィールド、モデルマッピングの設定を含みます。通常はデフォルトのままで問題ありません。",
     "categoryOfficial": "公式",
     "categoryCnOfficial": "オープンソース公式",
@@ -1457,6 +1388,7 @@
     "loginRequired": "先に xAI アカウントへログインしてください"
   },
   "managedAuth": {
+    "deviceCodeExpired": "ログイン認証コードの有効期限が切れました。もう一度お試しください。",
     "accountRemoved": "アカウントを削除しました",
     "selectedAccountNeedsReauth": "リンクされたアカウントが存在しないか、再ログインが必要です",
     "selectedAccountUnavailable": "リンクされたアカウントが存在しないか、再ログインが必要です。別のアカウントを選択してください"
@@ -1604,7 +1536,7 @@
     "headerName": "ヘッダー",
     "headerValue": "値",
     "headerNamePlaceholder": "X-Title",
-    "headerValuePlaceholder": "CC Switch",
+    "headerValuePlaceholder": "Codex Switch",
     "removeHeader": "ヘッダーを削除",
     "noHeaders": "カスタムヘッダーはありません",
     "extraOptions": "追加オプション",
@@ -1640,7 +1572,7 @@
     "noSearchResults": "一致するプロバイダープリセットがありません。"
   },
   "usage": {
-    "title": "利用統計",
+    "title": "ローカル使用量",
     "subtitle": "AI モデルの利用状況とコスト統計を表示",
     "today": "24時間",
     "last7days": "7日間",
@@ -1650,7 +1582,7 @@
     "preset7d": "7d",
     "preset14d": "14d",
     "preset30d": "30d",
-    "totalRequests": "総リクエスト数",
+    "totalRequests": "使用量記録の総数",
     "totalCost": "総コスト",
     "cost": "コスト",
     "unpriced": "価格未設定",
@@ -1665,9 +1597,19 @@
     "realTotalHint": "Input + Output + キャッシュ書込 + キャッシュ命中",
     "freshInput": "新規入力",
     "cacheHitRate": "キャッシュヒット率",
-    "requestLogs": "リクエストログ",
-    "providerStats": "プロバイダー統計",
+    "requestLogs": "使用量記録",
+    "sourceStats": "ソース統計",
     "modelStats": "モデル統計",
+    "comparison": {
+      "sources": "ソース比較",
+      "models": "モデル比較",
+      "metric": "比較指標",
+      "cost": "金額",
+      "tokens": "使用量",
+      "total": "合計",
+      "costHint": "現在のフィルター範囲における推定費用（米ドル）です。",
+      "tokensHint": "表の Tokens と同じ集計：キャッシュを除く入力 + 出力。"
+    },
     "time": "時間",
     "provider": "プロバイダー",
     "billingModel": "課金モデル",
@@ -1685,7 +1627,7 @@
     "stream": "ストリーム",
     "nonStream": "非ストリーム",
     "source": "ソース",
-    "requestsLabel": "リクエスト",
+    "requestsLabel": "件の使用量記録",
     "costLabel": "合計コスト",
     "appFilter": {
       "all": "すべて",
@@ -1700,10 +1642,11 @@
     "rawInputLabel": "原始",
     "sessionSync": {
       "title": "セッションログの自動スキャン",
-      "description": "各クライアントのローカルセッションログを定期的にスキャンして使用量を集計します。オフにすると手動同期時のみスキャンします",
+      "description": "有効にすると起動時と 60 秒ごとにローカルのセッションログをスキャンします。どちらのモードでも今すぐ同期できます。ページの更新は記録済みの統計を再取得します。",
       "syncNow": "今すぐ同期",
       "syncCompleted": "同期完了：{{imported}} 件追加、{{files}} ファイルをスキャン、エラー {{errors}} 件",
-      "syncFailed": "セッション使用量の同期に失敗しました：{{error}}"
+      "syncFailed": "セッション使用量の同期に失敗しました：{{error}}",
+      "help": "セッション自動スキャンについて"
     },
     "rebuildCodex": {
       "title": "Codex 使用量メンテナンス",
@@ -1781,7 +1724,7 @@
     "performance": "パフォーマンス",
     "latency": "レイテンシー",
     "errorMessage": "エラーメッセージ",
-    "requests": "リクエスト数",
+    "requests": "使用量記録数",
     "tokens": "トークン",
     "avgCost": "平均コスト",
     "avgLatency": "平均レイテンシ",
@@ -1816,11 +1759,11 @@
     "modelsDevDefaultHint": "最新リリース順に {{shown}} 件を表示しています（全 {{total}} 件）。キーワード入力で全件検索できます",
     "modelsDevAutoSync": {
       "title": "models.dev 料金の自動同期",
-      "description": "有効にすると、CC Switch の起動時に選択したモデルの最新料金を定期的に取得し、ローカル料金ファイルに保存します。",
+      "description": "有効にすると、Codex Switch の起動時に選択したモデルの最新料金を定期的に取得し、ローカル料金ファイルに保存します。",
       "enabled": "有効",
       "disabled": "無効",
       "enableConfirmTitle": "料金の自動同期を有効にしますか？",
-      "enableConfirmMessage": "有効にすると、CC Switch の起動時に models.dev から選択したモデルの料金を定期的に更新します（最大 6 時間に 1 回）。同じモデル ID の内蔵料金と手動設定した料金は上書きされます。",
+      "enableConfirmMessage": "有効にすると、Codex Switch の起動時に models.dev から選択したモデルの料金を定期的に更新します（最大 6 時間に 1 回）。同じモデル ID の内蔵料金と手動設定した料金は上書きされます。",
       "enableConfirmAction": "自動同期を有効にする",
       "configure": "モデルを選択",
       "configureTitle": "料金を自動同期するモデルを選択",
@@ -1849,7 +1792,84 @@
       "syncNow": "今すぐ同期"
     },
     "cacheReadCostPerMillion": "キャッシュ読み取りコスト（100万トークンあたり、USD）",
-    "cacheCreationCostPerMillion": "キャッシュ書き込みコスト（100万トークンあたり、USD）"
+    "cacheCreationCostPerMillion": "キャッシュ書き込みコスト（100万トークンあたり、USD）",
+    "estimatedCost": "推定費用",
+    "sessionSource": {
+      "configure": "Token データソースを設定",
+      "title": "Token セッションのデータソース",
+      "directory": "Codex ルートディレクトリ",
+      "help": "Token データソースについて",
+      "description": "sessions と archived_sessions を含む Codex ルートを選択してください。ログは読み取りのみで、元のファイルを変更しません。アカウント設定とログイン情報はそれぞれのディレクトリを使用します。空欄で既定のソースを使用します。",
+      "placeholder": "既定の Codex ルート",
+      "browse": "フォルダーを選択",
+      "reset": "既定に戻す",
+      "current": "保存済みのソース",
+      "default": "既定のソース",
+      "loading": "Token データソースを読み込み中…",
+      "loadFailed": "現在の Token データソースを読み込めません。",
+      "retry": "再試行",
+      "browseFailed": "フォルダーを選択できません。",
+      "saveFailed": "Token データソースを保存できません。入力内容は保持されています。",
+      "saved": "Token データソースを保存しました。「今すぐ同期」で選択したソースをスキャンできます。",
+      "cancel": "キャンセル",
+      "save": "保存"
+    },
+    "records": {
+      "title": "使用量記録",
+      "view": "表示",
+      "views": {
+        "session": "セッション別",
+        "hour": "時間別",
+        "day": "日別",
+        "details": "詳細"
+      },
+      "attribution": "割り当て",
+      "method": {
+        "all": "すべて",
+        "untagged": "未割り当て",
+        "auto": "自動",
+        "manual": "手動",
+        "mixed": "混在"
+      },
+      "session": "セッション / 時間",
+      "account": "アカウント",
+      "provider": "プロバイダー",
+      "models": "モデル",
+      "count": "記録数",
+      "input": "入力",
+      "output": "出力",
+      "cache": "キャッシュ読み取り",
+      "cost": "推定費用",
+      "multiple": "複数",
+      "untagged": "未割り当て",
+      "autoHelp": "確認時点の有効な設定に基づきます。実際の請求は未確認です。",
+      "unpriced": "価格未設定の記録があります。推定額は価格設定済みの記録のみを含みます。",
+      "allAccounts": "すべてのアカウント",
+      "allProviders": "すべてのプロバイダー",
+      "timezone": "タイムゾーン",
+      "expand": "記録を展開",
+      "tagRow": "この記録またはグループを割り当て",
+      "assignFiltered": "絞り込んだ記録を割り当て",
+      "assign": "使用量を割り当て",
+      "assignHelp": "選択した使用量記録のサブスクリプションアカウントまたは API ソースを選んでください。",
+      "target": "ソース",
+      "choose": "選択…",
+      "replaceExisting": "選択範囲内の既存ラベルを置き換える",
+      "affected": "現在 {{count}} 件の使用量記録が一致しています",
+      "apply": "割り当て",
+      "assigned": "{{count}} 件の記録を割り当てました",
+      "undo": "元に戻す",
+      "undone": "割り当てを元に戻しました",
+      "groups": "{{count}} 行",
+      "previous": "前のページ",
+      "next": "次のページ",
+      "legacySummary": "一部の過去の使用量には集計データしかありません。使用量を再構築すると、既存のセッションログから詳細を再読み込みできます。",
+      "source": "ソース",
+      "allSources": "すべてのソース",
+      "accountType": "サブスクリプションアカウント",
+      "apiType": "API ソース",
+      "replaceExistingHelp": "通常は未割り当ての記録だけを設定します。有効にすると、選択した会話・期間・フィルターの範囲内で既存ラベルも置き換えます。今後の記録には影響しません。"
+    }
   },
   "usageScript": {
     "title": "利用状況を設定",
@@ -1941,7 +1961,7 @@
   },
   "dbUpgrade": {
     "title": "データベースのバージョンが新しすぎます",
-    "description": "このデータベースは新しいバージョンの CC Switch で作成されています。続行するにはアプリを更新してください。更新してもデータは削除されません。",
+    "description": "このデータベースは新しいバージョンの Codex Switch で作成されています。続行するにはアプリを更新してください。更新してもデータは削除されません。",
     "versionInfo": "データベース v{{db}} · アプリ対応 v{{supported}}",
     "dbPath": "データベースファイル",
     "checking": "利用可能な更新を確認中…",
@@ -1954,7 +1974,8 @@
     "retry": "更新を再試行",
     "openReleases": "リリースページを開く",
     "openConfigDir": "設定フォルダを開く",
-    "quit": "終了"
+    "quit": "終了",
+    "localBuildRecovery": "このデータベースには互換性のある Codex Switch が必要です。設定フォルダーをバックアップしてから、対応するビルドをインストールするか、以前のバックアップを復元してください。自動更新は未設定です。この画面はデータを変更しません。"
   },
   "errors": {
     "usage_query_failed": "利用状況の取得に失敗しました",
@@ -1987,7 +2008,7 @@
       "deleteConfirm": "サーバー「{{id}}」を削除しますか？この操作は元に戻せません。",
       "noServers": "まだサーバーがありません",
       "enabledApps": "有効なアプリ",
-      "noImportFound": "インポートする MCP サーバーが見つかりませんでした。すべてのサーバーは CC Switch で管理されています。",
+      "noImportFound": "インポートする MCP サーバーが見つかりませんでした。すべてのサーバーは Codex Switch で管理されています。",
       "importSuccess": "{{count}} 個の MCP サーバーをインポートしました",
       "searchPlaceholder": "MCP の名前、説明、タグ、コマンドを検索...",
       "searchAriaLabel": "管理中の MCP サーバーを検索",
@@ -2479,7 +2500,7 @@
     "installSuccess": "スキル {{name}} をインストールしました",
     "installFailed": "インストールに失敗しました",
     "uninstallSuccess": "スキル {{name}} をアンインストールしました",
-    "uninstallPiPreserved": "Pi のコピーが CC Switch 管理下であることを確認できなかったため、そのまま残しました: {{path}}",
+    "uninstallPiPreserved": "Pi のコピーが Codex Switch 管理下であることを確認できなかったため、そのまま残しました: {{path}}",
     "uninstallPiCleanupIncomplete": "Pi のクリーンアップを完了できませんでした。Pi Skills ディレクトリにコピーが残っていないか手動で確認してください。",
     "uninstallFailed": "アンインストールに失敗しました",
     "update": "更新",
@@ -2579,10 +2600,10 @@
     "noInstalledDescription": "リポジトリからスキルを発見してインストールするか、既存のスキルをインポートしてください",
     "discover": "スキルを発見",
     "import": "既存をインポート",
-    "importDescription": "CC Switch 統合管理にインポートするスキルを選択してください",
+    "importDescription": "Codex Switch 統合管理にインポートするスキルを選択してください",
     "importSuccess": "{{count}} 件のスキルをインポートしました",
     "importSelected": "選択をインポート ({{count}})",
-    "noUnmanagedFound": "インポートするスキルが見つかりませんでした。すべてのスキルは CC Switch で管理されています。",
+    "noUnmanagedFound": "インポートするスキルが見つかりませんでした。すべてのスキルは Codex Switch で管理されています。",
     "unmanagedAvailable": "インポート可能なスキルがあります",
     "foundIn": "発見場所",
     "local": "ローカル",
@@ -2627,7 +2648,7 @@
   },
   "deeplink": {
     "confirmImport": "プロバイダーのインポートを確認",
-    "confirmImportDescription": "次の設定をディープリンクから CC Switch へインポートします",
+    "confirmImportDescription": "次の設定をディープリンクから Codex Switch へインポートします",
     "importPrompt": "プロンプトをインポート",
     "importPromptDescription": "このシステムプロンプトをインポートするか確認してください",
     "importMcp": "MCP サーバーをインポート",
@@ -2747,226 +2768,12 @@
     "circuitOpen": "サーキットオープン",
     "consecutiveFailures": "{{count}} 回連続失敗"
   },
-  "failover": {
-    "enabled": "{{app}} フェイルオーバーが有効になりました",
-    "disabled": "{{app}} フェイルオーバーが無効になりました",
-    "toggleFailed": "操作に失敗しました: {{detail}}",
-    "inQueue": "キュー内",
-    "addQueue": "追加",
-    "priority": {
-      "tooltip": "フェイルオーバー優先度 {{priority}}"
-    },
-    "tooltip": {
-      "enabled": "{{app}} フェイルオーバーが有効\nキューの優先度（P1→P2→...）で使用します",
-      "disabled": "{{app}} フェイルオーバーを有効にする\nキューの P1 に即時切替し、失敗時は次を順に試行します",
-      "takeoverRequired": "先に {{app}} を引き継いでから、フェイルオーバーを有効にしてください"
-    }
-  },
-  "proxy": {
-    "panel": {
-      "serviceAddress": "サービスアドレス",
-      "addressCopied": "アドレスをコピーしました",
-      "currentProvider": "現在のプロバイダー:",
-      "waitingFirstRequest": "現在のプロバイダー: 最初のリクエスト待ち...",
-      "stoppedTitle": "ルーティングサービス停止中",
-      "stoppedDescription": "上のトグルでサービスを開始できます",
-      "openSettings": "ルーティングサービスを設定",
-      "stats": {
-        "activeConnections": "アクティブ接続",
-        "totalRequests": "総リクエスト数",
-        "successRate": "成功率",
-        "uptime": "稼働時間"
-      }
-    },
-    "settings": {
-      "title": "ルーティングサービス設定",
-      "description": "ローカルルーティングサーバーのリッスンアドレス、ポート、実行パラメータを設定します。保存後すぐに反映されます。",
-      "alert": {
-        "autoApply": "変更は実行中のルーティングサービスに自動的に同期され、手動での再起動は不要です。"
-      },
-      "basic": {
-        "title": "基本設定",
-        "description": "ルーティングサービスのリッスンアドレスとポートを設定します。"
-      },
-      "advanced": {
-        "title": "詳細パラメータ",
-        "description": "リクエストの安定性とログ記録を制御します。"
-      },
-      "timeout": {
-        "title": "タイムアウト設定",
-        "description": "ストリーミングと非ストリーミングリクエストのタイムアウトを設定します。"
-      },
-      "fields": {
-        "listenAddress": {
-          "label": "リッスンアドレス",
-          "placeholder": "127.0.0.1",
-          "description": "ルーティングサーバーがリッスンするIPアドレス（推奨: 127.0.0.1）"
-        },
-        "listenPort": {
-          "label": "リッスンポート",
-          "placeholder": "15721",
-          "description": "ルーティングサーバーがリッスンするポート番号（1024 ~ 65535）"
-        },
-        "maxRetries": {
-          "label": "最大リトライ回数",
-          "placeholder": "3",
-          "description": "リクエスト失敗時のリトライ回数（0 ~ 10）"
-        },
-        "requestTimeout": {
-          "label": "リクエストタイムアウト（秒）",
-          "placeholder": "0（無制限）または 300",
-          "description": "単一リクエストの最大待機時間（0 = 無制限、または 10 ~ 600 秒）"
-        },
-        "enableLogging": {
-          "label": "リクエスト使用量を記録",
-          "description": "ルーティングリクエストの使用量と状態をローカル統計データベースに保存"
-        },
-        "streamingFirstByteTimeout": {
-          "label": "ストリーミング初回バイトタイムアウト（秒）",
-          "description": "最初のデータチャンクを待つ最大時間"
-        },
-        "streamingIdleTimeout": {
-          "label": "ストリーミングアイドルタイムアウト（秒）",
-          "description": "データチャンク間の最大間隔"
-        },
-        "nonStreamingTimeout": {
-          "label": "非ストリーミングタイムアウト（秒）",
-          "description": "非ストリーミングリクエストの総タイムアウト"
-        }
-      },
-      "validation": {
-        "addressInvalid": "有効なIPアドレスを入力してください",
-        "portMin": "ポートは1024より大きい必要があります",
-        "portMax": "ポートは65535より小さい必要があります",
-        "retryMin": "リトライ回数は負の値にできません",
-        "retryMax": "リトライ回数は10を超えることはできません",
-        "timeoutNonNegative": "タイムアウトは負の値にできません",
-        "timeoutMax": "タイムアウトは600秒を超えることはできません",
-        "timeoutRange": "0または10-600の間の値を入力してください",
-        "streamingTimeoutMin": "タイムアウトは少なくとも5秒必要です",
-        "streamingTimeoutMax": "タイムアウトは300秒を超えることはできません"
-      },
-      "actions": {
-        "save": "設定を保存"
-      },
-      "toast": {
-        "saved": "ルーティング設定を保存しました",
-        "saveFailed": "保存に失敗しました: {{error}}"
-      },
-      "invalidPort": "無効なポートです。1024〜65535 の数値を入力してください",
-      "invalidAddress": "無効なアドレスです。IPv4（例: 127.0.0.1）、IPv6（例: ::1）、または localhost を入力してください",
-      "configSaved": "ルーティング設定を保存しました",
-      "configSaveFailed": "設定の保存に失敗しました",
-      "restartRequired": "アドレスまたはポートの変更を反映するにはルーティングサービスの再起動が必要です"
-    },
-    "switchFailed": "切り替えに失敗しました: {{error}}",
-    "takeover": {
-      "ariaLabel": "{{appLabel}} ローカルルーティング",
-      "hint": "ルーティングするアプリを選択します。有効にすると、そのアプリのリクエストはローカルルーティング経由で転送されます",
-      "enabled": "{{app}} ルーティング有効",
-      "disabled": "{{app}} ルーティング無効",
-      "failed": "ルーティングの切り替えに失敗しました: {{detail}}",
-      "tooltip": {
-        "active": "{{appLabel}} がルーティング中 - {{address}}:{{port}}\nプロバイダを切り替えるとルートだけが変わり、直接接続のプロバイダはそのままです",
-        "broken": "{{appLabel}} がルーティング中ですが、ルーティングサービスが実行されていません",
-        "inactive": "{{appLabel}} のリクエストをローカルルーティング経由でルーティング"
-      }
-    },
-    "failover": {
-      "proxyRequired": "フェイルオーバーを設定するには、ルーティングサービスを先に起動する必要があります",
-      "autoSwitch": "自動フェイルオーバー",
-      "autoSwitchDescription": "有効にするとキューの P1 に即時切り替え、リクエスト失敗時はキュー内の次のプロバイダーを自動で試行します"
-    },
-    "failoverQueue": {
-      "title": "フェイルオーバーキュー",
-      "description": "各アプリのプロバイダーのフェイルオーバー順序を管理します",
-      "info": "自動フェイルオーバーを有効にすると、キューの優先度順（P1 優先）でプロバイダーを使用します。失敗時はキュー内の次のプロバイダーを順に試行します。",
-      "selectProvider": "キューに追加するプロバイダーを選択",
-      "noAvailableProviders": "追加できるプロバイダーがありません",
-      "empty": "フェイルオーバーキューが空です。自動フェイルオーバーを有効にするにはプロバイダーを追加してください。",
-      "orderHint": "キューの順序はホームのプロバイダー一覧の順序と一致します。ホームでドラッグして順序を変更できます。",
-      "dragHint": "ドラッグでフェイルオーバー順序を調整します。番号が小さいほど優先度が高くなります。",
-      "toggleEnabled": "有効/無効",
-      "addSuccess": "フェイルオーバーキューに追加しました",
-      "addFailed": "追加に失敗しました",
-      "removeSuccess": "フェイルオーバーキューから削除しました",
-      "removeFailed": "削除に失敗しました",
-      "reorderSuccess": "キュー順序を更新しました",
-      "reorderFailed": "順序の更新に失敗しました",
-      "toggleFailed": "状態の更新に失敗しました"
-    },
-    "autoFailover": {
-      "info": "フェイルオーバーキューに複数のプロバイダーが設定されている場合、リクエストが失敗すると優先度順に試行します。プロバイダーが連続失敗のしきい値に達すると、サーキットブレーカーが開き、一時的にスキップされます。",
-      "configSaved": "自動フェイルオーバー設定を保存しました",
-      "configSaveFailed": "保存に失敗しました",
-      "validationFailed": "以下のフィールドが有効範囲外です: {{fields}}",
-      "retrySettings": "リトライとタイムアウト設定",
-      "failureThreshold": "失敗しきい値",
-      "failureThresholdHint": "この回数連続で失敗するとサーキットブレーカーが開きます（推奨: 3-10）",
-      "timeout": "回復待ち時間（秒）",
-      "timeoutHint": "サーキットが開いた後、回復を試みるまでの待ち時間（推奨: 30-120）",
-      "circuitBreakerSettings": "サーキットブレーカー設定",
-      "successThreshold": "回復成功しきい値",
-      "successThresholdHint": "半開状態でこの回数成功するとサーキットブレーカーが閉じます",
-      "errorRate": "エラー率しきい値 (%)",
-      "errorRateHint": "この値を超えるとサーキットブレーカーが開きます",
-      "minRequests": "最小リクエスト数",
-      "minRequestsHint": "エラー率を計算する前の最小リクエスト数",
-      "explanationTitle": "仕組み",
-      "failureThresholdLabel": "失敗しきい値",
-      "failureThresholdExplain": "この回数連続で失敗すると、サーキットブレーカーが開き、プロバイダーは一時的に利用不可になります",
-      "timeoutLabel": "回復待ち時間",
-      "timeoutExplain": "サーキットが開いた後、半開状態を試みるまでの待ち時間",
-      "successThresholdLabel": "回復成功しきい値",
-      "successThresholdExplain": "半開状態でこの回数成功するとサーキットブレーカーが閉じ、プロバイダーが再び利用可能になります",
-      "errorRateLabel": "エラー率しきい値",
-      "errorRateExplain": "失敗しきい値に達していなくても、エラー率がこの値を超えるとサーキットブレーカーが開きます",
-      "maxRetries": "最大リトライ回数",
-      "timeoutSettings": "タイムアウト設定",
-      "streamingFirstByte": "ストリーミング最初のバイトタイムアウト",
-      "streamingIdle": "ストリーミングアイドルタイムアウト",
-      "nonStreaming": "非ストリーミングタイムアウト",
-      "maxRetriesHint": "リクエスト失敗時のリトライ回数（0-10）",
-      "streamingFirstByteHint": "最初のデータチャンクを待つ最大時間、範囲 1-120 秒、デフォルト 60 秒",
-      "streamingIdleHint": "データチャンク間の最大間隔、範囲 60-600 秒、0 で無効化（途中停止を防止）",
-      "nonStreamingHint": "非ストリーミングリクエストの合計タイムアウト、範囲 60-1200 秒、デフォルト 600 秒（10 分）"
-    },
-    "logging": {
-      "enabled": "ログ記録が有効になりました",
-      "disabled": "ログ記録が無効になりました",
-      "failed": "ログ状態の切り替えに失敗しました"
-    },
-    "server": {
-      "started": "ルーティングサービスが開始されました - {{address}}:{{port}}",
-      "startFailed": "ルーティングサービスの開始に失敗しました: {{detail}}",
-      "stopped": "ルーティングサービスが停止しました",
-      "stopFailed": "ルーティングサービスの停止に失敗しました: {{detail}}"
-    },
-    "stoppedWithRestore": "ルーティングサービスを停止し、すべてのアプリを直接接続に戻しました",
-    "stopWithRestoreFailed": "停止に失敗しました: {{detail}}"
-  },
   "streamCheck": {
     "reachable": "{{providerName}} は接続可能 ({{responseTimeMs}}ms)",
     "reachableSlow": "{{providerName}} は接続可能だが低速 ({{responseTimeMs}}ms)",
     "unreachable": "{{providerName}} に接続できません: {{message}}",
     "unreachableHint": "接続を確立できませんでした（DNS / 接続 / TLS / タイムアウト）。base_url とネットワークを確認してください。",
     "error": "{{providerName}} のチェックでエラーが発生しました: {{error}}"
-  },
-  "proxyConfig": {
-    "proxyEnabled": "ルーティング総スイッチ",
-    "appTakeover": "ルーティング有効",
-    "perAppConfig": "アプリ別設定",
-    "circuitBreaker": "サーキットブレーカー",
-    "circuitBreakerSettings": "サーキットブレーカー設定",
-    "failureThreshold": "失敗閾値",
-    "successThreshold": "回復閾値",
-    "recoveryTimeout": "回復待機時間",
-    "errorRateThreshold": "エラー率閾値",
-    "minRequests": "最小リクエスト数",
-    "timeoutConfig": "タイムアウト設定",
-    "streamingFirstByte": "ストリーミング初回バイトタイムアウト",
-    "streamingIdle": "ストリーミングアイドルタイムアウト",
-    "nonStreaming": "非ストリーミングタイムアウト"
   },
   "universalProvider": {
     "duplicate": "複製",
@@ -3228,5 +3035,119 @@
     "expiredHint": "{{tool}}コマンドを実行してログインを更新してください",
     "queryFailed": "クエリに失敗しました",
     "refresh": "更新"
+  },
+  "productShell": {
+    "openAiApi": "OpenAI API",
+    "unsupportedImport": "このアプリでは Codex プロバイダー設定のみインポートできます。",
+    "proxy": {
+      "globalHint": "外部 API へのアクセスに使用する共通 HTTP プロキシを設定します。"
+    },
+    "settings": {
+      "codexDirectoryDescription": "WSL パスを含む Codex 設定ディレクトリを指定します。",
+      "configDirDescription": "Codex 設定とアプリデータの保存先を管理します。",
+      "codexInstallHint": "Codex CLI をインストールまたは更新します。"
+    },
+    "auth": {
+      "description": "Codex で使う ChatGPT アカウントを管理します。"
+    },
+    "usage": {
+      "commonModelsDescription": "最近の Codex モデルを {{count}} 件選択します。",
+      "modelIdPlaceholder": "例：gpt-5-codex",
+      "displayNamePlaceholder": "例：GPT-5 Codex"
+    },
+    "storedUpstreamFormat": "保存済みの上流形式",
+    "upstreamFormatHint": "Codex のネイティブリクエストには Responses を使用します。ローカルルーティングが有効な場合は Chat Completions も利用できます。",
+    "officialQuotaHint": "選択した Codex または ChatGPT アカウントの利用枠を取得します。",
+    "reasoningModeHint": "上流が明示的な思考モードに対応している場合に有効にします。",
+    "nativeConnectionHint": "Codex はネイティブ Responses API に直接接続します。モデルと推論レベルを変更できます。",
+    "legacyConnectionHint": "この保存済み接続には削除されたプロトコル変換が必要です。設定を編集できますが、有効化できません。",
+    "nativeEndpointHint": "プロバイダーのネイティブ Responses API のベース URL。",
+    "nativeCatalogHint": "モデル一覧を Codex の /model メニューに追加します。リクエストには各モデルの正確な識別子とネイティブ推論レベルを使用します。"
+  },
+  "codexAccounts": {
+    "subscriptionAccounts": "サブスクリプションアカウント",
+    "moreActions": "その他のアカウント操作",
+    "configurationsTitle": "Provider",
+    "noApiKeys": "API Key の接続はありません",
+    "addApiKeyConnection": "API Key を追加",
+    "configurationsDescription": "API Key 接続と保存済みの詳細設定を管理します。ChatGPT の利用枠は各アカウントのカードに表示されます。",
+    "title": "ChatGPT アカウント",
+    "current": "現在使用中",
+    "configuration": "アカウント設定",
+    "chooseConfiguration": "設定を選択",
+    "switch": "このアカウントに切り替え",
+    "restartHint": "切り替えによりローカルの Codex 認証情報と設定が更新されます。実行中のクライアントが以前のアカウントを表示する場合は、開き直してください。",
+    "homeTabs": "Codex の管理",
+    "quotaExpiredHint": "「アカウントを編集」を開いて再ログインしてください。",
+    "reauthDescription": "一部のアカウントでログイン情報の更新が必要です。該当するアカウントの編集画面で再ログインしてください。",
+    "apiKey": "OpenAI API",
+    "configurationLoading": "設定を読み込み中…",
+    "helpLabel": "アカウントと使用量の説明",
+    "helpQuota": "パーセントは使用済みの枠を示します。5 時間枠と週次枠はそれぞれ独立した使用量とリセット時刻を持ち、利用できる枠はアカウントによって異なります。",
+    "quotaUsedLabel": "使用済み",
+    "quotaRemainingLabel": "残り",
+    "helpQuotaBattery": "色付きの区切りとパーセントは残りの枠を示します。灰色の目盛りはリセットまでの残り時間が枠全体に占める割合を示します。各枠は独立しており、期間またはリセット時刻が不明な場合は目盛りを表示しません。",
+    "quotaUnknown": "使用量不明",
+    "quotaResetUnknown": "リセット時刻不明",
+    "advancedConfiguration": "詳細な接続設定",
+    "automaticConfiguration": "自動選択",
+    "switchFailedInline": "切り替えが完了しませんでした。",
+    "connectionLoadFailed": "接続を読み込めませんでした。更新して再試行してください。",
+    "directSwitchHelp": "ログイン済みの ChatGPT アカウントは直接切り替えられます。既定のアカウントは高度な管理認証設定でのみ使用され、現在使用中のアカウントとは独立しています。",
+    "credentialStoreHelp": "一部の高度なログイン保存設定ではアカウントを切り替えられません。切り替えできない場合は、理由を表示します。",
+    "editTitle": "アカウントを編集",
+    "editDescription": "アカウント情報とログイン設定を管理します。",
+    "loginIdentity": "ログイン名",
+    "displayName": "表示名",
+    "notes": "メモ",
+    "icon": "アイコン",
+    "customColor": "色をカスタマイズ",
+    "color": "色",
+    "advancedOptions": "詳細オプション",
+    "accountAdvancedOptions": "アカウント管理の詳細オプション",
+    "icons": {
+      "user": "ユーザー",
+      "star": "星",
+      "briefcase": "仕事",
+      "code": "コード",
+      "heart": "ハート",
+      "shield": "盾"
+    },
+    "configurationsHelp": "接続設定の用途",
+    "addConnectionTitle": "接続設定を追加",
+    "localUsageScopeLabel": "統計の対象",
+    "localUsageScope": "この端末で記録した Codex リクエストとスキャンしたセッションを、期間、接続元、モデルで絞り込みます。他の端末の使用量やサブスクリプションの利用枠は含みません。費用はローカル料金表による推計です。",
+    "quotaRefreshFailed": "更新に失敗しました。前回成功時のデータを表示しています",
+    "switchSuccess": "アカウントを切り替えました。実行中の Codex が以前のアカウントを表示する場合は、開き直してください。",
+    "switchRefreshFailed": "アカウントは切り替わりましたが、状態の更新に失敗しました。更新して確認してください。",
+    "switchFailed": "切り替えに失敗しました。以前のアカウントを保持します：{{error}}",
+    "switchWarning": "アカウントを切り替えました。設定の保存に関する通知：{{error}}",
+    "switchRecovered": "切り替えが完了し、中断した書き込みを復旧しました。",
+    "switchUncertain": "切り替え状態を確認できません：{{error}}",
+    "switchPending": "アカウントを切り替え中…",
+    "switchUnavailable": "切り替えできない理由",
+    "accountHelpLabel": "アカウントの説明",
+    "navigationAccounts": "アカウント",
+    "navigationUsage": "使用量",
+    "addTitle": "アカウントまたは接続を追加",
+    "addDescription": "ChatGPT アカウントまたは API Key で Codex に接続します。",
+    "addChatGpt": "ChatGPT ログイン",
+    "addChatGptDescription": "利用枠を確認し、ログイン済みのアカウントを切り替えます。",
+    "addApiKey": "API Key 接続",
+    "addApiKeyDescription": "API Key とサービスのアドレスを入力して、OpenAI や対応サービスに接続します。",
+    "addApiConnectionTitle": "API Key 接続を追加"
+  },
+  "apiBalance": {
+    "label": "残高",
+    "details": "残高の詳細",
+    "unsupported": "このプロバイダーは残高照会に対応していません",
+    "missingKey": "先に API Key を入力してください",
+    "explanation": "プロバイダーのアカウント API から残高を取得します。通貨別に表示します。",
+    "loading": "残高を照会中…",
+    "unavailable": "この残高は API 呼び出しに利用できないと報告されています。",
+    "updated": "更新時刻",
+    "supported": "DeepSeek、StepFun、SiliconFlow、OpenRouter、Novita AI の公式 API に対応。OpenRouter の残高照会には管理キーが必要です。",
+    "refresh": "残高を更新",
+    "empty": "有効な残高が返されませんでした"
   }
 }

@@ -34,8 +34,6 @@
 
 use crate::database::{lock_conn, Database};
 use crate::error::AppError;
-use crate::proxy::usage::calculator::CostCalculator;
-use crate::proxy::usage::parser::TokenUsage;
 use crate::services::session_usage::{
     metadata_modified_nanos, update_sync_state, SessionSyncResult,
 };
@@ -43,6 +41,8 @@ use crate::services::sql_helpers::INPUT_TOKEN_SEMANTICS_TOTAL;
 use crate::services::usage_stats::{
     find_model_pricing, has_recent_grokbuild_proxy_activity, SESSION_PROXY_DEDUP_WINDOW_SECONDS,
 };
+use crate::usage::calculator::CostCalculator;
+use crate::usage::TokenUsage;
 use rust_decimal::Decimal;
 use std::fs;
 use std::path::{Path, PathBuf};

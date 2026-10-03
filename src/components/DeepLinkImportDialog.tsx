@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { DeepLinkImportRequest, deeplinkApi } from "@/lib/api/deeplink";
 import { parseDeepLinkConfigPreview } from "@/utils/deepLinkConfigPreview";
@@ -26,18 +26,24 @@ import {
   riskI18nKey,
 } from "@/utils/deeplinkRisk";
 import { decodeBase64Utf8 } from "@/lib/utils/base64";
+import { isProductImportAllowed } from "@/config/productShell";
 
 interface DeeplinkError {
   url: string;
   error: string;
 }
 
-export function DeepLinkImportDialog() {
+export function DeepLinkImportDialog({
+  productShell = false,
+}: {
+  productShell?: boolean;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [request, setRequest] = useState<DeepLinkImportRequest | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const requestGeneration = useRef(0);
 
   // 容错判断：MCP 导入结果可能缺少 type 字段
   const isMcpImportResult = (
@@ -62,14 +68,35 @@ export function DeepLinkImportDialog() {
     const unlistenImport = listen<DeepLinkImportRequest>(
       "deeplink-import",
       async (event) => {
+        const generation = ++requestGeneration.current;
+        const rejectImport = () => {
+          setRequest(null);
+          setIsOpen(false);
+          toast.error(
+            t(
+              "productShell.unsupportedImport",
+              "Only Codex provider imports are available in this app.",
+            ),
+          );
+        };
+        if (productShell && !isProductImportAllowed(event.payload)) {
+          rejectImport();
+          return;
+        }
         // If config is present, merge it to get the complete configuration
         if (event.payload.config || event.payload.configUrl) {
           try {
             const mergedRequest = await deeplinkApi.mergeDeeplinkConfig(
               event.payload,
             );
+            if (generation !== requestGeneration.current) return;
+            if (productShell && !isProductImportAllowed(mergedRequest)) {
+              rejectImport();
+              return;
+            }
             setRequest(mergedRequest);
           } catch (error) {
+            if (generation !== requestGeneration.current) return;
             console.error("Failed to merge config:", error);
             toast.error(t("deeplink.configMergeError"), {
               description:
@@ -95,13 +122,15 @@ export function DeepLinkImportDialog() {
     });
 
     return () => {
+      requestGeneration.current += 1;
       unlistenImport.then((fn) => fn());
       unlistenError.then((fn) => fn());
     };
-  }, [t]);
+  }, [t, productShell]);
 
   const handleImport = async () => {
     if (!request) return;
+    if (productShell && !isProductImportAllowed(request)) return;
 
     setIsImporting(true);
 

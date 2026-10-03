@@ -32,6 +32,9 @@ pub struct QuotaTier {
     pub utilization: f64,
     /// ISO 8601 重置时间
     pub resets_at: Option<String>,
+    /// API 返回的真实窗口时长（秒），仅保留正数。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_duration_seconds: Option<i64>,
     /// ZenMux: 已用额度（USD）
     #[serde(skip_serializing_if = "Option::is_none")]
     pub used_value_usd: Option<f64>,
@@ -352,7 +355,7 @@ const KNOWN_TIERS: &[&str] = &[
 /// 成功值）；确定性失败（鉴权/非 2xx/响应体非法 JSON）返回 `Ok(success:false)`。
 /// codex/gemini 两个查询函数遵守同一约定。
 async fn query_claude_quota(access_token: &str) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     let resp = client
         .get("https://api.anthropic.com/api/oauth/usage")
@@ -419,6 +422,7 @@ fn parse_claude_quota(body: &serde_json::Value) -> SubscriptionQuota {
                         name: tier_name.to_string(),
                         utilization: util,
                         resets_at: w.resets_at,
+                        window_duration_seconds: None,
                         used_value_usd: None,
                         max_value_usd: None,
                     });
@@ -439,6 +443,7 @@ fn parse_claude_quota(body: &serde_json::Value) -> SubscriptionQuota {
                         name: key.clone(),
                         utilization: util,
                         resets_at: w.resets_at,
+                        window_duration_seconds: None,
                         used_value_usd: None,
                         max_value_usd: None,
                     });
@@ -485,6 +490,7 @@ fn parse_claude_quota(body: &serde_json::Value) -> SubscriptionQuota {
                 name: tier_name.to_string(),
                 utilization: window.percent,
                 resets_at: window.resets_at,
+                window_duration_seconds: None,
                 used_value_usd: None,
                 max_value_usd: None,
             };
@@ -549,6 +555,76 @@ type CodexCredentials = (
     CredentialStatus,
     Option<String>,
 );
+
+/// Identity fingerprint for the native menu-bar path. Only file storage can be
+/// verified cheaply on a display read; keyring/auto/ephemeral never borrow a file.
+pub(crate) fn native_codex_file_scope() -> Option<String> {
+    native_codex_file_credentials().map(|capture| capture.scope)
+}
+
+pub(crate) struct NativeCodexFileCredentials {
+    pub(crate) scope: String,
+    credentials: CodexCredentials,
+}
+
+/// Capture both identity and query credentials from exactly the same bytes.
+pub(crate) fn native_codex_file_credentials() -> Option<NativeCodexFileCredentials> {
+    use sha2::{Digest, Sha256};
+    let config = match std::fs::read_to_string(crate::codex_config::get_codex_config_path()) {
+        Ok(config) => config,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(_) => return None,
+    };
+    if config.parse::<toml::Value>().is_err()
+        || crate::codex_config::codex_config_auth_store_mode(&config)
+            != crate::codex_config::CodexAuthStoreMode::File
+    {
+        return None;
+    }
+    let bytes = std::fs::read(crate::codex_config::get_codex_auth_path()).ok()?;
+    let text = std::str::from_utf8(&bytes).ok()?;
+    let credentials = parse_codex_credentials_json(text);
+    if credentials.0.is_none()
+        || !matches!(
+            credentials.2,
+            CredentialStatus::Valid | CredentialStatus::Expired
+        )
+    {
+        return None;
+    }
+    Some(NativeCodexFileCredentials {
+        scope: format!("{:x}", Sha256::digest(bytes)),
+        credentials,
+    })
+}
+
+/// Query captured file credentials; no keychain fallback can borrow another
+/// login, and a source change between capture and dispatch cannot change them.
+pub(crate) async fn query_native_codex_file_quota(
+    capture: NativeCodexFileCredentials,
+) -> Result<SubscriptionQuota, String> {
+    let (token, account_id, status, message) = capture.credentials;
+    match status {
+        CredentialStatus::NotFound => Ok(SubscriptionQuota::not_found("codex")),
+        CredentialStatus::ParseError => Ok(SubscriptionQuota::error(
+            "codex",
+            status,
+            message.unwrap_or_else(|| "Failed to parse Codex credentials".into()),
+        )),
+        CredentialStatus::Valid | CredentialStatus::Expired => {
+            let Some(token) = token else {
+                return Ok(SubscriptionQuota::not_found("codex"));
+            };
+            query_codex_quota(
+                &token,
+                account_id.as_deref(),
+                "codex",
+                "Authentication failed. Please re-login with Codex CLI.",
+            )
+            .await
+        }
+    }
+}
 
 /// 读取 Codex OAuth 凭据
 ///
@@ -740,18 +816,36 @@ fn unix_ts_to_iso(ts: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(ts, 0).map(|dt| dt.to_rfc3339())
 }
 
+fn codex_window_to_tier(window: CodexRateLimitWindow) -> Option<QuotaTier> {
+    Some(QuotaTier {
+        name: window
+            .limit_window_seconds
+            .map(window_seconds_to_tier_name)
+            .unwrap_or_else(|| "unknown".to_string()),
+        utilization: window.used_percent?,
+        resets_at: window.reset_at.and_then(unix_ts_to_iso),
+        window_duration_seconds: window.limit_window_seconds.filter(|&seconds| seconds > 0),
+        used_value_usd: None,
+        max_value_usd: None,
+    })
+}
+
+fn codex_status_is_transient(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+}
+
 /// 查询 Codex / ChatGPT 反代订阅额度
 ///
 /// 参数化 `tool_label` 和 `expired_message` 让该函数可被两个调用点共用：
 /// - `"codex"` + "Please re-login with Codex CLI."（CLI 凭据路径）
-/// - `"codex_oauth"` + "Please re-login via cc-switch."（cc-switch 自管 OAuth 路径）
+/// - `"codex_oauth"` + "Please re-login via codex-switch."（codex-switch 自管 OAuth 路径）
 pub(crate) async fn query_codex_quota(
     access_token: &str,
     account_id: Option<&str>,
     tool_label: &str,
     expired_message: &str,
 ) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     let mut req = client
         .get("https://chatgpt.com/backend-api/wham/usage")
@@ -776,6 +870,10 @@ pub(crate) async fn query_codex_quota(
             CredentialStatus::Expired,
             format!("{expired_message} (HTTP {status})"),
         ));
+    }
+
+    if codex_status_is_transient(status) {
+        return Err(format!("Temporary Codex quota API error (HTTP {status})"));
     }
 
     if !status.is_success() {
@@ -809,17 +907,8 @@ pub(crate) async fn query_codex_quota(
             .into_iter()
             .flatten()
         {
-            if let Some(used) = window.used_percent {
-                tiers.push(QuotaTier {
-                    name: window
-                        .limit_window_seconds
-                        .map(window_seconds_to_tier_name)
-                        .unwrap_or_else(|| "unknown".to_string()),
-                    utilization: used,
-                    resets_at: window.reset_at.and_then(unix_ts_to_iso),
-                    used_value_usd: None,
-                    max_value_usd: None,
-                });
+            if let Some(tier) = codex_window_to_tier(window) {
+                tiers.push(tier);
             }
         }
     }
@@ -1047,7 +1136,7 @@ const GEMINI_OAUTH_CLIENT_SECRET: &str = "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";
 /// Google OAuth access_token 仅有 ~1h 有效期，需要定期用 refresh_token 刷新。
 /// refresh_token 本身不过期（除非用户撤销授权）。
 async fn refresh_gemini_token(refresh_token: &str) -> Option<String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     let resp = client
         .post("https://oauth2.googleapis.com/token")
@@ -1128,7 +1217,7 @@ fn classify_gemini_model(model_id: &str) -> &str {
 /// 1. loadCodeAssist → 获取 cloudaicompanionProject
 /// 2. retrieveUserQuota → 获取按模型分桶的配额数据
 async fn query_gemini_quota(access_token: &str) -> Result<SubscriptionQuota, String> {
-    let client = crate::proxy::http_client::get();
+    let client = crate::http_client::get();
 
     // ── Step 1: loadCodeAssist 获取项目 ID ──
     let load_resp = client
@@ -1280,6 +1369,7 @@ async fn query_gemini_quota(access_token: &str) -> Result<SubscriptionQuota, Str
             name,
             utilization: (1.0 - remaining) * 100.0,
             resets_at: reset_time,
+            window_duration_seconds: None,
             used_value_usd: None,
             max_value_usd: None,
         })
@@ -1433,6 +1523,90 @@ fn now_millis() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_window_preserves_actual_duration_even_when_names_match() {
+        for (seconds, expected_name) in [
+            (18_000, TIER_FIVE_HOUR),
+            (604_800, TIER_SEVEN_DAY),
+            (2_592_000, TIER_THIRTY_DAY),
+            (2_595_600, TIER_THIRTY_DAY),
+            (7_201, "2_hour"),
+            (90, "0_hour"),
+        ] {
+            let tier = codex_window_to_tier(CodexRateLimitWindow {
+                used_percent: Some(37.5),
+                limit_window_seconds: Some(seconds),
+                reset_at: Some(0),
+            })
+            .unwrap();
+            assert_eq!(tier.name, expected_name);
+            assert_eq!(tier.window_duration_seconds, Some(seconds));
+            assert_eq!(tier.utilization, 37.5);
+            assert_eq!(tier.resets_at.as_deref(), Some("1970-01-01T00:00:00+00:00"));
+            let serialized = serde_json::to_value(&tier).unwrap();
+            assert_eq!(serialized["windowDurationSeconds"], seconds);
+            assert!(serialized.get("window_duration_seconds").is_none());
+        }
+    }
+
+    #[test]
+    fn codex_window_omits_missing_or_nonpositive_duration() {
+        for seconds in [None, Some(0), Some(-1)] {
+            let tier = codex_window_to_tier(CodexRateLimitWindow {
+                used_percent: Some(0.0),
+                limit_window_seconds: seconds,
+                reset_at: None,
+            })
+            .unwrap();
+            assert_eq!(tier.window_duration_seconds, None);
+            assert_eq!(tier.utilization, 0.0);
+            assert_eq!(tier.resets_at, None);
+            assert_eq!(
+                tier.name,
+                seconds
+                    .map(window_seconds_to_tier_name)
+                    .unwrap_or_else(|| "unknown".to_string())
+            );
+            assert!(serde_json::to_value(tier)
+                .unwrap()
+                .get("windowDurationSeconds")
+                .is_none());
+        }
+    }
+
+    #[test]
+    fn codex_window_preserves_percent_and_reset_validation() {
+        let tier = codex_window_to_tier(CodexRateLimitWindow {
+            used_percent: Some(125.0),
+            limit_window_seconds: Some(18_000),
+            reset_at: Some(i64::MAX),
+        })
+        .unwrap();
+        assert_eq!(tier.utilization, 125.0);
+        assert_eq!(tier.resets_at, None);
+        assert!(codex_window_to_tier(CodexRateLimitWindow {
+            used_percent: None,
+            limit_window_seconds: Some(18_000),
+            reset_at: Some(0),
+        })
+        .is_none());
+    }
+
+    #[test]
+    fn quota_tier_deserializes_without_window_duration() {
+        let tier: QuotaTier = serde_json::from_value(serde_json::json!({
+            "name": "five_hour",
+            "utilization": 12.0,
+            "resetsAt": null
+        }))
+        .unwrap();
+        assert_eq!(tier.window_duration_seconds, None);
+        assert!(serde_json::to_value(tier)
+            .unwrap()
+            .get("windowDurationSeconds")
+            .is_none());
+    }
 
     fn scoped_limit(model: &str, percent: f64) -> serde_json::Value {
         serde_json::json!({
@@ -1593,5 +1767,18 @@ mod tests {
         // 其他窗口按小时/天回退命名
         assert_eq!(window_seconds_to_tier_name(3600), "1_hour");
         assert_eq!(window_seconds_to_tier_name(86400), "1_day");
+    }
+    #[test]
+    fn codex_quota_only_rate_limit_and_server_errors_are_transient_http_statuses() {
+        for code in [429, 500, 502, 503, 504, 599] {
+            assert!(codex_status_is_transient(
+                reqwest::StatusCode::from_u16(code).unwrap()
+            ));
+        }
+        for code in [200, 400, 401, 403, 404, 422] {
+            assert!(!codex_status_is_transient(
+                reqwest::StatusCode::from_u16(code).unwrap()
+            ));
+        }
     }
 }

@@ -106,7 +106,7 @@ pub struct WebDavSyncStatus {
 }
 
 fn default_remote_root() -> String {
-    "cc-switch-sync".to_string()
+    "codex-switch-sync".to_string()
 }
 fn default_profile() -> String {
     "default".to_string()
@@ -342,9 +342,34 @@ pub struct CodexOfficialHistoryUnifyMigration {
     pub codex_config_dir: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayDisplayMode {
+    #[default]
+    Icon,
+    QuotaRing,
+    QuotaRingOnly,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayQuotaWindow {
+    #[default]
+    FiveHour,
+    SevenDay,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrayQuotaColorMode {
+    System,
+    #[default]
+    Quota,
+}
+
 /// 应用设置结构
 ///
-/// 存储设备级别设置，保存在本地 `~/.cc-switch/settings.json`，不随数据库同步。
+/// 存储设备级别设置，保存在本地 `~/.codex-switch/settings.json`，不随数据库同步。
 /// 这确保了云同步场景下多设备可以独立运作。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -352,6 +377,15 @@ pub struct AppSettings {
     // ===== 设备级 UI 设置 =====
     #[serde(default = "default_show_in_tray")]
     pub show_in_tray: bool,
+    #[serde(default)]
+    pub tray_display_mode: TrayDisplayMode,
+    #[serde(default)]
+    pub tray_quota_window: TrayQuotaWindow,
+    #[serde(default)]
+    pub tray_quota_color_mode: TrayQuotaColorMode,
+    /// Shared quota polling interval. Zero disables automatic refresh.
+    #[serde(default = "default_quota_refresh_interval_seconds")]
+    pub quota_refresh_interval_seconds: u32,
     #[serde(default = "default_minimize_to_tray_on_close")]
     pub minimize_to_tray_on_close: bool,
     #[serde(default)]
@@ -379,6 +413,12 @@ pub struct AppSettings {
     pub usage_confirmed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage_dashboard_refresh_interval_ms: Option<u32>,
+    /// 剩余额度不超过该百分比时显示警告颜色。
+    #[serde(default = "default_quota_battery_warning_threshold_percent")]
+    pub quota_battery_warning_threshold_percent: f64,
+    /// 剩余额度不超过该百分比时显示低额度颜色。
+    #[serde(default = "default_quota_battery_low_threshold_percent")]
+    pub quota_battery_low_threshold_percent: f64,
     /// 会话用量自动扫描开关（默认开启=自动模式）。关闭后停止后台定时扫描
     /// 各客户端会话日志，仅在用户点击"立即同步"时手动扫描；只管扫描时机，
     /// 代理接管记账与启动费用回填（不读会话文件）不受此开关影响。
@@ -425,6 +465,9 @@ pub struct AppSettings {
     pub claude_config_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub codex_config_dir: Option<String>,
+    /// Read-only session usage root; independent of Codex auth/config directories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codex_usage_source_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gemini_config_dir: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -468,7 +511,7 @@ pub struct AppSettings {
     /// Skill 同步方式：auto（默认，优先 symlink）、symlink、copy
     #[serde(default)]
     pub skill_sync_method: SyncMethod,
-    /// Skill 存储位置：cc_switch（默认）或 unified（~/.agents/skills/）
+    /// Skill 存储位置：codex_switch（默认）或 unified（~/.agents/skills/）
     #[serde(default)]
     pub skill_storage_location: SkillStorageLocation,
 
@@ -521,10 +564,26 @@ fn default_session_auto_sync_enabled() -> bool {
     true
 }
 
+fn default_quota_battery_warning_threshold_percent() -> f64 {
+    50.0
+}
+
+fn default_quota_refresh_interval_seconds() -> u32 {
+    60
+}
+
+fn default_quota_battery_low_threshold_percent() -> f64 {
+    10.0
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             show_in_tray: true,
+            tray_display_mode: TrayDisplayMode::default(),
+            tray_quota_window: TrayQuotaWindow::default(),
+            tray_quota_color_mode: TrayQuotaColorMode::default(),
+            quota_refresh_interval_seconds: default_quota_refresh_interval_seconds(),
             minimize_to_tray_on_close: true,
             use_app_window_controls: false,
             enable_claude_plugin_integration: false,
@@ -535,6 +594,9 @@ impl Default for AppSettings {
             proxy_confirmed: None,
             usage_confirmed: None,
             usage_dashboard_refresh_interval_ms: None,
+            quota_battery_warning_threshold_percent:
+                default_quota_battery_warning_threshold_percent(),
+            quota_battery_low_threshold_percent: default_quota_battery_low_threshold_percent(),
             session_auto_sync_enabled: true,
             enable_failover_toggle: false,
             show_profile_switcher: true,
@@ -548,6 +610,7 @@ impl Default for AppSettings {
             visible_apps: None,
             claude_config_dir: None,
             codex_config_dir: None,
+            codex_usage_source_dir: None,
             gemini_config_dir: None,
             grok_config_dir: None,
             opencode_config_dir: None,
@@ -576,13 +639,34 @@ impl Default for AppSettings {
 }
 
 impl AppSettings {
+    fn validate_quota_refresh_interval(&self) -> Result<(), AppError> {
+        let interval = self.quota_refresh_interval_seconds;
+        if interval != 0 && !(30..=3600).contains(&interval) {
+            return Err(AppError::InvalidInput(
+                "Quota refresh interval must be 0 or between 30 and 3600 seconds.".into(),
+            ));
+        }
+        Ok(())
+    }
+    fn validate_quota_battery_thresholds(&self) -> Result<(), AppError> {
+        let warning = self.quota_battery_warning_threshold_percent;
+        let low = self.quota_battery_low_threshold_percent;
+        if !warning.is_finite()
+            || !low.is_finite()
+            || !(0.0..=100.0).contains(&warning)
+            || !(0.0..=100.0).contains(&low)
+            || low >= warning
+        {
+            return Err(AppError::InvalidInput(
+                "Quota battery thresholds must be finite percentages from 0 to 100, with the low threshold below the warning threshold.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn settings_path() -> Option<PathBuf> {
         // settings.json 保留用于旧版本迁移和无数据库场景
-        Some(
-            crate::config::get_home_dir()
-                .join(".cc-switch")
-                .join("settings.json"),
-        )
+        Some(crate::config::get_default_app_config_dir().join("settings.json"))
     }
 
     fn normalize_paths(&mut self) {
@@ -599,6 +683,13 @@ impl AppSettings {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
+
+        self.codex_usage_source_dir = self
+            .codex_usage_source_dir
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned);
 
         self.gemini_config_dir = self
             .gemini_config_dir
@@ -668,10 +759,25 @@ impl AppSettings {
         let Some(path) = Self::settings_path() else {
             return Self::default();
         };
-        if let Ok(content) = fs::read_to_string(&path) {
+        Self::load_from_file_at(&path)
+    }
+
+    fn load_from_file_at(path: &std::path::Path) -> Self {
+        if let Ok(content) = fs::read_to_string(path) {
             match serde_json::from_str::<AppSettings>(&content) {
                 Ok(mut settings) => {
                     settings.normalize_paths();
+                    if settings.validate_quota_refresh_interval().is_err() {
+                        settings.quota_refresh_interval_seconds =
+                            default_quota_refresh_interval_seconds();
+                    }
+                    if let Err(err) = settings.validate_quota_battery_thresholds() {
+                        log::warn!("Invalid saved quota battery thresholds; using defaults: {err}");
+                        settings.quota_battery_warning_threshold_percent =
+                            default_quota_battery_warning_threshold_percent();
+                        settings.quota_battery_low_threshold_percent =
+                            default_quota_battery_low_threshold_percent();
+                    }
                     settings
                 }
                 Err(err) => {
@@ -690,11 +796,17 @@ impl AppSettings {
 }
 
 fn save_settings_file(settings: &AppSettings) -> Result<(), AppError> {
-    let mut normalized = settings.clone();
-    normalized.normalize_paths();
     let Some(path) = AppSettings::settings_path() else {
         return Err(AppError::Config("无法获取用户主目录".to_string()));
     };
+    save_settings_file_at(settings, &path)
+}
+
+fn save_settings_file_at(settings: &AppSettings, path: &std::path::Path) -> Result<(), AppError> {
+    let mut normalized = settings.clone();
+    normalized.normalize_paths();
+    normalized.validate_quota_battery_thresholds()?;
+    normalized.validate_quota_refresh_interval()?;
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| AppError::io(parent, e))?;
@@ -713,15 +825,15 @@ fn save_settings_file(settings: &AppSettings) -> Result<(), AppError> {
             .write(true)
             .truncate(true)
             .mode(0o600)
-            .open(&path)
-            .map_err(|e| AppError::io(&path, e))?;
+            .open(path)
+            .map_err(|e| AppError::io(path, e))?;
         file.write_all(json.as_bytes())
-            .map_err(|e| AppError::io(&path, e))?;
+            .map_err(|e| AppError::io(path, e))?;
     }
 
     #[cfg(not(unix))]
     {
-        fs::write(&path, json).map_err(|e| AppError::io(&path, e))?;
+        fs::write(path, json).map_err(|e| AppError::io(path, e))?;
     }
 
     Ok(())
@@ -780,15 +892,30 @@ pub fn get_settings_for_frontend() -> AppSettings {
     settings
 }
 
-pub fn update_settings(mut new_settings: AppSettings) -> Result<(), AppError> {
-    new_settings.normalize_paths();
-    save_settings_file(&new_settings)?;
-
+pub fn update_settings(new_settings: AppSettings) -> Result<(), AppError> {
     let mut guard = settings_store().write().unwrap_or_else(|e| {
         log::warn!("设置锁已毒化，使用恢复值: {e}");
         e.into_inner()
     });
-    *guard = new_settings;
+    persist_settings_update(&mut guard, new_settings, save_settings_file)
+}
+
+fn persist_settings_update(
+    existing: &mut AppSettings,
+    mut incoming: AppSettings,
+    save: impl FnOnce(&AppSettings) -> Result<(), AppError>,
+) -> Result<(), AppError> {
+    incoming.normalize_paths();
+    incoming.validate_quota_battery_thresholds()?;
+    incoming.validate_quota_refresh_interval()?;
+    // Unrelated saves must still work when a previously chosen source is offline.
+    if incoming.codex_usage_source_dir != existing.codex_usage_source_dir {
+        if let Some(raw) = &incoming.codex_usage_source_dir {
+            crate::codex_usage_source::validate_directory(raw)?;
+        }
+    }
+    save(&incoming)?;
+    *existing = incoming;
     Ok(())
 }
 
@@ -1194,6 +1321,260 @@ pub fn update_s3_sync_status(status: WebDavSyncStatus) -> Result<(), AppError> {
 mod tests {
     use super::*;
     use crate::app_config::AppType;
+
+    #[test]
+    fn quota_refresh_defaults_roundtrip_and_rejects_invalid_saves() {
+        let old: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.quota_refresh_interval_seconds, 60);
+        for seconds in [0, 30, 60, 90, 3600] {
+            let incoming = AppSettings {
+                quota_refresh_interval_seconds: seconds,
+                tray_display_mode: TrayDisplayMode::QuotaRingOnly,
+                ..old.clone()
+            };
+            incoming.validate_quota_refresh_interval().unwrap();
+            let json = serde_json::to_value(incoming).unwrap();
+            assert_eq!(json["quotaRefreshIntervalSeconds"], seconds);
+            assert_eq!(json["trayDisplayMode"], "quotaRingOnly");
+            let restored: AppSettings = serde_json::from_value(json).unwrap();
+            assert_eq!(restored.quota_refresh_interval_seconds, seconds);
+            assert_eq!(restored.tray_display_mode, TrayDisplayMode::QuotaRingOnly);
+        }
+        for seconds in [1, 29, 3601, u32::MAX] {
+            let mut existing = old.clone();
+            let incoming = AppSettings {
+                quota_refresh_interval_seconds: seconds,
+                ..old.clone()
+            };
+            let mut saved = false;
+            assert!(persist_settings_update(&mut existing, incoming, |_| {
+                saved = true;
+                Ok(())
+            })
+            .is_err());
+            assert!(!saved);
+            assert_eq!(existing.quota_refresh_interval_seconds, 60);
+        }
+        for invalid in [-1.0, 30.5] {
+            assert!(serde_json::from_value::<AppSettings>(
+                serde_json::json!({"quotaRefreshIntervalSeconds": invalid})
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn tray_preferences_default_roundtrip_and_reject_unknown_values() {
+        let mut settings: AppSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.tray_display_mode, TrayDisplayMode::Icon);
+        assert_eq!(settings.tray_quota_window, TrayQuotaWindow::FiveHour);
+        assert_eq!(settings.tray_quota_color_mode, TrayQuotaColorMode::Quota);
+        settings.tray_display_mode = TrayDisplayMode::QuotaRing;
+        settings.tray_quota_window = TrayQuotaWindow::SevenDay;
+        settings.tray_quota_color_mode = TrayQuotaColorMode::System;
+        let value = serde_json::to_value(settings).unwrap();
+        assert_eq!(value["trayDisplayMode"], "quotaRing");
+        assert_eq!(value["trayQuotaWindow"], "sevenDay");
+        assert_eq!(value["trayQuotaColorMode"], "system");
+        let loaded: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(loaded.tray_display_mode, TrayDisplayMode::QuotaRing);
+        assert_eq!(loaded.tray_quota_window, TrayQuotaWindow::SevenDay);
+        for (field, value) in [
+            ("trayDisplayMode", "percent"),
+            ("trayQuotaWindow", "auto"),
+            ("trayQuotaColorMode", "rainbow"),
+        ] {
+            let invalid = serde_json::json!({ field: value });
+            assert!(serde_json::from_value::<AppSettings>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn quota_battery_threshold_defaults_and_roundtrip_preserve_other_settings() {
+        let old: AppSettings = serde_json::from_value(serde_json::json!({
+            "showInTray": false,
+            "language": "ja"
+        }))
+        .unwrap();
+        assert_eq!(old.quota_battery_warning_threshold_percent, 50.0);
+        assert_eq!(old.quota_battery_low_threshold_percent, 10.0);
+        assert_eq!(
+            AppSettings::default().quota_battery_warning_threshold_percent,
+            50.0
+        );
+        assert_eq!(
+            AppSettings::default().quota_battery_low_threshold_percent,
+            10.0
+        );
+        old.validate_quota_battery_thresholds().unwrap();
+
+        let fixture = tempfile::tempdir().unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        let mut existing = old;
+        let mut incoming = existing.clone();
+        incoming.quota_battery_warning_threshold_percent = 60.5;
+        incoming.quota_battery_low_threshold_percent = 20.25;
+        persist_settings_update(&mut existing, incoming, |settings| {
+            save_settings_file_at(settings, &settings_path)
+        })
+        .unwrap();
+        let serialized: serde_json::Value =
+            serde_json::from_slice(&fs::read(&settings_path).unwrap()).unwrap();
+        assert_eq!(serialized["quotaBatteryWarningThresholdPercent"], 60.5);
+        assert_eq!(serialized["quotaBatteryLowThresholdPercent"], 20.25);
+        let loaded: AppSettings = serde_json::from_value(serialized).unwrap();
+        assert_eq!(loaded.quota_battery_warning_threshold_percent, 60.5);
+        assert_eq!(loaded.quota_battery_low_threshold_percent, 20.25);
+        assert!(!loaded.show_in_tray);
+        assert_eq!(loaded.language.as_deref(), Some("ja"));
+        assert_eq!(existing.quota_battery_warning_threshold_percent, 60.5);
+        assert_eq!(existing.quota_battery_low_threshold_percent, 20.25);
+    }
+
+    #[test]
+    fn quota_battery_threshold_validation_accepts_range_boundaries() {
+        for (warning, low) in [(100.0, 0.0), (100.0, 99.5), (0.25, 0.0)] {
+            let settings = AppSettings {
+                quota_battery_warning_threshold_percent: warning,
+                quota_battery_low_threshold_percent: low,
+                ..AppSettings::default()
+            };
+            settings.validate_quota_battery_thresholds().unwrap();
+        }
+    }
+
+    #[test]
+    fn quota_battery_threshold_load_repairs_only_invalid_thresholds() {
+        let fixture = tempfile::tempdir().unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        fs::write(
+            &settings_path,
+            serde_json::to_vec(&serde_json::json!({
+                "showInTray": false,
+                "language": "ja",
+                "codexConfigDir": "  ~/.codex-alternate  ",
+                "quotaBatteryWarningThresholdPercent": 5,
+                "quotaBatteryLowThresholdPercent": 15
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let loaded = AppSettings::load_from_file_at(&settings_path);
+        assert_eq!(loaded.quota_battery_warning_threshold_percent, 50.0);
+        assert_eq!(loaded.quota_battery_low_threshold_percent, 10.0);
+        assert!(!loaded.show_in_tray);
+        assert_eq!(loaded.language.as_deref(), Some("ja"));
+        assert_eq!(
+            loaded.codex_config_dir.as_deref(),
+            Some("~/.codex-alternate")
+        );
+    }
+
+    #[test]
+    fn quota_battery_threshold_invalid_save_preserves_disk_and_memory() {
+        let fixture = tempfile::tempdir().unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        let mut existing = AppSettings::default();
+        save_settings_file_at(&existing, &settings_path).unwrap();
+        let saved = fs::read(&settings_path).unwrap();
+        for (warning, low) in [
+            (50.0, 50.0),
+            (50.0, 60.0),
+            (0.0, 0.0),
+            (100.1, 10.0),
+            (-1.0, 10.0),
+            (50.0, -0.1),
+            (50.0, 100.1),
+            (f64::NAN, 10.0),
+            (50.0, f64::NAN),
+            (f64::INFINITY, 10.0),
+            (50.0, f64::NEG_INFINITY),
+        ] {
+            let mut incoming = existing.clone();
+            incoming.quota_battery_warning_threshold_percent = warning;
+            incoming.quota_battery_low_threshold_percent = low;
+            incoming.show_in_tray = false;
+            assert!(
+                persist_settings_update(&mut existing, incoming.clone(), |_| {
+                    panic!("Invalid thresholds must fail before persistence")
+                })
+                .is_err()
+            );
+            assert!(save_settings_file_at(&incoming, &settings_path).is_err());
+            assert_eq!(fs::read(&settings_path).unwrap(), saved);
+            assert_eq!(existing.quota_battery_warning_threshold_percent, 50.0);
+            assert_eq!(existing.quota_battery_low_threshold_percent, 10.0);
+            assert!(existing.show_in_tray);
+        }
+    }
+
+    #[test]
+    fn codex_usage_source_settings_serde_and_normalization() {
+        let mut settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "codexUsageSourceDir": "  ~/.codex  "
+        }))
+        .unwrap();
+        settings.normalize_paths();
+        assert_eq!(settings.codex_usage_source_dir.as_deref(), Some("~/.codex"));
+        assert_eq!(
+            serde_json::to_value(&settings).unwrap()["codexUsageSourceDir"],
+            "~/.codex"
+        );
+        settings.codex_usage_source_dir = Some(" \t ".into());
+        settings.normalize_paths();
+        assert!(settings.codex_usage_source_dir.is_none());
+        assert!(serde_json::to_value(&settings)
+            .unwrap()
+            .get("codexUsageSourceDir")
+            .is_none());
+        assert!(serde_json::from_str::<AppSettings>("{}")
+            .unwrap()
+            .codex_usage_source_dir
+            .is_none());
+    }
+
+    #[test]
+    fn codex_usage_source_failed_save_preserves_settings_and_unrelated_saves_work() {
+        let fixture = tempfile::tempdir().unwrap();
+        let source = fixture.path().join("source");
+        fs::create_dir(&source).unwrap();
+        let settings_path = fixture.path().join("settings.json");
+        let save = |settings: &AppSettings| save_settings_file_at(settings, &settings_path);
+        let mut existing = AppSettings::default();
+        let mut incoming = existing.clone();
+        incoming.codex_usage_source_dir = Some(format!("  {}  ", source.display()));
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert_eq!(existing.codex_usage_source_dir.as_deref(), source.to_str());
+        let saved = fs::read(&settings_path).unwrap();
+        let file_source = fixture.path().join("file.jsonl");
+        fs::write(&file_source, "fixture").unwrap();
+        for invalid in [
+            "relative/sessions".to_string(),
+            fixture.path().join("missing").display().to_string(),
+            file_source.display().to_string(),
+        ] {
+            let mut incoming = existing.clone();
+            incoming.codex_usage_source_dir = Some(invalid);
+            assert!(persist_settings_update(&mut existing, incoming, save).is_err());
+            assert_eq!(fs::read(&settings_path).unwrap(), saved);
+            assert_eq!(existing.codex_usage_source_dir.as_deref(), source.to_str());
+        }
+
+        // A disconnected source does not prevent saving a UI preference.
+        fs::remove_dir(&source).unwrap();
+        let mut incoming = existing.clone();
+        incoming.show_in_tray = false;
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert!(!existing.show_in_tray);
+        let mut incoming = existing.clone();
+        incoming.codex_usage_source_dir = Some("  ".into());
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert!(existing.codex_usage_source_dir.is_none());
+        let mut incoming = existing.clone();
+        incoming.codex_usage_source_dir = Some(" ~/ ".into());
+        persist_settings_update(&mut existing, incoming, save).unwrap();
+        assert_eq!(existing.codex_usage_source_dir.as_deref(), Some("~/"));
+    }
 
     #[test]
     fn visible_apps_old_settings_default_claude_desktop_visible() {

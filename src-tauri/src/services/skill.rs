@@ -1,7 +1,7 @@
 //! Skills 服务层
 //!
 //! v3.10.0+ 统一管理架构：
-//! - SSOT（单一事实源）：`~/.cc-switch/skills/`
+//! - SSOT（单一事实源）：`~/.codex-switch/skills/`
 //! - 安装时下载到 SSOT，按需同步到各应用目录
 //! - 数据库存储安装记录和启用状态
 
@@ -65,9 +65,10 @@ pub enum SyncMethod {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillStorageLocation {
-    /// CC Switch 管理目录 (~/.cc-switch/skills/)
+    /// Codex Switch 管理目录 (~/.codex-switch/skills/)
     #[default]
-    CcSwitch,
+    #[serde(alias = "cc_switch")]
+    CodexSwitch,
     /// Agent Skills 统一标准目录 (~/.agents/skills/)
     Unified,
 }
@@ -559,11 +560,11 @@ impl SkillService {
 
     // ========== 路径管理 ==========
 
-    /// 获取 SSOT 目录（根据设置返回 ~/.cc-switch/skills/ 或 ~/.agents/skills/）
+    /// 获取 SSOT 目录（根据设置返回 ~/.codex-switch/skills/ 或 ~/.agents/skills/）
     pub fn get_ssot_dir() -> Result<PathBuf> {
         let location = crate::settings::get_skill_storage_location();
         let dir = match location {
-            SkillStorageLocation::CcSwitch => get_app_config_dir().join("skills"),
+            SkillStorageLocation::CodexSwitch => get_app_config_dir().join("skills"),
             SkillStorageLocation::Unified => {
                 crate::config::get_home_dir().join(".agents").join("skills")
             }
@@ -572,7 +573,7 @@ impl SkillService {
         Ok(dir)
     }
 
-    /// 获取 Skill 卸载备份目录（~/.cc-switch/skill-backups/）
+    /// 获取 Skill 卸载备份目录（~/.codex-switch/skill-backups/）
     fn get_backup_dir() -> Result<PathBuf> {
         let dir = get_app_config_dir().join("skill-backups");
         fs::create_dir_all(&dir)?;
@@ -625,7 +626,7 @@ impl SkillService {
         }
 
         // 默认路径：回退到用户主目录下的标准位置。
-        // 必须走 get_home_dir()（可被 CC_SWITCH_TEST_HOME 覆盖）：Windows 上 dirs::home_dir()
+        // 必须走 get_home_dir()（可被 CODEX_SWITCH_TEST_HOME 覆盖）：Windows 上 dirs::home_dir()
         // 走 Known Folder API，测试无法隔离真实用户目录。
         let home = crate::config::get_home_dir();
 
@@ -1054,7 +1055,7 @@ impl SkillService {
                     }
 
                     // Pi 目录可能包含用户自己维护的同名 Skill。删除 SSOT 前仅移除
-                    // 能验证为 CC Switch 部署的副本；其余路径保留并返回警告。
+                    // 能验证为 Codex Switch 部署的副本；其余路径保留并返回警告。
                     if let Some(destination) = pi_removal_path {
                         let removal =
                             Self::remove_verified_pi_destination(&source, &destination, &directory);
@@ -1724,7 +1725,7 @@ impl SkillService {
         // 1. 解析旧目录和新目录（不改设置）
         let old_dir = Self::get_ssot_dir()?;
         let new_dir = match target {
-            SkillStorageLocation::CcSwitch => get_app_config_dir().join("skills"),
+            SkillStorageLocation::CodexSwitch => get_app_config_dir().join("skills"),
             SkillStorageLocation::Unified => {
                 crate::config::get_home_dir().join(".agents").join("skills")
             }
@@ -2022,7 +2023,7 @@ impl SkillService {
 
     /// 扫描未管理的 Skills
     ///
-    /// 扫描各应用目录，找出未被 CC Switch 管理的 Skills
+    /// 扫描各应用目录，找出未被 Codex Switch 管理的 Skills
     pub fn scan_unmanaged(db: &Arc<Database>) -> Result<Vec<UnmanagedSkill>> {
         let _state_guard = skill_state_read_guard();
         let managed_skills = db.get_all_installed_skills()?;
@@ -2042,7 +2043,7 @@ impl SkillService {
             scan_sources.push((agents_dir, "agents".to_string()));
         }
         if let Ok(ssot_dir) = Self::get_ssot_dir() {
-            scan_sources.push((ssot_dir, "cc-switch".to_string()));
+            scan_sources.push((ssot_dir, "codex-switch".to_string()));
         }
 
         let mut unmanaged: HashMap<String, UnmanagedSkill> = HashMap::new();
@@ -2086,7 +2087,7 @@ impl SkillService {
 
     /// 从应用目录导入 Skills
     ///
-    /// 将未管理的 Skills 导入到 CC Switch 统一管理
+    /// 将未管理的 Skills 导入到 Codex Switch 统一管理
     pub fn import_from_apps(
         db: &Arc<Database>,
         imports: Vec<ImportSkillSelection>,
@@ -2114,7 +2115,7 @@ impl SkillService {
         if let Some(agents_dir) = get_agents_skills_dir() {
             search_sources.push((agents_dir, "agents".to_string()));
         }
-        search_sources.push((ssot_dir.clone(), "cc-switch".to_string()));
+        search_sources.push((ssot_dir.clone(), "codex-switch".to_string()));
 
         for selection in imports {
             // selection.directory 由前端 IPC 直接传入、此前全程无校验，而它既被
@@ -2681,7 +2682,7 @@ impl SkillService {
             .map(|skill| (skill.directory.to_lowercase(), skill))
             .collect();
 
-        // Unselected MCode directories may have been installed outside CC Switch.
+        // Unselected MCode directories may have been installed outside Codex Switch.
         // Explicit disable/uninstall handles removal of managed deployments.
         if app_dir.exists() && !matches!(app, AppType::Mcode) {
             for entry in fs::read_dir(&app_dir)? {
@@ -3401,7 +3402,7 @@ impl SkillService {
 
     /// 下载并解压 ZIP
     async fn download_and_extract(&self, url: &str, dest: &Path) -> Result<()> {
-        let client = crate::proxy::http_client::get();
+        let client = crate::http_client::get();
         let response = client.get(url).send().await?;
         if !response.status().is_success() {
             let status = response.status().as_u16().to_string();
@@ -3682,7 +3683,7 @@ impl SkillService {
         skill: &InstalledSkill,
         excluded_path: Option<&Path>,
     ) -> Result<Option<PathBuf>> {
-        // 返回值会被整目录复制进 ~/.cc-switch/skill-backups/ 并由 get_skill_backups
+        // 返回值会被整目录复制进 ~/.codex-switch/skill-backups/ 并由 get_skill_backups
         // 在界面上列出——脏 directory 在这里等于任意文件读取 + 外泄通道。
         let directory = Self::require_valid_directory(&skill.directory)?;
 
@@ -4243,7 +4244,7 @@ impl SkillService {
         limit: usize,
         offset: usize,
     ) -> Result<SkillsShSearchResult> {
-        let client = crate::proxy::http_client::get();
+        let client = crate::http_client::get();
 
         let url = url::Url::parse_with_params(
             "https://skills.sh/api/search",
@@ -4525,6 +4526,16 @@ pub fn migrate_skills_to_ssot(db: &Arc<Database>) -> Result<usize> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn skill_storage_location_reads_legacy_and_serializes_current_name() {
+        let location: SkillStorageLocation = serde_json::from_str("\"cc_switch\"").unwrap();
+        assert_eq!(location, SkillStorageLocation::CodexSwitch);
+        assert_eq!(
+            serde_json::to_string(&location).unwrap(),
+            "\"codex_switch\""
+        );
+    }
 
     #[test]
     fn skill_state_lock_allows_snapshots_but_excludes_writers() {
@@ -5281,7 +5292,7 @@ mod tests {
     fn mcode_unmanaged_copy_survives_sync_migration_and_uninstall() {
         let temp = tempdir().unwrap();
         let _home = TestHomeGuard::set(temp.path());
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
         let db = Arc::new(Database::memory().unwrap());
         let mut skill = poisoned_skill("owner/repo:skill", "test-skill");
@@ -5308,7 +5319,7 @@ mod tests {
     fn mcode_imported_external_symlink_can_toggle_without_changing_its_source() {
         let temp = tempdir().unwrap();
         let _home = TestHomeGuard::set(temp.path());
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
         let db = Arc::new(Database::memory().unwrap());
         let external = temp.path().join("external-skill");
@@ -5369,7 +5380,7 @@ mod tests {
         for native_content in [None, Some("shared"), Some("different")] {
             let temp = tempdir().unwrap();
             let _home = TestHomeGuard::set(temp.path());
-            let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+            let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
             let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
             let db = Arc::new(Database::memory().unwrap());
             let claude = SkillService::get_app_skills_dir(&AppType::Claude)
@@ -5419,7 +5430,7 @@ mod tests {
     fn mcode_skill_import_continues_after_a_conflicting_copy() {
         let temp = tempdir().unwrap();
         let _home = TestHomeGuard::set(temp.path());
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
         let db = Arc::new(Database::memory().unwrap());
         let native = SkillService::get_app_skills_dir(&AppType::Mcode).unwrap();
@@ -5459,7 +5470,7 @@ mod tests {
     async fn mcode_copy_updates_and_disables_without_losing_external_changes() {
         let temp = tempdir().unwrap();
         let _home = TestHomeGuard::set(temp.path());
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let db = Arc::new(Database::memory().unwrap());
         let mut skill = poisoned_skill("anthropics/skills:algorithmic-art", "algorithmic-art");
         skill.repo_owner = Some("anthropics".into());
@@ -5504,7 +5515,7 @@ mod tests {
         for symlink in [false, true] {
             let temp = tempdir().unwrap();
             let _home = TestHomeGuard::set(temp.path());
-            let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+            let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
             let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
             let db = Arc::new(Database::memory().unwrap());
             let mut skill = poisoned_skill("test-skill", "test-skill");
@@ -5600,7 +5611,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let temp = tempdir().unwrap();
         let _home = TestHomeGuard::set(temp.path());
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let ssot = SkillService::get_ssot_dir().unwrap().join("test-skill");
         let source = temp.path().join("download");
         let native = SkillService::get_app_skills_dir(&AppType::Mcode)
@@ -5763,7 +5774,7 @@ mod tests {
     fn mcode_uninstall_keeps_modified_copy_and_record_until_cleanup_succeeds() {
         let temp = tempdir().unwrap();
         let _home = TestHomeGuard::set(temp.path());
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
         let db = Arc::new(Database::memory().unwrap());
         let mut skill = poisoned_skill("owner/repo:skill", "test-skill");
@@ -5978,7 +5989,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn uninstall_warns_when_the_pi_root_cannot_be_resolved() {
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let temp = tempdir().expect("tempdir");
         let _home = TestHomeGuard::set(temp.path());
         let _pi_dir =
@@ -6002,21 +6013,21 @@ mod tests {
             .is_none());
     }
 
-    /// CC_SWITCH_TEST_HOME 隔离守卫（serial 测试间互斥由 #[serial] 保证，
+    /// CODEX_SWITCH_TEST_HOME 隔离守卫（serial 测试间互斥由 #[serial] 保证，
     /// 守卫只负责在测试结束后恢复原值）。
     struct TestHomeGuard(Option<std::ffi::OsString>);
     impl TestHomeGuard {
         fn set(home: &Path) -> Self {
-            let guard = Self(std::env::var_os("CC_SWITCH_TEST_HOME"));
-            std::env::set_var("CC_SWITCH_TEST_HOME", home);
+            let guard = Self(std::env::var_os("CODEX_SWITCH_TEST_HOME"));
+            std::env::set_var("CODEX_SWITCH_TEST_HOME", home);
             guard
         }
     }
     impl Drop for TestHomeGuard {
         fn drop(&mut self) {
             match self.0.take() {
-                Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
-                None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+                Some(value) => std::env::set_var("CODEX_SWITCH_TEST_HOME", value),
+                None => std::env::remove_var("CODEX_SWITCH_TEST_HOME"),
             }
         }
     }
@@ -6195,7 +6206,7 @@ mod tests {
         let _guard = TestHomeGuard::set(temp.path());
 
         // 手工放置一个备份：meta.json 里的 directory 指向 SSOT 之外。
-        // SSOT 位于 {home}/.cc-switch/skills，"../../pwned-restore" 若生效会写到 {home}/pwned-restore。
+        // SSOT 位于 {home}/.codex-switch/skills，"../../pwned-restore" 若生效会写到 {home}/pwned-restore。
         let backup_id = "20260727_120000_evil";
         let backup_dir = SkillService::get_backup_dir()
             .expect("backup dir")
@@ -6275,7 +6286,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn migrate_storage_rejects_an_aliased_destination_before_moving_skills() {
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let temp = tempdir().expect("tempdir");
         let _home = TestHomeGuard::set(temp.path());
         let _pi_dir =
@@ -6297,7 +6308,7 @@ mod tests {
         );
         assert_eq!(
             crate::settings::get_skill_storage_location(),
-            SkillStorageLocation::CcSwitch
+            SkillStorageLocation::CodexSwitch
         );
         assert!(
             source.join("SKILL.md").exists(),
@@ -6322,11 +6333,11 @@ mod tests {
             .join("test-skill");
         write_skill(&old_source, "managed");
 
-        let result = SkillService::migrate_storage(&db, SkillStorageLocation::CcSwitch)
+        let result = SkillService::migrate_storage(&db, SkillStorageLocation::CodexSwitch)
             .expect("migrate away from alias");
         let new_source = temp
             .path()
-            .join(".cc-switch")
+            .join(".codex-switch")
             .join("skills")
             .join("test-skill");
         let pi_skill = temp
@@ -6351,7 +6362,7 @@ mod tests {
         let _guard = TestHomeGuard::set(temp.path());
 
         // 模拟同步导入灌进来的脏数据：directory 含路径穿越（save_skill 不校验，
-        // 与 import_sql_string_for_sync 的效果一致）。SSOT = {home}/.cc-switch/skills，
+        // 与 import_sql_string_for_sync 的效果一致）。SSOT = {home}/.codex-switch/skills，
         // "../../victim-uninstall" 解析为 {home}/victim-uninstall。
         let victim = temp.path().join("victim-uninstall");
         fs::create_dir_all(&victim).expect("create victim dir");
@@ -6384,7 +6395,7 @@ mod tests {
     #[serial_test::serial]
     fn migrate_storage_retargets_managed_pi_and_mcode_symlinks() {
         for app in [AppType::Pi, AppType::Mcode] {
-            let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+            let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
             let temp = tempdir().expect("tempdir");
             let _home = TestHomeGuard::set(temp.path());
             let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
@@ -6424,7 +6435,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn migrate_storage_retargets_an_equivalent_relative_pi_symlink() {
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
         let temp = tempdir().expect("tempdir");
         let _home = TestHomeGuard::set(temp.path());
         let _pi_dir =
@@ -6441,8 +6452,11 @@ mod tests {
             .join("test-skill");
         fs::create_dir_all(pi_skill.parent().expect("Pi skills directory"))
             .expect("create Pi skills directory");
-        std::os::unix::fs::symlink(Path::new("../../.cc-switch/skills/test-skill"), &pi_skill)
-            .expect("create relative Pi symlink");
+        std::os::unix::fs::symlink(
+            Path::new("../../.codex-switch/skills/test-skill"),
+            &pi_skill,
+        )
+        .expect("create relative Pi symlink");
 
         let result = SkillService::migrate_storage(&db, SkillStorageLocation::Unified)
             .expect("migrate storage");
@@ -6463,7 +6477,7 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn migrate_storage_skips_bad_rows_without_moving_foreign_dirs() {
-        let _location = StorageLocationGuard::set(SkillStorageLocation::CcSwitch);
+        let _location = StorageLocationGuard::set(SkillStorageLocation::CodexSwitch);
 
         let temp = tempdir().expect("tempdir");
         let _guard = TestHomeGuard::set(temp.path());
@@ -6547,25 +6561,25 @@ mod tests {
     }
 
     #[test]
-    // serial：与 backup/s3_sync/deeplink 等同样读写进程级 CC_SWITCH_TEST_HOME 的测试互斥，
+    // serial：与 backup/s3_sync/deeplink 等同样读写进程级 CODEX_SWITCH_TEST_HOME 的测试互斥，
     // EnvGuard 只负责恢复不提供互斥。
     #[serial_test::serial]
     fn get_app_skills_dir_honors_test_home_override() {
-        // 回归：曾直呼 dirs::home_dir() 绕过 CC_SWITCH_TEST_HOME——Unix 上碰巧跟 $HOME
+        // 回归：曾直呼 dirs::home_dir() 绕过 CODEX_SWITCH_TEST_HOME——Unix 上碰巧跟 $HOME
         // 一致所以测试能过，Windows 上 dirs 走 Known Folder API，测试隔离整体失效
         // （tests/skill_sync.rs 扫到 runner 真实用户目录）。
         struct EnvGuard(Option<std::ffi::OsString>);
         impl Drop for EnvGuard {
             fn drop(&mut self) {
                 match self.0.take() {
-                    Some(value) => std::env::set_var("CC_SWITCH_TEST_HOME", value),
-                    None => std::env::remove_var("CC_SWITCH_TEST_HOME"),
+                    Some(value) => std::env::set_var("CODEX_SWITCH_TEST_HOME", value),
+                    None => std::env::remove_var("CODEX_SWITCH_TEST_HOME"),
                 }
             }
         }
         let temp = tempdir().expect("tempdir");
-        let _guard = EnvGuard(std::env::var_os("CC_SWITCH_TEST_HOME"));
-        std::env::set_var("CC_SWITCH_TEST_HOME", temp.path());
+        let _guard = EnvGuard(std::env::var_os("CODEX_SWITCH_TEST_HOME"));
+        std::env::set_var("CODEX_SWITCH_TEST_HOME", temp.path());
 
         let dir =
             SkillService::get_app_skills_dir(&AppType::Claude).expect("resolve claude skills dir");
@@ -6724,7 +6738,7 @@ mod tests {
     #[serial_test::serial]
     async fn update_skill_persists_relocated_source_before_metadata_rename() {
         for location in [
-            SkillStorageLocation::CcSwitch,
+            SkillStorageLocation::CodexSwitch,
             SkillStorageLocation::Unified,
         ] {
             for (directory, old_path, new_path) in [
@@ -6733,10 +6747,10 @@ mod tests {
                 ("weread-skills", "skills", "."),
             ] {
                 let home = tempdir().expect("home");
-                let config_dir = home.path().join(".cc-switch");
+                let config_dir = home.path().join(".codex-switch");
                 fs::create_dir_all(&config_dir).expect("isolated config directory");
                 // Keep Windows' legacy-HOME fallback out of this destructive test.
-                fs::File::create(config_dir.join("cc-switch.db"))
+                fs::File::create(config_dir.join("codex-switch.db"))
                     .expect("isolated database sentinel");
                 let _home = TestHomeGuard::set(home.path());
                 assert_eq!(crate::config::get_app_config_dir(), config_dir);
