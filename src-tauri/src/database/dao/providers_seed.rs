@@ -52,16 +52,6 @@ pub(crate) const OFFICIAL_SEEDS: &[OfficialProviderSeed] = &[
         settings_config_json: r#"{"env":{}}"#,
     },
     OfficialProviderSeed {
-        id: CODEX_OFFICIAL_PROVIDER_ID,
-        app_type: AppType::Codex,
-        name: "OpenAI Official",
-        website_url: "https://chatgpt.com/codex",
-        icon: "openai",
-        icon_color: "#00A67E",
-        // 空 auth + 空 config 让用户走 ChatGPT Plus/Pro OAuth
-        settings_config_json: r#"{"auth":{},"config":""}"#,
-    },
-    OfficialProviderSeed {
         id: "gemini-official",
         app_type: AppType::Gemini,
         name: "Google Official",

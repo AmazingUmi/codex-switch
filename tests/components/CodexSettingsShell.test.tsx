@@ -63,8 +63,7 @@ describe("Codex settings shell", () => {
 
   it("reuses the home account data and switching operation in Authentication", () => {
     const props: CodexAccountsPanelProps = {
-      providers: [],
-      currentProviderId: "active",
+      currentAccountId: "active",
       onSwitchAccount: vi.fn(),
     };
     render(<AuthCenterPanel accountPanelProps={props} />);

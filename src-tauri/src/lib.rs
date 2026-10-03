@@ -765,6 +765,8 @@ pub fn run() {
                 Err(e) => log::warn!("✗ Failed to read skills migration flag: {e}"),
             }
 
+            crate::services::provider::codex_accounts::migrate_legacy(&app_state)?;
+
             // 1.5. 自动导入 live 配置 + seed 官方预设供应商（Claude / Codex / Gemini）
             //
             // 先 import 后 seed 是有意为之：先把用户手动配置的 settings.json / auth.json / .env
@@ -1699,6 +1701,7 @@ pub fn run() {
             commands::auth_get_status,
             commands::auth_update_account,
             commands::auth_switch_codex_account,
+            commands::get_codex_active_selection,
             commands::auth_remove_account,
             commands::auth_set_default_account,
             commands::auth_logout,

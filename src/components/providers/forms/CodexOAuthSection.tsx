@@ -99,9 +99,6 @@ interface CodexOAuthSectionProps {
     account: ManagedAuthAccount,
     quota?: SubscriptionQuota,
   ) => React.ReactNode;
-  renderAccountEditOptions?: (account: ManagedAuthAccount) => React.ReactNode;
-  onAccountEditOpened?: (account: ManagedAuthAccount) => void;
-  onAccountEditSaved?: (account: ManagedAuthAccount) => void;
   /** Optional bulk operation in the card header menu or below the list. */
   showLogoutAll?: boolean;
   /** Nearby account help/current API label, shared with the compact account header. */
@@ -155,9 +152,6 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
   currentAccountId,
   renderAccountActions,
   renderAccountHeaderActions,
-  renderAccountEditOptions,
-  onAccountEditOpened,
-  onAccountEditSaved,
   showLogoutAll = false,
   headerActions,
   onAddAccount,
@@ -756,7 +750,6 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
                             title={t("codexAccounts.editTitle", "编辑账号")}
                             aria-label={`${t("codexAccounts.editTitle", "编辑账号")}: ${account.login}`}
                             onClick={() => {
-                              onAccountEditOpened?.(account);
                               setEditingAccount(account);
                             }}
                           >
@@ -946,11 +939,9 @@ export const CodexOAuthSection: React.FC<CodexOAuthSectionProps> = ({
             }}
             onSetDefault={() => setDefaultAccount(editingAccount.id)}
             onRemove={() => handleRemoveAccount(editingAccount.id)}
-            accountOptions={renderAccountEditOptions?.(editingAccount)}
             onClose={() => setEditingAccount(null)}
             onSave={async (accountId, appearance) => {
               await updateAccount(accountId, appearance);
-              onAccountEditSaved?.(editingAccount);
             }}
           />
         )}

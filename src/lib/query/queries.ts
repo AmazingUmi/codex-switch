@@ -6,6 +6,11 @@ import {
 } from "@tanstack/react-query";
 import { providersApi, settingsApi, usageApi, type AppId } from "@/lib/api";
 import type { Provider, Settings, UsageResult } from "@/types";
+import {
+  getCodexActiveSelection,
+  type CodexActiveSelection,
+} from "@/lib/api/auth";
+import { isCodexAccountProvider } from "@/components/codex/accountProviders";
 import { usageKeys } from "@/lib/query/usage";
 import { extractErrorMessage } from "@/utils/errorUtils";
 
@@ -35,6 +40,7 @@ const sortProviders = (
 export interface ProvidersQueryData {
   providers: Record<string, Provider>;
   currentProviderId: string;
+  activeSelection?: CodexActiveSelection;
 }
 
 export const useProvidersQuery = (
@@ -56,6 +62,13 @@ export const useProvidersQuery = (
 
       try {
         currentProviderId = await providersApi.getCurrent(appId);
+        if (appId === "codex") {
+          providers = Object.fromEntries(
+            Object.entries(providers).filter(
+              ([, provider]) => !isCodexAccountProvider(provider),
+            ),
+          );
+        }
       } catch (error) {
         console.error("获取当前供应商失败:", error);
         if (appId === "codex") throw error;
@@ -68,6 +81,14 @@ export const useProvidersQuery = (
     },
   });
 };
+
+/** Account activation and current state remain available if the API provider list fails. */
+export const useCodexActiveSelectionQuery =
+  (): UseQueryResult<CodexActiveSelection> =>
+    useQuery({
+      queryKey: ["codex-active-selection"],
+      queryFn: getCodexActiveSelection,
+    });
 
 export const useSettingsQuery = (): UseQueryResult<Settings> => {
   return useQuery({

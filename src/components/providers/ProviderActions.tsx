@@ -1,4 +1,10 @@
-import { Activity, ArrowRightLeft, Loader2, Pencil } from "lucide-react";
+import {
+  Activity,
+  ArrowRightLeft,
+  Loader2,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { CurrentStatus } from "@/components/ui/current-status";
@@ -11,6 +17,7 @@ interface ProviderActionsProps {
   switchDisabledReason?: string;
   onSwitch: () => void;
   onEdit: () => void;
+  onDelete?: () => void;
   onTest?: () => void;
 }
 
@@ -20,6 +27,7 @@ export function ProviderActions({
   switchDisabledReason,
   onSwitch,
   onEdit,
+  onDelete,
   onTest,
 }: ProviderActionsProps) {
   const { t } = useTranslation();
@@ -59,6 +67,22 @@ export function ProviderActions({
       >
         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
       </Button>
+      {onDelete && (
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          onClick={onDelete}
+          aria-label={t("common.remove", "移除")}
+          title={t("common.remove", "移除")}
+          className={cn(
+            iconButtonClass,
+            "text-destructive hover:text-destructive",
+          )}
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      )}
       {isCurrent ? (
         <CurrentStatus label={switchLabel} />
       ) : (

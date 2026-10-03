@@ -776,6 +776,14 @@ pub(crate) fn sync_current_provider_for_app(
     app_type: &AppType,
 ) -> Result<Option<LiveSyncOutcome>, AppError> {
     let _switch_guard = crate::mode::controller::lock_settled_blocking(state, app_type)?;
+    if *app_type == AppType::Codex {
+        if let Some(crate::mode::current::CodexActiveSelection::Account { account_id }) =
+            crate::mode::current::codex_active_selection(&state.db)?
+        {
+            super::codex_accounts::switch_locked(state, &account_id)?;
+            return Ok(Some(LiveSyncOutcome::WroteLive));
+        }
+    }
     let current_id = match crate::mode::current::provider_for(
         &state.db,
         app_type,
@@ -801,6 +809,7 @@ pub(crate) fn sync_current_provider_for_app(
 ///
 /// For additive mode apps (OpenCode), all providers are synced instead of just the current one.
 pub fn sync_current_to_live(state: &AppState) -> Result<(), AppError> {
+    super::codex_accounts::migrate_legacy(state)?;
     let mut failures = Vec::new();
 
     // Sync providers based on mode
@@ -1107,7 +1116,13 @@ pub fn import_default_config(state: &AppState, app_type: AppType) -> Result<bool
         .to_string(),
     );
 
+    if app_type == AppType::Codex {
+        super::codex_accounts::ensure_api_provider(&provider)?;
+    }
     state.db.save_provider(app_type.as_str(), &provider)?;
+    if app_type == AppType::Codex {
+        return Ok(true);
+    }
     state
         .db
         .set_current_provider(app_type.as_str(), &provider.id)?;
@@ -1139,7 +1154,7 @@ pub fn should_import_default_config_on_startup(
     state: &AppState,
     app_type: &AppType,
 ) -> Result<bool, AppError> {
-    if app_type.is_additive_mode() {
+    if app_type.is_additive_mode() || *app_type == AppType::Codex {
         return Ok(false);
     }
 

@@ -4,12 +4,13 @@ Codex Switch manages Codex connection configurations, ChatGPT accounts and usage
 It is a Codex-focused fork of CC Switch, built with Tauri 2, React, TypeScript and
 Rust. [中文说明](../README.md).
 
-- Home contains directly switchable ChatGPT accounts, independent subscription quota, API-key and advanced connections, with one add chooser and a separate local usage view.
+- Home separates subscription accounts and API Providers, each with its own Add button, alongside local usage.
 - Settings contains global authentication policies, backups,
   synchronization and application preferences.
 - OpenAI subscription accounts use official login directly. DeepSeek API uses its official native Responses endpoint with an API key; models and reasoning levels remain customizable. Local routing, automatic failover and protocol conversion are unavailable.
-- Signed-in accounts need no manually created connection; adding one does not switch the active account. Card icons provide switching and editing. The editor contains display details, reauthentication, default-account controls, account connections and removal.
-- “Current” follows a successful switch and is independent of the default account. API keys and existing advanced connections are managed on Home; signing out all accounts is available below its account list. Network requests follow the system environment; application proxy configuration has been removed.
+- Subscription accounts sign in, switch directly and query their own quota. Adding an account does not activate it. The editor contains display details, reauthentication, default-account controls and removal.
+- API Providers manage addresses, API keys, models and API balances. Removing a Provider clears its saved configuration and credentials; removing the active Provider leaves the application disconnected.
+- “Current” identifies one subscription account or API Provider, independently of the default account. Bulk sign-out is available below the account list. Network requests follow the system environment.
 - Help icons beside headings explain quota, statistics scope and settings on hover, keyboard focus or click. Local usage labels costs as estimates.
 
 ## Run from source
@@ -66,7 +67,7 @@ and [architecture and compatibility](ARCHITECTURE.md).
 ## Distribution and attribution
 
 Download installers and version notes from [GitHub Releases](https://github.com/AmazingUmi/codex-switch/releases).
-The first `0.0.2` release is a macOS Apple Silicon (arm64) pre-release. The configured
+The current `0.0.3` release is a macOS Apple Silicon (arm64) pre-release. The configured
 minimum is macOS 12; macOS 12 and Intel Macs have not been tested on actual devices.
 Without Apple developer credentials, builds use ad-hoc signing and are not
 notarized by Apple. Installation requires allowing the app in Privacy & Security.

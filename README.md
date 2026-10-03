@@ -3,11 +3,12 @@
 面向 Codex 的账号、连接配置和用量管理工具，基于 CC Switch 收敛而来。
 技术栈为 Tauri 2、React、TypeScript 和 Rust。[English](docs/README_EN.md)。
 
-- 首页统一管理 ChatGPT 账号、API Key 与已有高级连接；“添加”入口按登录方式分流，另提供本地 Codex 用量视图。
+- 首页分别管理订阅账号和 API Provider，两处各有独立的添加入口，另提供本地 Codex 用量视图。
 - 设置集中管理全局认证策略、备份、同步与应用偏好。应用内网络代理配置已移除，网络请求遵循系统环境。
 - OpenAI 订阅账号直接使用官方登录；DeepSeek API 使用官方原生 Responses 接口，填入 API Key 即可配置，模型和思考档位可自定义。应用不提供本地路由、自动故障转移或协议转换。
-- 登录账号无需新建连接配置，新增账号不会自动切换。卡片右上角提供切换和编辑图标；编辑中管理显示信息、重新登录、默认账号、账号连接和移除操作。
-- “当前使用”随成功切换更新，与默认账号独立。API Key 与已有高级连接在主页管理，批量注销位于账号列表下方。
+- 订阅账号直接登录、切换并查询各自额度，新增账号不会自动切换；编辑中管理显示信息、重新登录、默认账号和移除操作。
+- API Provider 管理地址、API Key、模型和 API 余额。移除连接会清理其保存的配置和凭据；移除当前连接后保持未连接状态。
+- “当前使用”只对应一个订阅账号或 API Provider，与默认账号独立。批量注销位于订阅账号列表下方。
 - 额度、统计范围与设置说明通过标题旁的帮助图标查看，支持悬停、键盘聚焦和点击；本地用量中的费用标为估算费用。
 
 ## 从源码运行
@@ -60,7 +61,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## 发布与来源
 
 安装包和版本说明见 [GitHub Releases](https://github.com/AmazingUmi/codex-switch/releases)。
-首版 `0.0.2` 为 macOS Apple Silicon（arm64）测试版，配置最低系统版本为
+当前 `0.0.3` 为 macOS Apple Silicon（arm64）测试版，配置最低系统版本为
 macOS 12；未在 macOS 12 或 Intel Mac 实机验证。无 Apple 开发者证书时使用
 ad-hoc 签名，未经过 Apple 公证，安装需要在系统“隐私与安全性”中允许打开。
 本分支尚无自动更新渠道，更新时从 Releases 下载新版本。

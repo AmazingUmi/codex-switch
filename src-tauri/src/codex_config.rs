@@ -622,6 +622,7 @@ fn migrate_legacy_codex_managed_oauth_live_auth_marker(
 /// Before removing a manager record, make any legacy live-auth ownership
 /// provable with the manager's persisted user identity. Failure is surfaced so
 /// callers keep the manager record and marker instead of orphaning auth.json.
+#[cfg(test)]
 pub(crate) fn prepare_codex_live_auth_for_managed_account_removal(
     managed_account_id: &str,
     managed_id_token: Option<&str>,
@@ -676,6 +677,7 @@ pub fn codex_auth_matches_recorded_managed_oauth(
         })
 }
 
+#[cfg(test)]
 pub(crate) fn clear_codex_managed_oauth_live_auth_marker_for_account(
     account_id: &str,
 ) -> Result<(), AppError> {
@@ -709,6 +711,7 @@ pub(crate) fn clear_codex_managed_oauth_live_auth_marker_for_account(
 /// 删除谓词同时校验 codex-switch marker 中的本地账号 ID 与原生 auth.json 中的
 /// workspace ID，不依赖会被 Codex CLI 自刷新破坏的 access-token 指纹。切换路径必须
 /// 先把盘上轮换后的 refresh token 采纳回 manager，再调用本函数。
+#[cfg(test)]
 pub fn clear_codex_live_auth_for_managed_account(account_id: &str) -> Result<(), AppError> {
     clear_codex_live_auth_for_managed_account_if_unchanged(account_id, None)
 }
@@ -741,6 +744,7 @@ pub fn ensure_codex_live_auth_unchanged_for_managed_account(
 }
 
 /// Content-based cleanup with an optional compare-before-delete guard.
+#[cfg(test)]
 pub fn clear_codex_live_auth_for_managed_account_if_unchanged(
     account_id: &str,
     expected_refresh_token: Option<&str>,

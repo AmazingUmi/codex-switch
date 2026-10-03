@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use codex_switch_lib::{
     get_codex_auth_path, get_codex_config_path, import_default_config_test_hook, read_json_file,
-    switch_provider_test_hook, write_codex_live_atomic, AppError, AppType, McpApps, McpServer,
-    MultiAppConfig, Provider, ProviderService,
+    switch_provider_test_hook, write_codex_live_atomic, AppError, AppState, AppType, McpApps,
+    McpServer, MultiAppConfig, Provider, ProviderService,
 };
 
 #[path = "support.rs"]
@@ -159,94 +159,103 @@ fn grokbuild_switch_back_after_client_changed_default_model() {
     );
 }
 
-#[test]
-fn codex_startup_import_fresh_install_imports_once_and_syncs_current_setting() {
-    let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
-    reset_test_fs();
-    let home = ensure_test_home();
-
-    let auth = json!({"OPENAI_API_KEY": "fresh-key"});
-    let config = r#"model = "gpt-5"
-"#;
-    write_codex_live_atomic(&auth, Some(config)).expect("seed codex live config");
-
-    let state = create_test_state().expect("create test state");
-
-    assert!(
-        ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
-            .expect("check startup import eligibility"),
-        "empty Codex provider set should import on startup"
-    );
-
-    import_default_config_test_hook(&state, AppType::Codex).expect("import codex default");
-
-    let providers = state
-        .db
-        .get_all_providers(AppType::Codex.as_str())
-        .expect("get codex providers after import");
+fn assert_codex_import_did_not_activate(state: &AppState, home: &Path) {
     assert_eq!(
-        providers.len(),
-        1,
-        "fresh install import should create exactly one Codex provider before seeding"
+        state
+            .db
+            .get_current_provider(AppType::Codex.as_str())
+            .expect("read current provider"),
+        None,
+        "import must not set the database current pointer"
     );
-    assert!(
-        providers.contains_key("default"),
-        "fresh install import should create default provider"
+    assert_eq!(
+        ProviderService::current(state, AppType::Codex).expect("read active provider"),
+        "",
+        "import must leave the direct selection disconnected"
     );
-
-    let current_id = state
-        .db
-        .get_current_provider(AppType::Codex.as_str())
-        .expect("get codex current provider");
-    assert_eq!(current_id.as_deref(), Some("default"));
-
-    let settings: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(settings_path(home)).expect("read settings.json"),
-    )
-    .expect("parse settings.json");
+    let settings: serde_json::Value = read_json_file(&settings_path(home)).expect("read settings");
     assert_eq!(
         settings
             .get("currentProviderCodex")
             .and_then(|value| value.as_str()),
-        Some("default"),
-        "live import should also sync device-local currentProviderCodex"
+        None,
+        "import must not set the device-local current pointer"
+    );
+}
+
+#[test]
+fn codex_manual_api_import_saves_connection_without_startup_import_or_activation() {
+    let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    reset_test_fs();
+    let home = ensure_test_home();
+    let auth = json!({"OPENAI_API_KEY": "fresh-key"});
+    let config = "model = \"gpt-5\"\n";
+    write_codex_live_atomic(&auth, Some(config)).expect("seed codex live config");
+    let auth_before = std::fs::read(get_codex_auth_path()).expect("read original auth");
+    let config_before = std::fs::read(get_codex_config_path()).expect("read original config");
+    let state = create_test_state().expect("create test state");
+    assert!(
+        !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
+            .expect("check startup import eligibility"),
+        "Codex startup must not import native credentials"
+    );
+    import_default_config_test_hook(&state, AppType::Codex)
+        .expect("manually import API connection");
+    let providers = state
+        .db
+        .get_all_providers(AppType::Codex.as_str())
+        .expect("read providers");
+    assert_eq!(providers.len(), 1);
+    let imported = providers.get("default").expect("imported API provider");
+    assert_eq!(imported.settings_config.get("auth"), Some(&auth));
+    assert_eq!(
+        imported
+            .settings_config
+            .get("config")
+            .and_then(|v| v.as_str()),
+        Some(config)
+    );
+    assert_codex_import_did_not_activate(&state, home);
+    assert_eq!(
+        std::fs::read(get_codex_auth_path()).expect("read auth after import"),
+        auth_before
+    );
+    assert_eq!(
+        std::fs::read(get_codex_config_path()).expect("read config after import"),
+        config_before
     );
 
     state
         .db
         .init_default_official_providers()
         .expect("seed official providers");
-    let providers_after_seed = state
+    let seeded = state
         .db
         .get_all_providers(AppType::Codex.as_str())
-        .expect("get codex providers after seed");
+        .expect("read seeded providers");
     assert_eq!(
-        providers_after_seed.len(),
-        2,
-        "official seeding should add codex-official alongside imported default"
+        seeded.len(),
+        1,
+        "seeding must retain only the imported API connection"
     );
-    assert!(providers_after_seed.contains_key("codex-official"));
-
+    assert!(seeded.contains_key("default"));
+    assert!(!seeded.contains_key("codex-official"));
+    assert_codex_import_did_not_activate(&state, home);
     assert!(
         !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
-            .expect("re-check startup import eligibility"),
-        "subsequent startup should skip once Codex already has providers"
+            .expect("recheck startup import eligibility")
     );
 }
 
 #[test]
-fn codex_startup_import_accepts_config_without_auth_file() {
+fn codex_manual_api_import_accepts_config_key_without_auth_file_without_activation() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
-    let _home = ensure_test_home();
-
+    let home = ensure_test_home();
     let config_path = get_codex_config_path();
-    if let Some(parent) = config_path.parent() {
-        std::fs::create_dir_all(parent).expect("create codex config dir");
-    }
-    std::fs::write(
-        &config_path,
-        r#"model_provider = "aihubmix"
+    std::fs::create_dir_all(config_path.parent().expect("config directory"))
+        .expect("create config directory");
+    let config = r#"model_provider = "aihubmix"
 
 [model_providers.aihubmix]
 name = "AiHubMix"
@@ -254,124 +263,114 @@ base_url = "https://aihubmix.example/v1"
 wire_api = "responses"
 requires_openai_auth = true
 experimental_bearer_token = "live-key"
-"#,
-    )
-    .expect("seed config.toml without auth.json");
-    assert!(
-        !get_codex_auth_path().exists(),
-        "test should not seed auth.json"
-    );
-
+"#;
+    std::fs::write(&config_path, config).expect("seed config-only API connection");
+    assert!(!get_codex_auth_path().exists());
     let state = create_test_state().expect("create test state");
+    assert!(
+        !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
+            .expect("check startup import eligibility")
+    );
     import_default_config_test_hook(&state, AppType::Codex)
-        .expect("import codex config-only default");
-
+        .expect("manually import config-only API connection");
     let providers = state
         .db
         .get_all_providers(AppType::Codex.as_str())
-        .expect("get codex providers after import");
-    let provider = providers.get("default").expect("default provider exists");
+        .expect("read providers");
+    assert_eq!(providers.len(), 1);
+    let imported = providers.get("default").expect("imported API provider");
+    assert_eq!(imported.settings_config.get("auth"), Some(&json!({})));
     assert_eq!(
-        provider.settings_config.pointer("/auth"),
-        Some(&json!({})),
-        "missing auth.json should import as an empty auth object"
-    );
-    assert!(
-        provider
+        imported
             .settings_config
             .get("config")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default()
-            .contains("experimental_bearer_token"),
-        "config.toml content should still be imported"
+            .and_then(|v| v.as_str()),
+        Some(config)
+    );
+    assert_codex_import_did_not_activate(&state, home);
+    assert!(
+        !get_codex_auth_path().exists(),
+        "import must not synthesize auth.json"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&config_path).expect("read config after import"),
+        config
     );
 }
 
 #[test]
-fn codex_startup_import_marks_oauth_only_default_official() {
+fn codex_manual_provider_import_rejects_oauth_only_and_preserves_native_auth() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
-    let _home = ensure_test_home();
-
+    let home = ensure_test_home();
     let auth = json!({
         "auth_mode": "chatgpt",
-        "tokens": {
-            "id_token": "oauth-id",
-            "access_token": "oauth-access"
-        }
+        "tokens": { "id_token": "oauth-id", "access_token": "oauth-access" }
     });
     let config = r#"[mcp_servers.echo]
 command = "echo"
 "#;
-    write_codex_live_atomic(&auth, Some(config)).expect("seed oauth-only codex live config");
-
+    write_codex_live_atomic(&auth, Some(config)).expect("seed native OAuth auth");
+    let auth_before = std::fs::read(get_codex_auth_path()).expect("read original auth");
+    let config_before = std::fs::read(get_codex_config_path()).expect("read original config");
     let state = create_test_state().expect("create test state");
-    import_default_config_test_hook(&state, AppType::Codex).expect("import codex default");
-
-    let providers = state
+    assert!(
+        import_default_config_test_hook(&state, AppType::Codex).is_err(),
+        "OAuth-only native auth belongs to accounts, not API Providers"
+    );
+    assert!(state
         .db
         .get_all_providers(AppType::Codex.as_str())
-        .expect("get codex providers after import");
-    let provider = providers.get("default").expect("default provider exists");
-
+        .expect("read providers")
+        .is_empty());
+    assert_codex_import_did_not_activate(&state, home);
     assert_eq!(
-        provider.category.as_deref(),
-        Some("official"),
-        "OAuth-only live Codex installs should keep official behavior"
+        std::fs::read(get_codex_auth_path()).expect("read auth after rejection"),
+        auth_before
     );
     assert_eq!(
-        provider.settings_config.pointer("/auth/tokens/id_token"),
-        Some(&json!("oauth-id")),
-        "import should preserve OAuth login material"
+        std::fs::read(get_codex_config_path()).expect("read config after rejection"),
+        config_before
     );
 }
 
 #[test]
-fn codex_startup_import_skips_when_only_official_seed_exists() {
+fn codex_official_seeding_does_not_create_oauth_provider_or_import_native_api() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     reset_test_fs();
-    let _home = ensure_test_home();
-
+    let home = ensure_test_home();
     let auth = json!({"OPENAI_API_KEY": "fresh-key"});
-    let config = r#"model = "gpt-5"
-"#;
-    write_codex_live_atomic(&auth, Some(config)).expect("seed codex live config");
-
+    let config = "model = \"gpt-5\"\n";
+    write_codex_live_atomic(&auth, Some(config)).expect("seed native API config");
+    let auth_before = std::fs::read(get_codex_auth_path()).expect("read original auth");
+    let config_before = std::fs::read(get_codex_config_path()).expect("read original config");
     let state = create_test_state().expect("create test state");
-    state
-        .db
-        .init_default_official_providers()
-        .expect("seed official providers");
-
-    let providers_before = state
-        .db
-        .get_all_providers(AppType::Codex.as_str())
-        .expect("get codex providers before restart check");
+    for _ in 0..2 {
+        state
+            .db
+            .init_default_official_providers()
+            .expect("seed official providers");
+        assert!(
+            state
+                .db
+                .get_all_providers(AppType::Codex.as_str())
+                .expect("read providers")
+                .is_empty(),
+            "repeated seeding must never create a Codex account Provider or auto-import API config"
+        );
+        assert!(
+            !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
+                .expect("check startup import eligibility")
+        );
+        assert_codex_import_did_not_activate(&state, home);
+    }
     assert_eq!(
-        providers_before.len(),
-        1,
-        "fixture should start with only codex-official present"
+        std::fs::read(get_codex_auth_path()).expect("read auth after seed"),
+        auth_before
     );
-    assert!(providers_before.contains_key("codex-official"));
-
-    assert!(
-        !ProviderService::should_import_default_config_on_startup(&state, &AppType::Codex)
-            .expect("check startup import eligibility"),
-        "startup should skip import when codex-official already exists"
-    );
-
-    let providers_after = state
-        .db
-        .get_all_providers(AppType::Codex.as_str())
-        .expect("get codex providers after restart check");
     assert_eq!(
-        providers_after.len(),
-        providers_before.len(),
-        "skipping startup import should not grow the Codex provider set"
-    );
-    assert!(
-        !providers_after.contains_key("default"),
-        "restart path should not create a new default provider"
+        std::fs::read(get_codex_config_path()).expect("read config after seed"),
+        config_before
     );
 }
 

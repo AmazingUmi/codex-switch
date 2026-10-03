@@ -12,6 +12,75 @@ use crate::provider::Provider;
 
 use super::state::{self, ModeState};
 
+/// The selected native Codex identity. Accounts never occupy provider rows.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum CodexActiveSelection {
+    Account {
+        #[serde(rename = "accountId")]
+        account_id: String,
+    },
+    Provider {
+        #[serde(rename = "providerId")]
+        provider_id: String,
+    },
+}
+
+pub fn codex_active_selection(db: &Database) -> Result<Option<CodexActiveSelection>, AppError> {
+    let live = state::load(&DeviceStore::for_device())?;
+    if let Some(value) = live
+        .apps
+        .get("codex")
+        .and_then(|app| app.extra.get("activeSelection"))
+    {
+        let selected: Option<CodexActiveSelection> = serde_json::from_value(value.clone())
+            .map_err(|error| {
+                AppError::Message(format!("Invalid Codex active selection: {error}"))
+            })?;
+        return match selected {
+            Some(CodexActiveSelection::Provider { provider_id }) => Ok(db
+                .get_provider_by_id(&provider_id, "codex")?
+                .map(|_| CodexActiveSelection::Provider { provider_id })),
+            selection => Ok(selection),
+        };
+    }
+    Ok(
+        crate::settings::get_effective_current_provider(db, &AppType::Codex)?
+            .map(|provider_id| CodexActiveSelection::Provider { provider_id }),
+    )
+}
+
+/// UI reads must not certify a partially recovered native selection.
+pub fn confirmed_codex_selection(db: &Database) -> Result<Option<CodexActiveSelection>, AppError> {
+    let live = state::load(&DeviceStore::for_device())?;
+    if live.apps.get("codex").is_some_and(|app| {
+        app.pending.is_some()
+            || app
+                .extra
+                .get("selectionUncertain")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+    }) {
+        return Err(AppError::Message("codex_account_switch_uncertain: select an account or API provider again to confirm the native configuration".into()));
+    }
+    codex_active_selection(db)
+}
+
+pub fn codex_selection_target(selection: Option<CodexActiveSelection>) -> state::PendingTarget {
+    let mut target = state::PendingTarget::default();
+    match &selection {
+        Some(CodexActiveSelection::Provider { provider_id }) => {
+            target.pointer = Some(provider_id.clone())
+        }
+        _ => target.clear_pointer = true,
+    }
+    target.extra.insert(
+        "activeSelection".into(),
+        serde_json::to_value(selection).expect("selection serializes"),
+    );
+    target
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
     /// The connection selected for native client configuration.
@@ -36,6 +105,12 @@ pub fn provider_for(
     app: &AppType,
     _purpose: Purpose,
 ) -> Result<Option<String>, AppError> {
+    if *app == AppType::Codex {
+        return Ok(match codex_active_selection(db)? {
+            Some(CodexActiveSelection::Provider { provider_id }) => Some(provider_id),
+            _ => None,
+        });
+    }
     crate::settings::get_effective_current_provider(db, app)
 }
 

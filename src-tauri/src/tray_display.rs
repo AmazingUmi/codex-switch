@@ -114,7 +114,6 @@ struct Labels {
     stale: &'static str,
     unavailable: &'static str,
     expired: &'static str,
-    disabled: &'static str,
     unsupported: &'static str,
 }
 
@@ -131,7 +130,6 @@ fn labels(language: &str) -> Labels {
             stale: "Refresh failed · last known quota",
             unavailable: "Quota unavailable",
             expired: "Sign in again",
-            disabled: "Quota queries disabled",
             unsupported: "This connection has no supported subscription quota",
         },
         "ja" => Labels {
@@ -144,7 +142,6 @@ fn labels(language: &str) -> Labels {
             stale: "更新失敗 · 前回の残量",
             unavailable: "残量を取得できません",
             expired: "再ログインしてください",
-            disabled: "残量の照会は無効です",
             unsupported: "この接続のサブスクリプション残量には対応していません",
         },
         "zh-TW" => Labels {
@@ -157,7 +154,6 @@ fn labels(language: &str) -> Labels {
             stale: "重新整理失敗 · 上次額度",
             unavailable: "額度暫不可用",
             expired: "登入已失效，請重新登入",
-            disabled: "已停用額度查詢",
             unsupported: "目前連線不支援訂閱額度",
         },
         _ => Labels {
@@ -170,7 +166,6 @@ fn labels(language: &str) -> Labels {
             stale: "刷新失败 · 上次额度",
             unavailable: "额度暂不可用",
             expired: "登录已失效，请重新登录",
-            disabled: "已停用额度查询",
             unsupported: "当前连接不支持订阅额度",
         },
     }
@@ -269,7 +264,6 @@ fn tooltip(snapshot: &TrayQuotaSnapshot, language: &str, preferred: TrayQuotaWin
         TrayQuotaStatus::Stale => Some(text.stale),
         TrayQuotaStatus::Unavailable => Some(text.unavailable),
         TrayQuotaStatus::Expired => Some(text.expired),
-        TrayQuotaStatus::Disabled => Some(text.disabled),
         TrayQuotaStatus::Unsupported => Some(text.unsupported),
     };
     if let Some(status) = status {
@@ -469,7 +463,6 @@ mod tests {
             for status in [
                 TrayQuotaStatus::Unavailable,
                 TrayQuotaStatus::Expired,
-                TrayQuotaStatus::Disabled,
                 TrayQuotaStatus::Unsupported,
             ] {
                 let mut snapshot = account_quota(Some(45.0), Some(91.0));

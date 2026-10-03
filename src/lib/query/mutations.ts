@@ -1,3 +1,10 @@
+import {
+  getCodexActiveSelection,
+  type CodexActiveSelection,
+} from "@/lib/api/auth";
+import type { ProvidersQueryData } from "@/lib/query/queries";
+import { isCodexAccountProvider } from "@/components/codex/accountProviders";
+import { forgetApiBalanceCredentials } from "@/hooks/useApiBalance";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -236,11 +243,105 @@ export const useDeleteProviderMutation = (appId: AppId) => {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
 
+  const clearProviderUsage = async (providerId: string) => {
+    await queryClient.cancelQueries({ queryKey: ["api-balance", providerId] });
+    queryClient.removeQueries({ queryKey: ["api-balance", providerId] });
+    await queryClient.cancelQueries({
+      queryKey: usageKeys.script(providerId, appId),
+    });
+    queryClient.removeQueries({
+      queryKey: usageKeys.script(providerId, appId),
+    });
+    forgetApiBalanceCredentials(providerId);
+  };
+
+  const reconcileDeleteError = async (providerId: string) => {
+    if (appId !== "codex") return;
+    await Promise.all([
+      queryClient.cancelQueries({ queryKey: ["providers", appId] }),
+      queryClient.cancelQueries({ queryKey: ["codex-active-selection"] }),
+    ]);
+    const [providersRead] = await Promise.allSettled([
+      providersApi.getAll(appId),
+      queryClient.fetchQuery({
+        queryKey: ["codex-active-selection"],
+        queryFn: getCodexActiveSelection,
+        staleTime: 0,
+        retry: false,
+      }),
+      queryClient.invalidateQueries({
+        queryKey: ["managed-auth-status", "codex_oauth"],
+        refetchType: "none",
+      }),
+    ]);
+    if (providersRead.status !== "fulfilled") return;
+    const providers = Object.fromEntries(
+      Object.entries(providersRead.value).filter(
+        ([, provider]) => !isCodexAccountProvider(provider),
+      ),
+    );
+    queryClient.setQueryData<ProvidersQueryData>(
+      ["providers", appId],
+      (previous) => ({
+        ...previous,
+        providers,
+        currentProviderId:
+          previous?.currentProviderId && providers[previous.currentProviderId]
+            ? previous.currentProviderId
+            : "",
+        activeSelection:
+          previous?.activeSelection?.kind === "provider" &&
+          !providers[previous.activeSelection.providerId]
+            ? null
+            : previous?.activeSelection,
+      }),
+    );
+    if (!providersRead.value[providerId]) await clearProviderUsage(providerId);
+  };
+
   return useMutation({
     mutationFn: async (providerId: string) => {
       await providersApi.delete(providerId, appId);
     },
-    onSuccess: async () => {
+    onSuccess: async (_, providerId) => {
+      if (appId === "codex") {
+        await queryClient.cancelQueries({
+          queryKey: ["codex-active-selection"],
+        });
+        queryClient.setQueryData<CodexActiveSelection>(
+          ["codex-active-selection"],
+          (selection) =>
+            selection?.kind === "provider" &&
+            selection.providerId === providerId
+              ? null
+              : selection,
+        );
+        await queryClient.invalidateQueries({
+          queryKey: ["codex-active-selection"],
+        });
+        await queryClient.cancelQueries({ queryKey: ["providers", appId] });
+        queryClient.setQueryData<ProvidersQueryData>(
+          ["providers", appId],
+          (previous) => {
+            if (!previous) return previous;
+            const providers = { ...previous.providers };
+            delete providers[providerId];
+            const wasCurrent =
+              previous.activeSelection?.kind === "provider" &&
+              previous.activeSelection.providerId === providerId;
+            return {
+              ...previous,
+              providers,
+              activeSelection: wasCurrent ? null : previous.activeSelection,
+              currentProviderId: wasCurrent ? "" : previous.currentProviderId,
+            };
+          },
+        );
+        await clearProviderUsage(providerId);
+        await queryClient.invalidateQueries({
+          queryKey: ["managed-auth-status", "codex_oauth"],
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["providers", appId] });
 
       if (appId === "opencode") {
@@ -285,7 +386,7 @@ export const useDeleteProviderMutation = (appId: AppId) => {
         },
       );
     },
-    onError: (error: Error) => {
+    onError: async (error: Error, providerId) => {
       const rawDetail = extractErrorMessage(error);
       const detail =
         (appId === "pi"
@@ -299,6 +400,7 @@ export const useDeleteProviderMutation = (appId: AppId) => {
           error: detail,
         }),
       );
+      await reconcileDeleteError(providerId);
     },
     onSettled: async () => {
       if (appId === "pi") {
@@ -317,6 +419,14 @@ export const useSwitchProviderMutation = (appId: AppId) => {
       return await providersApi.switch(providerId, appId);
     },
     onSuccess: async () => {
+      if (appId === "codex") {
+        await queryClient.invalidateQueries({
+          queryKey: ["codex-active-selection"],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: ["managed-auth-status", "codex_oauth"],
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: ["providers", appId] });
       if (appId === "claude-desktop") {
         await queryClient.invalidateQueries({

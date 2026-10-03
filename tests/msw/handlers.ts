@@ -7,6 +7,7 @@ import {
   deleteProvider,
   deleteSession,
   getCurrentProviderId,
+  getCodexActiveSelection,
   getLiveProviderIds,
   getSessionMessages,
   getProviders,
@@ -56,6 +57,10 @@ export const handlers = [
     const { app } = await withJson<{ app: AppId }>(request);
     return success(getCurrentProviderId(app));
   }),
+
+  http.post(`${TAURI_ENDPOINT}/get_codex_active_selection`, () =>
+    success(getCodexActiveSelection()),
+  ),
 
   http.post(
     `${TAURI_ENDPOINT}/update_providers_sort_order`,

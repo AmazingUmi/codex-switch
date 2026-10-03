@@ -13,10 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthCenterPanel } from "@/components/settings/AuthCenterPanel";
 import { CodexAccountsPanel } from "@/components/codex/CodexAccountsPanel";
-import {
-  getCodexAccountProviders,
-  getCurrentCodexAccountId,
-} from "@/components/codex/accountProviders";
+import { isCodexAccountProvider } from "@/components/codex/accountProviders";
 import type { Provider } from "@/types";
 
 const mocks = vi.hoisted(() => ({
@@ -130,47 +127,30 @@ beforeEach(() => {
   });
 });
 
-describe("Codex account provider mapping", () => {
-  it("maps only explicit official managed identities and never native/default/API state", () => {
-    const managed = provider("managed", " account-1 ");
-    const native: Provider = {
-      id: "codex-official",
-      name: "native",
-      category: "official",
-      settingsConfig: { auth: {}, config: "" },
-    };
-    const api: Provider = {
-      id: "api",
-      name: "api",
-      category: "official",
-      settingsConfig: { auth: { OPENAI_API_KEY: "fixture" }, config: "" },
-    };
-    const thirdParty = {
-      ...provider("third", "account-1"),
-      settingsConfig: {
-        auth: {},
-        config:
-          'model_provider = "custom"\n[model_providers.custom]\nbase_url = "https://fixture.test/v1"',
-      },
-    };
+describe("Codex API provider filtering", () => {
+  it("excludes legacy account rows while preserving real OpenAI API credentials", () => {
+    const managed = provider("managed", "account-1");
+    expect(isCodexAccountProvider(managed)).toBe(true);
     expect(
-      getCodexAccountProviders([managed, native, api, thirdParty], "account-1"),
-    ).toEqual([managed]);
-    expect(getCurrentCodexAccountId([managed], "managed")).toBe("account-1");
-    for (const current of [native, api, thirdParty])
-      expect(getCurrentCodexAccountId([current], current.id)).toBeNull();
-    expect(getCurrentCodexAccountId([managed], "")).toBeNull();
-    expect(getCurrentCodexAccountId([managed], "missing")).toBeNull();
+      isCodexAccountProvider({
+        ...managed,
+        settingsConfig: { auth: { OPENAI_API_KEY: "fixture" }, config: "" },
+      }),
+    ).toBe(false);
+    expect(
+      isCodexAccountProvider({
+        id: "native",
+        name: "native",
+        category: "official",
+        settingsConfig: { auth: {}, config: "" },
+      }),
+    ).toBe(true);
   });
 });
 
 describe("CodexAccountsPanel", () => {
   const commonProps = () => ({
-    providers: [
-      provider("first", "account-1"),
-      provider("second", "account-2"),
-    ],
-    currentProviderId: "second",
+    currentAccountId: "account-2",
     onSwitchAccount: vi.fn().mockResolvedValue(undefined),
   });
 
@@ -281,51 +261,6 @@ describe("CodexAccountsPanel", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows only a concise connection name when API Key is current", () => {
-    const api: Provider = {
-      id: "api",
-      name: "Work API",
-      category: "official",
-      settingsConfig: { auth: { OPENAI_API_KEY: "fixture" }, config: "" },
-    };
-    const props = {
-      providers: [api],
-      currentProviderId: "api",
-      onSwitchAccount: vi.fn(),
-    };
-    const { rerender } = render(<CodexAccountsPanel {...props} />);
-    expect(screen.getByTestId("current-api-connection")).toHaveTextContent(
-      "Work API",
-    );
-    expect(screen.queryByText("当前使用")).not.toBeInTheDocument();
-    const custom: Provider = {
-      ...api,
-      id: "custom",
-      name: "Team API",
-      category: "custom",
-      settingsConfig: {
-        auth: { OPENAI_API_KEY: "fixture" },
-        config:
-          'model_provider = "team"\n[model_providers.team]\nbase_url = "https://fixture.test/v1"',
-      },
-    };
-    rerender(
-      <CodexAccountsPanel
-        {...props}
-        providers={[custom]}
-        currentProviderId="custom"
-      />,
-    );
-    expect(screen.getByTestId("current-api-connection")).toHaveTextContent(
-      /^Team API$/,
-    );
-    rerender(<CodexAccountsPanel {...props} currentProviderId="" />);
-    expect(
-      screen.queryByTestId("current-api-connection"),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByText("当前配置不可用")).not.toBeInTheDocument();
-  });
-
   it("switches existing accounts directly without asking users to create configurations", async () => {
     const user = userEvent.setup();
     const props = commonProps();
@@ -349,11 +284,11 @@ describe("CodexAccountsPanel", () => {
     await user.click(
       within(card("account-1")).getByRole("button", { name: "切换到此账号" }),
     );
-    expect(props.onSwitchAccount).toHaveBeenCalledWith("account-1", undefined);
+    expect(props.onSwitchAccount).toHaveBeenCalledWith("account-1");
     await user.click(
       within(card("unbound")).getByRole("button", { name: "切换到此账号" }),
     );
-    expect(props.onSwitchAccount).toHaveBeenCalledWith("unbound", undefined);
+    expect(props.onSwitchAccount).toHaveBeenCalledWith("unbound");
     expect(
       screen.queryByRole("button", { name: "配置账号" }),
     ).not.toBeInTheDocument();
@@ -393,92 +328,9 @@ describe("CodexAccountsPanel", () => {
     const props = commonProps();
     const { rerender } = render(<CodexAccountsPanel {...props} />);
     expect(card("account-2")).toHaveAttribute("data-current", "true");
-    rerender(<CodexAccountsPanel {...props} currentProviderId="first" />);
+    rerender(<CodexAccountsPanel {...props} currentAccountId="account-1" />);
     expect(card("account-1")).toHaveAttribute("data-current", "true");
     expect(card("account-2")).toHaveAttribute("data-current", "false");
-  });
-
-  it("applies saved connection choices and discards cancelled changes", async () => {
-    const user = userEvent.setup();
-    const props = {
-      ...commonProps(),
-      providers: [
-        provider("config-A", "account-1"),
-        provider("config-B", "account-1"),
-      ],
-    };
-    render(<CodexAccountsPanel {...props} />);
-    const account = within(card("account-1"));
-    const edit = () =>
-      user.click(
-        account.getByRole("button", {
-          name: "编辑账号: account-1@example.com",
-        }),
-      );
-    expect(account.getByRole("button", { name: "切换到此账号" })).toBeEnabled();
-    expect(account.queryByRole("combobox")).not.toBeInTheDocument();
-    await edit();
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "config-B" }));
-    await user.click(screen.getByRole("button", { name: "取消" }));
-    await user.click(account.getByRole("button", { name: "切换到此账号" }));
-    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
-      "account-1",
-      undefined,
-    );
-    await edit();
-    expect(screen.getByRole("combobox")).toHaveTextContent("自动选择");
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "config-B" }));
-    await user.click(screen.getByRole("button", { name: "保存" }));
-    await user.click(account.getByRole("button", { name: "切换到此账号" }));
-    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
-      "account-1",
-      "config-B",
-    );
-    await edit();
-    expect(screen.getByRole("combobox")).toHaveTextContent("config-B");
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "config-A" }));
-    await user.click(screen.getByRole("button", { name: "取消" }));
-    await user.click(account.getByRole("button", { name: "切换到此账号" }));
-    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
-      "account-1",
-      "config-B",
-    );
-  });
-
-  it("retains the previous connection choice when saving the editor fails", async () => {
-    const user = userEvent.setup();
-    const auth = mocks.useCodexOauth();
-    mocks.useCodexOauth.mockReturnValue({
-      ...auth,
-      updateAccount: vi
-        .fn()
-        .mockRejectedValue(new Error("Store is not writable")),
-    });
-    const props = {
-      ...commonProps(),
-      providers: [
-        provider("config-A", "account-1"),
-        provider("config-B", "account-1"),
-      ],
-    };
-    render(<CodexAccountsPanel {...props} />);
-    const account = within(card("account-1"));
-    await user.click(
-      account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
-    );
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "config-B" }));
-    await user.click(screen.getByRole("button", { name: "保存" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Store is not writable",
-    );
-    expect(screen.getByRole("combobox")).toHaveTextContent("config-B");
-    await user.click(screen.getByRole("button", { name: "取消" }));
-    await user.click(account.getByRole("button", { name: "切换到此账号" }));
-    expect(props.onSwitchAccount).toHaveBeenCalledWith("account-1", undefined);
   });
 
   it("allows an expired account to edit and reauthenticate while blocking switching", async () => {
@@ -491,7 +343,7 @@ describe("CodexAccountsPanel", () => {
         reauth_required: true,
       })),
     });
-    render(<CodexAccountsPanel {...commonProps()} currentProviderId="" />);
+    render(<CodexAccountsPanel {...commonProps()} currentAccountId={null} />);
     const account = within(card("unbound"));
     expect(
       account.getByRole("button", { name: "切换到此账号" }),
@@ -536,7 +388,7 @@ describe("CodexAccountsPanel", () => {
         credentialStatus: "valid",
         success: true,
       });
-      render(<CodexAccountsPanel {...commonProps()} currentProviderId="" />);
+      render(<CodexAccountsPanel {...commonProps()} currentAccountId={null} />);
       const first = within(card("account-1"));
       const second = within(card("account-2"));
       expect(
@@ -587,7 +439,7 @@ describe("CodexAccountsPanel", () => {
       error: "HTTP 503",
       queriedAt: Date.now(),
     } satisfies SubscriptionQuota);
-    render(<CodexAccountsPanel {...commonProps()} currentProviderId="" />);
+    render(<CodexAccountsPanel {...commonProps()} currentAccountId={null} />);
     expect(
       within(card("account-1")).getByRole("button", { name: "切换到此账号" }),
     ).toBeEnabled();
@@ -713,8 +565,8 @@ describe("CodexAccountsPanel", () => {
   });
 
   it.each([
-    { isLoadingProviders: true, reason: "正在加载..." },
-    { isProvidersError: true, reason: "无法读取连接，请刷新后重试。" },
+    { isLoadingSelection: true, reason: "正在加载..." },
+    { isSelectionError: true, reason: "无法读取连接，请刷新后重试。" },
     { isSwitching: true, reason: "正在切换账号…" },
   ])(
     "keeps switching disabled and explains the reason for %j",
@@ -736,46 +588,39 @@ describe("CodexAccountsPanel", () => {
     },
   );
 
-  it("restores automatic connection choice and uses the effective provider for the current marker", async () => {
+  it("allows an explicit account switch to recover unknown selection without requiring any Provider", async () => {
     const user = userEvent.setup();
     const props = {
       ...commonProps(),
-      providers: [
-        provider("config-A", "account-1"),
-        provider("config-B", "account-1"),
-      ],
-      currentProviderId: "config-A",
+      currentAccountId: null,
+      isSelectionError: true,
+      canReconfirmSelection: true,
     };
-    render(<CodexAccountsPanel {...props} />);
-    const account = within(card("account-1"));
-    expect(account.getByRole("status", { name: "当前使用" })).toHaveAttribute(
-      "title",
-      "当前使用",
+    const { rerender } = render(<CodexAccountsPanel {...props} />);
+    expect(screen.queryByText("当前使用")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "当前连接尚未确认，请选择账号重新切换。",
     );
-    await user.click(
-      account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
+    const switchButton = within(card("account-1")).getByRole("button", {
+      name: "切换到此账号",
+    });
+    expect(switchButton).toBeEnabled();
+    await user.click(switchButton);
+    expect(props.onSwitchAccount).toHaveBeenCalledWith("account-1");
+    rerender(
+      <CodexAccountsPanel
+        {...props}
+        isSelectionError={false}
+        canReconfirmSelection={false}
+        currentAccountId="account-1"
+      />,
     );
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "config-B" }));
-    await user.click(screen.getByRole("button", { name: "保存" }));
-    expect(card("account-1")).toHaveAttribute("data-current", "true");
-    await user.click(account.getByRole("button", { name: "切换到此账号" }));
-    expect(props.onSwitchAccount).toHaveBeenLastCalledWith(
-      "account-1",
-      "config-B",
-    );
-    await user.click(
-      account.getByRole("button", { name: "编辑账号: account-1@example.com" }),
-    );
-    expect(screen.getByRole("combobox")).toHaveTextContent("config-B");
-    await user.click(screen.getByRole("combobox"));
-    await user.click(await screen.findByRole("option", { name: "自动选择" }));
-    await user.click(screen.getByRole("button", { name: "保存" }));
-    expect(account.getByRole("status", { name: "当前使用" })).toHaveAttribute(
-      "title",
-      "当前使用",
-    );
-    expect(props.onSwitchAccount).toHaveBeenCalledTimes(1);
+    expect(
+      within(card("account-1")).getByRole("status", { name: "当前使用" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("当前连接尚未确认，请选择账号重新切换。"),
+    ).not.toBeInTheDocument();
   });
 
   it("saves only account appearance and restores it when reopening an editor", async () => {

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useCodexOauthQuotaByAccountId } from "@/lib/query/subscription";
 import { subscriptionApi } from "@/lib/api/subscription";
 import type { SubscriptionQuota } from "@/types/subscription";
+import type { ManagedAuthStatus } from "@/lib/api/auth";
 import { settingsApi } from "@/lib/api";
 import { useUsageCacheBridge } from "@/hooks/useUsageCacheBridge";
 import { emitTauriEvent } from "../msw/tauriMocks";
@@ -38,6 +39,25 @@ afterEach(() => {
 describe("managed Codex quota cache identity", () => {
   it("applies a native refresh and failure to the same account without a second request", async () => {
     const { client, wrapper } = setup();
+    client.setQueryData<ManagedAuthStatus>(
+      ["managed-auth-status", "codex_oauth"],
+      {
+        provider: "codex_oauth",
+        authenticated: true,
+        default_account_id: "account-a",
+        accounts: ["account-a", "account-b"].map((id) => ({
+          id,
+          provider: "codex_oauth",
+          login: `${id}@example.com`,
+          avatar_url: null,
+          authenticated_at: 1,
+          is_default: id === "account-a",
+          github_domain: "",
+          reauth_required: false,
+          requires_reauth: false,
+        })),
+      },
+    );
     const getQuota = vi
       .spyOn(subscriptionApi, "getCodexOauthQuota")
       .mockResolvedValue(successfulQuota(12));

@@ -109,7 +109,7 @@ describe("Codex direct cards and saved provider formats", () => {
     "keeps managed upstream $providerType quota and direct capability",
     ({ providerType, quota }) => {
       renderCard(customProvider({ meta: { providerType } }));
-      expect(screen.getByText(quota)).toBeInTheDocument();
+      expect(screen.queryByText(quota)).not.toBeInTheDocument();
       expect(screen.getByText("不支持直连")).toBeInTheDocument();
       expect(actionsSpy.mock.calls.at(-1)![0].onConfigureUsage).toBeUndefined();
     },

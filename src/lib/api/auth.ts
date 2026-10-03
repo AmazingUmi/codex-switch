@@ -34,17 +34,15 @@ export interface ManagedAuthAccountMetadata {
 }
 
 export interface CodexAccountSwitchResult {
-  providerId: string;
+  accountId: string;
   warnings: string[];
 }
 
 export async function authSwitchCodexAccount(
   accountId: string,
-  providerId?: string,
 ): Promise<CodexAccountSwitchResult> {
   return invoke<CodexAccountSwitchResult>("auth_switch_codex_account", {
     accountId,
-    providerId: providerId || null,
   });
 }
 
@@ -60,7 +58,17 @@ export async function authUpdateAccount(
   });
 }
 
+export type CodexActiveSelection =
+  | { kind: "account"; accountId: string }
+  | { kind: "provider"; providerId: string }
+  | null;
+
+export async function getCodexActiveSelection(): Promise<CodexActiveSelection> {
+  return invoke("get_codex_active_selection");
+}
+
 export interface ManagedAuthStatus {
+  activeSelection?: CodexActiveSelection;
   provider: ManagedAuthProvider;
   authenticated: boolean;
   default_account_id: string | null;

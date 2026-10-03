@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.0.3 — Account and Provider separation (2026-10-03)
+
+- Activate subscription accounts independently and show subscription quota only
+  on account cards. API Providers contain API configuration and API balances.
+- Give both sections independent Add buttons; move API creation into Providers.
+- Remove Providers, including the active one, with saved credentials and balance
+  state. Sign-out clears account credentials and quota state.
+- Clean up legacy account bindings and orphan Provider cards while preserving
+  valid accounts and API-key connections.
+
 ## 0.0.2 — macOS Pre-release (2026-10-03)
 
 - Add a tag-driven macOS Apple Silicon release build, artifact verification,

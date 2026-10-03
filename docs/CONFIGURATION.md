@@ -2,33 +2,40 @@
 
 ## Accounts and connections
 
-Home displays ChatGPT accounts and their independent quota windows/reset times,
-alongside API-key and saved advanced connections. The shared Add chooser offers
-ChatGPT login or an API-key-only connection form. Settings contains global
-authentication policies rather than a second account or connection list.
-Signed-in OAuth accounts switch directly: the backend reuses a compatible saved
-binding or creates a private official connection at switch time. Adding an account
-only saves its login and does not replace the active connection. Private account
-connections are hidden from the saved connections list on Home; that list keeps
-API-key connections and user-created advanced settings. Existing connection rows
-and custom TOML are preserved. Multiple compatible bindings can be selected in
-the account editor for the next switch. Save applies the choice; Cancel or a
-failed save keeps the previous choice.
+Home separates subscription accounts and API Providers. The account section's
+Add button signs into ChatGPT; the Provider section's Add button creates an API
+connection. Subscription accounts query their own five-hour and weekly quota.
+API Providers query API balances using their own credentials. An account cannot
+be attached to a Provider.
+
+OAuth accounts switch directly without creating Provider records. Adding an
+account only saves its login. The committed current selection is one account,
+one API Provider, or disconnected. Legacy account bindings and account-shaped
+Provider rows are cleaned up while valid accounts and real API-key connections
+are retained. Existing API connection configuration and custom TOML remain
+editable.
+
+Removing an API Provider deletes its saved configuration and credentials and
+clears its balance state. Removing the active Provider leaves the application
+disconnected. Account sign-out/removal clears that account's credentials and
+quota state; removing the active account also disconnects. Neither operation
+automatically activates another saved connection.
 
 The direct account action currently supports file credential storage. It checks
 the configuration that would actually be published before writing. Effective
 `cli_auth_credentials_store` values of `keyring`, `auto` or `ephemeral`, and
 advanced targets explicitly requesting those modes, are rejected with a reason;
-their settings and active account are preserved. The application does not write
-the OS keyring or inject credentials into another client's memory. API-key connections publish native Codex configuration through the same provider service.
+the active selection is preserved. The application does not write the OS keyring
+or inject credentials into another client's memory. API-key connections publish
+native Codex configuration through the same recoverable write engine.
 
 The pencil edits display name, notes, icon and color on the account itself. These
 fields persist in the OAuth account store and survive reauthentication without
 altering credentials, quota, identity or the active connection. Expired accounts
 remain editable. Reauthentication, default-account selection and removal are
 available in the editor. Bulk sign-out is available below the Home account list.
-The default account is an advanced fallback for unspecified managed bindings;
-it is independent of “Current”.
+The default-account preference is independent of “Current” and does not activate
+an account or bind it to a Provider.
 
 A successful switch updates live configuration through the provider service.
 The UI updates “Current” from committed backend state, without optimistic account
@@ -40,8 +47,8 @@ keyring and in-memory credential caching ([official authentication reference](ht
 ## Direct connections
 
 Codex connects directly to OpenAI with official login or to a provider's native
-Responses API. Home → Add → API Key connection offers DeepSeek and an OpenAI API
-template; official ChatGPT login has its own branch. DeepSeek's preset uses
+Responses API. Home → API Providers → Add offers DeepSeek and an OpenAI API
+template; subscription accounts have a separate login button. DeepSeek's preset uses
 `https://api.deepseek.com`, `wire_api = "responses"` and `deepseek-flash`; enter
 the DeepSeek API key before activation. API keys, base URL, default model, custom
 TOML and native model catalogs remain editable.
@@ -144,6 +151,11 @@ Legacy directories, filenames and backup content can remain as offline recovery
 sources. Subsequent owned database, log, export and browser preference writes
 use Codex Switch names. Historical catalog, SQL and sync readers retain support
 for existing formats; new output uses the current names.
+
+Installation packages contain application files; local account data can appear
+after installation because this first-start migration reads existing CC Switch
+data. Removing a saved connection from the active profile does not erase offline
+backups or another application's legacy directory.
 
 The independent Token source is the read-only exception: it can observe real
 local sessions while preview account state, configuration writes and statistics

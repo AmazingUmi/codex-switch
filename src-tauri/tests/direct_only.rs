@@ -351,7 +351,7 @@ fn rejected_activation_does_not_publish_a_legacy_migration_first() {
 }
 
 #[test]
-fn official_native_deepseek_roundtrip_preserves_auth_preferences_catalog_and_history() {
+fn api_switch_and_legacy_account_rejection_preserve_preferences_catalog_and_history() {
     let _guard = test_mutex().lock().unwrap_or_else(|e| e.into_inner());
     for preserve in [false, true] {
         let _home = TempHome::new();
@@ -431,15 +431,12 @@ fn official_native_deepseek_roundtrip_preserves_auth_preferences_catalog_and_his
                 .settings_config["modelCatalog"]["models"][0]["model"],
             "deepseek-v4-flash"
         );
-        ProviderService::switch(&state, AppType::Codex, "codex-official").unwrap();
-        assert_direct(&state, "codex-official");
-        let restored_auth: Value =
-            serde_json::from_slice(&fs::read(get_codex_auth_path()).unwrap()).unwrap();
-        assert_eq!(restored_auth, serde_json::from_str::<Value>(LOGIN).unwrap());
-        if preserve {
-            assert_eq!(fs::read(get_codex_auth_path()).unwrap(), LOGIN.as_bytes());
-        }
-        assert!(live().get("model_catalog_json").is_none());
+        let before_auth = fs::read(get_codex_auth_path()).ok();
+        let before_config = live_text();
+        assert!(ProviderService::switch(&state, AppType::Codex, "codex-official").is_err());
+        assert_direct(&state, "deepseek");
+        assert_eq!(fs::read(get_codex_auth_path()).ok(), before_auth);
+        assert_eq!(live_text(), before_config);
         ProviderService::switch(&state, AppType::Codex, "deepseek").unwrap();
         assert_eq!(fs::read(catalog_path).unwrap(), catalog_bytes);
         for (path, before) in history.iter().zip(history_before) {
@@ -519,9 +516,11 @@ fn startup_falls_back_to_safe_direct_or_clears_unusable_current_pointer() {
             &native_config("https://example.invalid")
                 .replace("\"responses\"", "\"chat_completions\""),
         );
+        let mut safe_api = official();
+        safe_api.settings_config["auth"] = json!({"OPENAI_API_KEY":"synthetic-openai-api-key"});
         seed(
             &state,
-            &[official(), bad],
+            &[safe_api, bad],
             if safe_direct {
                 "codex-official"
             } else {

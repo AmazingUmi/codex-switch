@@ -1,5 +1,4 @@
 import { FullScreenPanel } from "@/components/common/FullScreenPanel";
-import { AuthSettingsPanel } from "@/components/providers/AuthSettingsPanel";
 import { useLiveEditConflict } from "@/components/providers/LiveEditConflictDialog";
 import {
   ProviderForm,
@@ -8,7 +7,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { HelpButton } from "@/components/ui/help-button";
 import { codexProviderPresets } from "@/config/codexProviderPresets";
-import type { AppId, ManagedAuthProvider } from "@/lib/api";
+import type { AppId } from "@/lib/api";
 import type {
   EditorConflictPolicy,
   ProviderEditorSave,
@@ -16,12 +15,11 @@ import type {
 import type { CustomEndpoint, Provider } from "@/types";
 import { extractCodexBaseUrl } from "@/utils/providerConfigUtils";
 import { Loader2, Plus } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 interface AddProviderDialogProps {
   productShell?: boolean;
   apiKeyOnly?: boolean;
-  initialCodexAccountId?: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   appId: AppId;
@@ -43,15 +41,9 @@ function CodexAddProviderDialog({
   onSubmit,
   productShell = false,
   apiKeyOnly = false,
-  initialCodexAccountId,
 }: AddProviderDialogProps) {
   const { t } = useTranslation();
   const [isFormSubmitting, setIsFormSubmitting] = useState(false);
-  const [authSettingsTarget, setAuthSettingsTarget] =
-    useState<ManagedAuthProvider | null>(null);
-  useEffect(() => {
-    setAuthSettingsTarget(null);
-  }, [appId, open]);
   // The displayed Codex projection and its original draft form the save comparison base.
   const [draftEditorBase, setDraftEditorBase] = useState<{
     base: Record<string, unknown>;
@@ -64,18 +56,13 @@ function CodexAddProviderDialog({
   );
   const { submitWithConflictRetry, conflictDialog } = useLiveEditConflict();
   const closeDialog = useCallback(() => {
-    setAuthSettingsTarget(null);
     // 表单每次打开都会重新投影；这里清掉，免得下次打开时先用上一次的底。
     setDraftEditorBase(null);
     onOpenChange(false);
   }, [onOpenChange]);
   const handlePanelClose = useCallback(() => {
-    if (authSettingsTarget) {
-      setAuthSettingsTarget(null);
-      return;
-    }
     closeDialog();
-  }, [authSettingsTarget, closeDialog]);
+  }, [closeDialog]);
   const formReadyToken = useMemo(
     () => Symbol("provider-form-ready"),
     [appId, open],
@@ -227,8 +214,7 @@ function CodexAddProviderDialog({
       contentClassName={"pt-3"}
     >
       <ProviderForm
-        key={initialCodexAccountId ?? "new-provider"}
-        initialCodexAccountId={initialCodexAccountId}
+        key="new-provider"
         productShell={productShell}
         apiKeyOnly={apiKeyOnly}
         restrictCodexCreation={productShell}
@@ -236,15 +222,10 @@ function CodexAddProviderDialog({
         submitLabel={t("common.add")}
         onSubmit={handleSubmit}
         onCancel={closeDialog}
-        onManageAuthAccounts={setAuthSettingsTarget}
         onSubmittingChange={setIsFormSubmitting}
         onSubmitReadyChange={handleSubmitReadyChange}
         showButtons={false}
         onEditorBaseChange={handleDraftEditorBase}
-      />
-      <AuthSettingsPanel
-        target={authSettingsTarget}
-        onClose={() => setAuthSettingsTarget(null)}
       />
       {conflictDialog}
     </FullScreenPanel>

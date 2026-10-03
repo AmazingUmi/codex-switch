@@ -7,6 +7,7 @@ import type {
   Settings,
 } from "@/types";
 import { deepClone } from "@/utils/deepClone";
+import type { CodexActiveSelection } from "@/lib/api/auth";
 
 type ProvidersByApp = Record<AppId, Record<string, Provider>>;
 type CurrentProviderState = Record<AppId, string>;
@@ -40,7 +41,7 @@ const createDefaultProviders = (): ProvidersByApp => ({
     "codex-1": {
       id: "codex-1",
       name: "Codex Default",
-      settingsConfig: {},
+      settingsConfig: { auth: { OPENAI_API_KEY: "test-api-key" }, config: "" },
       category: "official",
       sortIndex: 0,
       createdAt: Date.now(),
@@ -92,6 +93,10 @@ const createDefaultCurrent = (): CurrentProviderState => ({
 
 let providers = createDefaultProviders();
 let current = createDefaultCurrent();
+let codexActiveSelection: CodexActiveSelection = {
+  kind: "provider",
+  providerId: "codex-1",
+};
 let liveProviderIds: LiveProviderIdsByApp = {
   opencode: [],
   openclaw: [],
@@ -211,6 +216,7 @@ const cloneProviders = (value: ProvidersByApp) =>
 export const resetProviderState = () => {
   providers = createDefaultProviders();
   current = createDefaultCurrent();
+  codexActiveSelection = { kind: "provider", providerId: "codex-1" };
   liveProviderIds = {
     opencode: [],
     openclaw: [],
@@ -295,6 +301,15 @@ export const setLiveProviderIds = (
 
 export const setCurrentProviderId = (appType: AppId, providerId: string) => {
   current[appType] = providerId;
+  if (appType === "codex")
+    codexActiveSelection = providerId ? { kind: "provider", providerId } : null;
+};
+
+export const getCodexActiveSelection = () => deepClone(codexActiveSelection);
+
+export const setCodexActiveSelection = (selection: CodexActiveSelection) => {
+  codexActiveSelection = deepClone(selection);
+  current.codex = selection?.kind === "provider" ? selection.providerId : "";
 };
 
 export const updateProviders = (
@@ -330,6 +345,10 @@ export const deleteProvider = (appType: AppId, providerId: string) => {
   if (!providers[appType]) return;
   delete providers[appType][providerId];
   if (current[appType] === providerId) {
+    if (appType === "codex") {
+      setCodexActiveSelection(null);
+      return;
+    }
     const fallback = Object.keys(providers[appType])[0] ?? "";
     current[appType] = fallback;
   }

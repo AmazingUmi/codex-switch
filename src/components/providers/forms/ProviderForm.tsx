@@ -9,9 +9,8 @@ import {
   type CodexProviderPreset,
 } from "@/config/codexProviderPresets";
 import { getCodexCustomTemplate } from "@/config/codexTemplates";
-import { type AppId, type ManagedAuthProvider } from "@/lib/api";
+import { type AppId } from "@/lib/api";
 import type { ProviderEditorInactiveField } from "@/lib/api/providers";
-import { resolveManagedAccountId } from "@/lib/authBinding";
 import {
   buildLocalProxyRequestOverrides,
   formatRequestOverrideObject,
@@ -26,10 +25,7 @@ import type {
   ProviderCategory,
   ProviderMeta,
 } from "@/types";
-import {
-  providerSupportsDirectConnection,
-  resolveCodexOfficialIdentity,
-} from "@/utils/providerCapabilities";
+import { providerSupportsDirectConnection } from "@/utils/providerCapabilities";
 import {
   codexApiFormatFromWireApi,
   extractCodexModelName,
@@ -50,12 +46,10 @@ import { CODEX_DEFAULT_CONFIG } from "./helpers/opencodeFormUtils";
 import {
   useApiKeyLink,
   useCodexConfigState,
-  useCodexOauth,
   useCodexTomlValidation,
   useDraftEditorProjection,
   useProviderCategory,
   useSpeedTestEndpoints,
-  useXaiOauth,
   type EditorBaseChange,
 } from "./hooks";
 import { ProviderPresetSelector } from "./ProviderPresetSelector";
@@ -157,7 +151,6 @@ export interface ProviderFormProps {
   /** API Key creation branch; existing managed and native login editors stay available. */
   apiKeyOnly?: boolean;
   /** Account chosen explicitly on the homepage when creating an official configuration. */
-  initialCodexAccountId?: string;
   /** Restrict the product's new-provider chooser; existing providers keep their full editor. */
   restrictCodexCreation?: boolean;
   appId: AppId;
@@ -165,7 +158,6 @@ export interface ProviderFormProps {
   submitLabel: string;
   onSubmit: (values: ProviderFormValues) => Promise<void> | void;
   onCancel: () => void;
-  onManageAuthAccounts?: (target: ManagedAuthProvider) => void;
   onSubmittingChange?: (isSubmitting: boolean) => void;
   onSubmitReadyChange?: (isReady: boolean) => void;
   initialData?: {
@@ -195,7 +187,6 @@ function ProviderFormFull({
   submitLabel,
   onSubmit,
   onCancel,
-  onManageAuthAccounts,
   onSubmittingChange,
   onSubmitReadyChange,
   initialData,
@@ -206,7 +197,6 @@ function ProviderFormFull({
   restrictCodexCreation = false,
   productShell = false,
   apiKeyOnly = false,
-  initialCodexAccountId,
 }: ProviderFormProps) {
   const { t } = useTranslation();
   const isEditMode = Boolean(initialData);
@@ -222,7 +212,7 @@ function ProviderFormFull({
   // Editing a stored unsupported record must not require a working upstream login.
   const preserveLegacyConnection =
     productShell && isLegacyUnsupportedConnection;
-  const useApiKeyCreation = apiKeyOnly && !initialData;
+  const useApiKeyCreation = (apiKeyOnly || productShell) && !initialData;
   const useDirectCreation =
     (productShell || restrictCodexCreation || useApiKeyCreation) &&
     !initialData;
@@ -239,17 +229,6 @@ function ProviderFormFull({
         : getCodexCustomTemplate(),
     [useDirectCreation],
   );
-  const initialCodexOfficialIdentity = initialData
-    ? resolveCodexOfficialIdentity(appId, {
-        id: providerId ?? "",
-        category: initialData.category,
-        meta: initialData.meta,
-        settingsConfig: initialData.settingsConfig ?? {},
-      })
-    : null;
-  const hasExistingCodexOfficialIdentity =
-    initialCodexOfficialIdentity !== null &&
-    initialCodexOfficialIdentity !== "api_key";
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
     initialData ? null : "custom",
   );
@@ -277,9 +256,7 @@ function ProviderFormFull({
     appId,
     selectedPresetId,
     isEditMode,
-    initialCategory:
-      initialData?.category ??
-      (hasExistingCodexOfficialIdentity ? "official" : undefined),
+    initialCategory: initialData?.category ?? undefined,
   });
   useEffect(() => {
     setSelectedPresetId(initialData ? null : "custom");
@@ -289,11 +266,6 @@ function ProviderFormFull({
     }
     setEndpointAutoSelect(initialData?.meta?.endpointAutoSelect ?? true);
     setLocalIsFullUrl(initialData?.meta?.isFullUrl ?? false);
-    setSelectedCodexAccountId(
-      resolveManagedAccountId(initialData?.meta, "codex_oauth") ??
-        (!initialData ? (initialCodexAccountId ?? null) : null),
-    );
-    setHasValidCodexOfficialSelection(true);
     setCodexChatReasoning(initialData?.meta?.codexChatReasoning ?? {});
     setPromptCacheRouting(initialData?.meta?.promptCacheRouting ?? "auto");
     setCustomUserAgent(initialData?.meta?.customUserAgent ?? "");
@@ -307,7 +279,7 @@ function ProviderFormFull({
         initialData?.meta?.localProxyRequestOverrides?.body,
       ),
     );
-  }, [appId, initialData, initialCodexAccountId]);
+  }, [appId, initialData]);
   const defaultValues: ProviderFormData = useMemo(
     () => ({
       name:
@@ -342,31 +314,6 @@ function ProviderFormFull({
   useEffect(() => {
     onSubmittingChange?.(isSubmitting || isConfirmSubmitting);
   }, [isSubmitting, isConfirmSubmitting, onSubmittingChange]);
-  // Official ChatGPT account authentication state.
-  const {
-    isAuthenticated: isCodexOauthAuthenticated,
-    isStatusSuccess: isCodexOauthStatusSuccess,
-    isStatusError: isCodexOauthStatusError,
-    defaultAccountId: codexOauthDefaultAccountId,
-    accounts: codexOauthAccounts,
-  } = useCodexOauth();
-  const {
-    isAuthenticated: isXaiOauthAuthenticated,
-    accounts: xaiOauthAccounts,
-  } = useXaiOauth();
-  // 选中的 ChatGPT 账号 ID（Codex OAuth 多账号支持）
-  const [selectedCodexAccountId, setSelectedCodexAccountId] = useState<
-    string | null
-  >(
-    () =>
-      resolveManagedAccountId(initialData?.meta, "codex_oauth") ??
-      (!initialData ? (initialCodexAccountId ?? null) : null),
-  );
-  const [hasValidCodexOfficialSelection, setHasValidCodexOfficialSelection] =
-    useState(true);
-  const [selectedXaiAccountId, setSelectedXaiAccountId] = useState<
-    string | null
-  >(() => resolveManagedAccountId(initialData?.meta, "xai_oauth"));
   const [codexChatReasoning, setCodexChatReasoning] =
     useState<CodexChatReasoning>(
       () => initialData?.meta?.codexChatReasoning ?? {},
@@ -522,13 +469,13 @@ function ProviderFormFull({
           id: `codex-${index}`,
           preset,
         }));
-    return useApiKeyCreation
+    return useApiKeyCreation || productShell
       ? entries.filter(
           ({ preset }) =>
             !getPresetProviderType(preset) && !preset.requiresOAuth,
         )
       : entries;
-  }, [useDirectCreation, useApiKeyCreation]);
+  }, [useDirectCreation, useApiKeyCreation, productShell]);
   const selectedPresetEntry = useMemo(
     () =>
       selectedPresetId && selectedPresetId !== "custom"
@@ -540,22 +487,7 @@ function ProviderFormFull({
   const initialProviderType = initialData?.meta?.providerType;
   const isXaiOauthProvider =
     presetProviderType === "xai_oauth" || initialProviderType === "xai_oauth";
-  const wasCodexOfficialManagedOauthBound = Boolean(
-    resolveManagedAccountId(initialData?.meta, "codex_oauth"),
-  );
-  const isCodexOfficialProvider =
-    hasExistingCodexOfficialIdentity ||
-    wasCodexOfficialManagedOauthBound ||
-    (presetProviderType === "codex_oauth" &&
-      selectedPresetEntry?.preset.category === "official");
-  const isCodexOfficialManagedOauthBound =
-    isCodexOfficialProvider && Boolean(selectedCodexAccountId);
-  const requiresExplicitCodexOfficialSelection =
-    !preserveLegacyConnection &&
-    isCodexOfficialProvider &&
-    !hasValidCodexOfficialSelection;
-  const requiresCodexOauthLogin =
-    !preserveLegacyConnection && isCodexOfficialManagedOauthBound;
+  const isCodexOfficialProvider = false;
   const shouldApplyLocalProxyRequestOverrides =
     category !== "official" && !productShell;
   useEffect(() => {
@@ -646,92 +578,6 @@ function ProviderFormFull({
         }),
       );
     }
-    if (requiresExplicitCodexOfficialSelection) {
-      toast.error(
-        t("codexOauth.explicitSelectionRequired", {
-          defaultValue: "请先选择登录方式",
-        }),
-      );
-      return;
-    }
-    if (requiresCodexOauthLogin && isCodexOauthStatusError) {
-      toast.error(
-        t("codexOauth.statusLoadFailed", {
-          defaultValue: "无法加载 ChatGPT 账号状态，请重试。",
-        }),
-      );
-      return;
-    }
-    if (requiresCodexOauthLogin && !isCodexOauthStatusSuccess) {
-      toast.error(
-        t("codexOauth.statusLoading", {
-          defaultValue: "正在加载 ChatGPT 账号状态，请稍后再试。",
-        }),
-      );
-      return;
-    }
-    if (requiresCodexOauthLogin && !isCodexOauthAuthenticated) {
-      toast.error(
-        t("codexOauth.loginRequired", {
-          defaultValue: "请先登录 ChatGPT 账号",
-        }),
-      );
-      return;
-    }
-    if (
-      !preserveLegacyConnection &&
-      isXaiOauthProvider &&
-      !isXaiOauthAuthenticated
-    ) {
-      toast.error(
-        t("xaiOauth.loginRequired", {
-          defaultValue: "请先登录 xAI 账号",
-        }),
-      );
-      return;
-    }
-    const selectedCodexAccountIsUsable = (accountId: string | null) => {
-      const effectiveAccountId =
-        accountId ??
-        codexOauthDefaultAccountId ??
-        codexOauthAccounts.find((account) => account.is_default)?.id ??
-        codexOauthAccounts[0]?.id;
-      return (
-        !!effectiveAccountId &&
-        codexOauthAccounts.some(
-          (account) =>
-            account.id === effectiveAccountId && !account.reauth_required,
-        )
-      );
-    };
-    const selectedXaiAccountIsUsable = (accountId: string | null) =>
-      accountId === null ||
-      xaiOauthAccounts.some(
-        (account) => account.id === accountId && !account.requires_reauth,
-      );
-    if (
-      requiresCodexOauthLogin &&
-      !selectedCodexAccountIsUsable(selectedCodexAccountId)
-    ) {
-      toast.error(
-        t("managedAuth.selectedAccountNeedsReauth", {
-          defaultValue: "已绑定账号不存在或需要重新登录",
-        }),
-      );
-      return;
-    }
-    if (
-      !preserveLegacyConnection &&
-      isXaiOauthProvider &&
-      !selectedXaiAccountIsUsable(selectedXaiAccountId)
-    ) {
-      toast.error(
-        t("managedAuth.selectedAccountNeedsReauth", {
-          defaultValue: "已绑定 xAI 账号不存在或需要重新登录",
-        }),
-      );
-      return;
-    }
     // 非官方供应商端点 / API Key 空：A 类
     // cloud_provider（如 Bedrock）通过模板变量处理认证，跳过通用校验
     if (category !== "official" && category !== "cloud_provider") {
@@ -775,12 +621,7 @@ function ProviderFormFull({
     }
     let settingsConfig: string;
     try {
-      const shouldStripCodexOfficialAuth =
-        !preserveLegacyConnection &&
-        (isCodexOfficialManagedOauthBound || wasCodexOfficialManagedOauthBound);
-      const authJson = shouldStripCodexOfficialAuth
-        ? {}
-        : JSON.parse(codexAuth);
+      const authJson = JSON.parse(codexAuth);
       const codexConfigForSave = codexConfig ?? "";
       let normalizedCodexConfig =
         !isEditMode && category !== "official" && codexConfigForSave.trim()
@@ -789,7 +630,9 @@ function ProviderFormFull({
       // Native Responses catalogs persist per-model customizations. Legacy catalogs
       // remain editable without converting their saved protocol.
       const normalizedCatalogModels =
-        category !== "official" || preserveLegacyConnection
+        category !== "official" ||
+        preserveLegacyConnection ||
+        Boolean(codexApiKey.trim())
           ? normalizeCodexCatalogModelsForSave(codexCatalogModels)
           : [];
       // The default-model field writes the top-level `model` into the TOML
@@ -843,20 +686,6 @@ function ProviderFormFull({
         payload.isPartner = activePreset.isPartner;
       }
     }
-    if (!isEditMode && isCodexOfficialManagedOauthBound) {
-      const selectedAccountLogin = codexOauthAccounts.find(
-        (account) => account.id === selectedCodexAccountId,
-      )?.login;
-      const presetName = selectedPresetEntry
-        ? "nameKey" in selectedPresetEntry.preset &&
-          selectedPresetEntry.preset.nameKey
-          ? t(selectedPresetEntry.preset.nameKey)
-          : selectedPresetEntry.preset.name
-        : null;
-      if (selectedAccountLogin && presetName && payload.name === presetName) {
-        payload.name = `${presetName} (${selectedAccountLogin})`;
-      }
-    }
     if (!isEditMode && draftCustomEndpoints.length > 0) {
       const customEndpointsToSave: Record<
         string,
@@ -903,11 +732,6 @@ function ProviderFormFull({
     if (isEditMode && baseMeta) {
       delete baseMeta.custom_endpoints;
     }
-    const providerType = isCodexOfficialManagedOauthBound
-      ? "codex_oauth"
-      : isXaiOauthProvider
-        ? "xai_oauth"
-        : undefined;
     const nextMeta: ProviderMeta = {
       ...(baseMeta ?? {}),
       // Preserve the existing frozen common-config marker; new rows use the backend default.
@@ -916,21 +740,10 @@ function ProviderFormFull({
         ? initialData?.meta?.endpointAutoSelect
         : endpointAutoSelect,
       claudeDesktopMode: undefined,
-      // Preserve the existing managed-provider identity.
-      providerType,
-      authBinding: isCodexOfficialManagedOauthBound
-        ? {
-            source: "managed_account",
-            authProvider: "codex_oauth",
-            accountId: selectedCodexAccountId ?? undefined,
-          }
-        : isXaiOauthProvider
-          ? {
-              source: "managed_account",
-              authProvider: "xai_oauth",
-              accountId: selectedXaiAccountId ?? undefined,
-            }
-          : undefined,
+      // API providers never own subscription credentials or account bindings.
+      providerType: isXaiOauthProvider ? "xai_oauth" : undefined,
+      codexAccountManaged: undefined,
+      authBinding: undefined,
       // Keep the existing Codex save behavior for unsupported legacy client metadata.
       githubAccountId: undefined,
       codexFastMode: undefined,
@@ -989,7 +802,7 @@ function ProviderFormFull({
     if ("codexFastMode" in nextMeta) {
       delete nextMeta.codexFastMode;
     }
-    if (!providerType && "providerType" in nextMeta) {
+    if (!isXaiOauthProvider && "providerType" in nextMeta) {
       delete nextMeta.providerType;
     }
     if (!nextMeta.authBinding && "authBinding" in nextMeta) {
@@ -1071,24 +884,6 @@ function ProviderFormFull({
     });
     return;
   };
-  const seededCodexAccountRef = useRef(false);
-  useEffect(() => {
-    if (seededCodexAccountRef.current || initialData || !initialCodexAccountId)
-      return;
-    const officialPreset = presetEntries.find(
-      (entry) =>
-        entry.preset.category === "official" &&
-        getPresetProviderType(entry.preset) === "codex_oauth",
-    );
-    if (!officialPreset) return;
-    seededCodexAccountRef.current = true;
-    handlePresetChange(officialPreset.id);
-    // React StrictMode replays the mount effects, including the form reset.
-    // Allow the seed to replay too, without reapplying it on ordinary renders.
-    return () => {
-      seededCodexAccountRef.current = false;
-    };
-  }, [appId, initialData, initialCodexAccountId, presetEntries]);
   const settingsConfigErrorField = (
     <FormField
       control={form.control}
@@ -1119,7 +914,7 @@ function ProviderFormFull({
               presetEntries={presetEntries}
               presetCategoryLabels={presetCategoryLabels}
               onPresetChange={handlePresetChange}
-              category={category}
+              category={category === "official" ? "custom" : category}
               categoryHint={
                 <HelpButton
                   label={t(
@@ -1139,40 +934,14 @@ function ProviderFormFull({
             productShell={productShell}
             isLegacyUnsupported={isLegacyUnsupportedConnection}
             providerId={providerId}
-            isXaiOauthPreset={
-              presetProviderType === "xai_oauth" ||
-              initialData?.meta?.providerType === "xai_oauth"
-            }
-            isXaiOauthAuthenticated={isXaiOauthAuthenticated}
-            selectedXaiAccountId={selectedXaiAccountId}
-            onXaiAccountSelect={setSelectedXaiAccountId}
+            isXaiOauthPreset={isXaiOauthProvider}
             codexApiKey={codexApiKey}
             onApiKeyChange={handleCodexApiKeyChange}
-            category={category}
+            category={category === "official" ? "custom" : category}
             shouldShowApiKeyLink={shouldShowCodexApiKeyLink}
             websiteUrl={codexWebsiteUrl}
             isPartner={isCodexPartner}
             partnerPromotionKey={codexPartnerPromotionKey}
-            isCodexOauthPreset={isCodexOfficialProvider}
-            selectedCodexAccountId={selectedCodexAccountId}
-            onCodexAccountSelect={setSelectedCodexAccountId}
-            onCodexAuthSelectionConfirmed={() =>
-              setHasValidCodexOfficialSelection(true)
-            }
-            onCodexAuthSelectionInvalidated={() =>
-              setHasValidCodexOfficialSelection(false)
-            }
-            onManageAuthAccounts={onManageAuthAccounts}
-            codexOauthSelectionLabel={t("codexOauth.signInMethod")}
-            codexOauthNoneOptionLabel={t("codexOauth.noneOptionLabel")}
-            codexOauthNoneOptionDescription={t(
-              "codex.followCodexLoginDescription",
-            )}
-            codexOauthAllowUnboundSelection
-            codexOauthAllowUnboundSelectionWithoutStatus
-            codexOauthRequireExplicitSelection={
-              requiresExplicitCodexOfficialSelection
-            }
             shouldShowSpeedTest={shouldShowSpeedTest}
             codexBaseUrl={codexBaseUrl}
             onBaseUrlChange={handleCodexBaseUrlChange}
