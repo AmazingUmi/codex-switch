@@ -6335,9 +6335,7 @@ mod tests {
 
         let result = SkillService::migrate_storage(&db, SkillStorageLocation::CodexSwitch)
             .expect("migrate away from alias");
-        let new_source = temp
-            .path()
-            .join(".codex-switch")
+        let new_source = crate::config::get_app_config_dir()
             .join("skills")
             .join("test-skill");
         let pi_skill = temp
@@ -6452,11 +6450,20 @@ mod tests {
             .join("test-skill");
         fs::create_dir_all(pi_skill.parent().expect("Pi skills directory"))
             .expect("create Pi skills directory");
-        std::os::unix::fs::symlink(
-            Path::new("../../.codex-switch/skills/test-skill"),
-            &pi_skill,
-        )
-        .expect("create relative Pi symlink");
+        let relative_source = Path::new("../..").join(
+            old_source
+                .strip_prefix(temp.path())
+                .expect("SSOT must stay inside the isolated home"),
+        );
+        assert!(relative_source.is_relative());
+        std::os::unix::fs::symlink(&relative_source, &pi_skill)
+            .expect("create relative Pi symlink");
+        assert_eq!(
+            pi_skill
+                .canonicalize()
+                .expect("resolve original Pi symlink"),
+            old_source.canonicalize().expect("resolve original source")
+        );
 
         let result = SkillService::migrate_storage(&db, SkillStorageLocation::Unified)
             .expect("migrate storage");
@@ -6747,13 +6754,16 @@ mod tests {
                 ("weread-skills", "skills", "."),
             ] {
                 let home = tempdir().expect("home");
-                let config_dir = home.path().join(".codex-switch");
+                let _home = TestHomeGuard::set(home.path());
+                let config_dir = crate::config::get_app_config_dir();
+                assert!(
+                    config_dir.starts_with(home.path()),
+                    "application config must stay inside the isolated home"
+                );
                 fs::create_dir_all(&config_dir).expect("isolated config directory");
                 // Keep Windows' legacy-HOME fallback out of this destructive test.
                 fs::File::create(config_dir.join("codex-switch.db"))
                     .expect("isolated database sentinel");
-                let _home = TestHomeGuard::set(home.path());
-                assert_eq!(crate::config::get_app_config_dir(), config_dir);
                 let _storage = StorageLocationGuard::set(location);
                 let _pi_dir = crate::pi_config::test_support::TestAgentDir::new();
                 let remote = tempdir().expect("remote repo");

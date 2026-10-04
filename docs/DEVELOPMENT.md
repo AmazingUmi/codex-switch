@@ -61,6 +61,7 @@ when multiple released versions need concurrent maintenance.
 ```sh
 pnpm typecheck
 pnpm test:unit
+pnpm test:packaging
 pnpm build:renderer
 ```
 
@@ -70,7 +71,30 @@ with `pnpm exec prettier --check <files>`. For Rust changes, also run:
 ```sh
 cargo fmt --check --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml
+(
+  test_home=$(mktemp -d)
+  trap 'rm -rf "$test_home"' EXIT
+  CODEX_SWITCH_TEST_HOME="$test_home" cargo test --locked --manifest-path src-tauri/Cargo.toml &&
+  CODEX_SWITCH_TEST_HOME="$test_home" cargo test --locked --lib --features codex-preview --manifest-path src-tauri/Cargo.toml
+)
+```
+
+On Windows, run native tests from PowerShell 7 with the same explicit isolation:
+
+```powershell
+$testHome = Join-Path ([IO.Path]::GetTempPath()) "codex-switch-tests-$([guid]::NewGuid().ToString('N'))"
+New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+$previousHome = $env:CODEX_SWITCH_TEST_HOME
+try {
+  $env:CODEX_SWITCH_TEST_HOME = $testHome
+  cargo test --locked --manifest-path src-tauri/Cargo.toml
+  if ($LASTEXITCODE -ne 0) { throw "Native tests failed ($LASTEXITCODE)." }
+  cargo test --locked --lib --features codex-preview --manifest-path src-tauri/Cargo.toml
+  if ($LASTEXITCODE -ne 0) { throw "Preview native tests failed ($LASTEXITCODE)." }
+} finally {
+  [Environment]::SetEnvironmentVariable('CODEX_SWITCH_TEST_HOME', $previousHome, 'Process')
+  Remove-Item $testHome -Recurse -Force
+}
 ```
 
 Use `CODEX_SWITCH_TEST_HOME` with an isolated temporary home for native smoke
@@ -81,6 +105,12 @@ relaunch the app without that environment variable.
 Never exercise account switching, reauthentication or migration against a
 running user's profile as a cleanup check.
 Report live account/CLI/Desktop checks separately from fixture tests.
+
+The Windows Packages workflow builds both variants and checks their native
+contracts on Windows. Its installer smoke is restricted to a clean hosted
+runner because per-user installation modifies HKCU registration. A passing
+cloud build does not certify real login or visual tray acceptance; use the
+cross-platform acceptance matrix in [Releasing](RELEASING.md).
 
 ## Documentation and changes
 

@@ -12,13 +12,16 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TraySettings } from "@/components/settings/TraySettings";
 import type { SettingsFormState } from "@/hooks/useSettings";
-import { isMac } from "@/lib/platform";
+import { isMac, isWindows } from "@/lib/platform";
 import en from "@/i18n/locales/en.json";
 import zh from "@/i18n/locales/zh.json";
 import zhTW from "@/i18n/locales/zh-TW.json";
 import ja from "@/i18n/locales/ja.json";
 
-vi.mock("@/lib/platform", () => ({ isMac: vi.fn(() => true) }));
+vi.mock("@/lib/platform", () => ({
+  isMac: vi.fn(() => true),
+  isWindows: vi.fn(() => false),
+}));
 const i18n = createInstance();
 beforeAll(async () => {
   await i18n.use(initReactI18next).init({
@@ -33,6 +36,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   vi.mocked(isMac).mockReturnValue(true);
+  vi.mocked(isWindows).mockReturnValue(false);
   await i18n.changeLanguage("en");
 });
 
@@ -66,12 +70,64 @@ const button = (key: keyof typeof en.settings.tray) =>
   screen.getByRole("button", { name: label(key) });
 
 describe("TraySettings", () => {
-  it("is hidden outside macOS", () => {
+  it("is hidden outside macOS and Windows", () => {
     vi.mocked(isMac).mockReturnValue(false);
     const { container, onChange } = setup({ trayDisplayMode: "quotaRing" });
     expect(container).toBeEmptyDOMElement();
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("makes all three effective modes and quota controls available on Windows", async () => {
+    vi.mocked(isMac).mockReturnValue(false);
+    vi.mocked(isWindows).mockReturnValue(true);
+    const { onChange, rerenderSettings } = setup();
+    const display = screen.getByRole("group", {
+      name: label("windowsDisplay"),
+    });
+    expect(within(display).getAllByRole("button")).toHaveLength(3);
+    const ring = button("windowsQuotaRing");
+    expect(ring.querySelector("svg text")).toHaveTextContent("36");
+    expect(ring).not.toHaveTextContent("36%");
+    fireEvent.click(ring);
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ trayDisplayMode: "quotaRing" }),
+    );
+    rerenderSettings({ trayDisplayMode: "quotaRing" });
+    expect(button("fiveHour")).toHaveAttribute("aria-pressed", "true");
+    expect(button("windowsSystem")).toBeInTheDocument();
+    fireEvent.click(button("quotaRingOnly"));
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({
+        trayDisplayMode: "quotaRingOnly",
+      }),
+    );
+    rerenderSettings({ trayDisplayMode: "quotaRingOnly" });
+    fireEvent.click(button("icon"));
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith({ trayDisplayMode: "icon" }),
+    );
+  });
+
+  it.each(["en", "zh", "zh-TW", "ja"])(
+    "explains Windows icon and full detail behavior in %s",
+    async (language) => {
+      vi.mocked(isMac).mockReturnValue(false);
+      vi.mocked(isWindows).mockReturnValue(true);
+      await i18n.changeLanguage(language);
+      setup({ trayDisplayMode: "quotaRing" });
+      expect(button("windowsQuotaRing")).toHaveAccessibleName(
+        label("windowsQuotaRing"),
+      );
+      expect(button("windowsSystem")).toHaveAccessibleName(
+        label("windowsSystem"),
+      );
+      fireEvent.click(button("windowsTitle"));
+      expect(screen.getByRole("dialog")).toHaveTextContent(
+        label("windowsHelp"),
+      );
+      expect(label("windowsHelp")).toContain("Windows");
+    },
+  );
 
   it("defaults to the existing icon and offers compact quota and ring-only modes", () => {
     const { onChange } = setup();

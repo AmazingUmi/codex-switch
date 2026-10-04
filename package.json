@@ -14,10 +14,12 @@
     "format:check": "prettier --check \"src/**/*.{js,jsx,ts,tsx,css,json}\"",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest watch",
-    "build:preview": "node scripts/build-codex-preview.mjs"
+    "build:preview": "node scripts/build-codex-preview.mjs",
+    "build:windows": "node scripts/build-windows.mjs",
+    "test:packaging": "node --test scripts/tests/windows-packaging.test.mjs"
   },
   "keywords": [],
-  "author": "Jason Young",
+  "author": "AmazingUmi",
   "license": "MIT",
   "packageManager": "pnpm@10.12.3",
   "devDependencies": {

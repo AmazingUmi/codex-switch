@@ -20,6 +20,61 @@ The first release channel is a macOS Pre-release in `AmazingUmi/codex-switch`: A
 
 The optional manual workflow takes an **existing** version tag on `main`. It checks out that tag, not the workflow's current branch. Tag, manifest versions, commit ancestry and a clean checkout are verified. Existing releases are refused; inspect any existing draft before deleting it and rerunning, and never move a public version tag to different source. A successful build records source commit/content/signing provenance. Staging rejects source changes since that build, verifies the app identity, arm64 executable, Mach-O deployment target and signature, mounts the DMG read-only, and verifies its embedded app against the built app before detaching. Only freshly generated, verified bundles are uploaded.
 
+## Windows cloud packages
+
+The separate **Windows Packages** workflow builds Windows x64 NSIS installers
+on `windows-2025`. It runs for relevant pull requests and supports manual
+dispatch with `production`, `preview` or `both`. Once the workflow is on the
+default branch, select a branch in **Actions → Windows Packages → Run workflow**.
+Pull-request artifacts correspond to GitHub's tested merge commit; the manifest
+records its exact commit and source fingerprint.
+
+The pipeline uses the repository's Node, pnpm and Rust versions and locked
+dependencies. Each variant runs frontend, packaging and native library tests.
+It installs and launches the freshly built package in a clean hosted runner,
+using an isolated Switch home and an empty Codex usage source. This check
+verifies the installed executable hash, PE product/version, native window and
+database startup, including installation paths with spaces and Unicode. It
+does not perform OAuth or interactive/visual acceptance. Native platform
+preferences and HKCU installer registration rely on the runner's fresh user;
+the smoke script must not be run against an existing desktop installation.
+
+Artifacts are retained for 14 days and contain the unsigned installer,
+`LICENSE`, `WINDOWS_MANIFEST.json`, `WINDOWS_SMOKE.json` and `SHA256SUMS`.
+Download them from the run's **Artifacts** section. This workflow does not
+create or publish a Release, updater metadata or updater signatures. The
+existing macOS publishing workflow continues to publish macOS assets only.
+
+On a Windows development machine with the Tauri prerequisites installed:
+
+```powershell
+pnpm install --frozen-lockfile
+pnpm build:windows
+pnpm build:windows --preview
+```
+
+The regular installer uses `com.codexswitch.desktop`; preview uses
+`com.codexswitch.preview`, the compiled `codex-preview` feature and the renderer
+preview flag. Preview registers no external URL protocol. Both installers use
+current-user installation and download WebView2 when it is missing. Packages
+and compiled dependencies are separated under `src-tauri/target/windows/<variant>`;
+verified CI downloads are staged under `src-tauri/target/windows-assets/<variant>`.
+`pnpm build:preview` selects this same preview builder on Windows and retains
+the local debug/ad-hoc app flow on macOS.
+
+Windows signing is not configured yet. Unsigned testing packages can produce
+SmartScreen warnings. The first actual Windows runner result and live desktop
+acceptance must be recorded before claiming Windows release readiness.
+
+| Shared acceptance      | Evidence required on both platforms                                             |
+| ---------------------- | ------------------------------------------------------------------------------- |
+| Accounts and providers | Login, switch, removal, rejected auth store and write recovery                  |
+| Quota                  | Account-scoped refresh, unknown/zero/full, stale state and weekly-only fallback |
+| Tray and settings      | All display modes, thresholds, settings save and shortcut navigation            |
+| Window lifecycle       | Silent start, close to tray, restore and lightweight window rebuild             |
+| Storage and usage      | Atomic credential replacement, backup dialogs and incremental session scanning  |
+| Desktop presentation   | Light/dark system theme and readable normal/high DPI icons                      |
+
 ## macOS signing
 
 With no Apple secrets, the workflow deliberately uses the ad-hoc identity `-`. The filename ends in `_adhoc.dmg`, and the release notes state that it is a testing build without Apple notarization. macOS may require **Privacy & Security → Open Anyway** after the first attempted launch. Ad-hoc signing does not provide an Apple-verified developer identity.

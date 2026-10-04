@@ -12,6 +12,7 @@ Rust. [中文说明](../README.md).
 - API Providers manage addresses, API keys, models and API balances. Removing a Provider clears its saved configuration and credentials; removing the active Provider leaves the application disconnected.
 - “Current” identifies one subscription account or API Provider, independently of the default account. Bulk sign-out is available below the account list. Network requests follow the system environment.
 - Help icons beside headings explain quota, statistics scope and settings on hover, keyboard focus or click. Local usage labels costs as estimates.
+- macOS and Windows share account, connection, quota, usage and settings logic; tray presentation, window decorations and keyboard modifiers follow platform conventions.
 
 ## Run from source
 
@@ -34,7 +35,7 @@ open "src-tauri/target/debug/bundle/macos/Codex Switch Preview.app"
 
 The preview uses `~/.codex-switch-preview`, identifier `com.codexswitch.preview`
 and no registered external URL scheme. The script pairs the renderer flag,
-native feature and bundle overlay, then verifies metadata and an ad-hoc signature.
+native feature and bundle overlay. macOS builds verify metadata and an ad-hoc signature.
 Do not use the overlay alone or import a live profile's credentials into it.
 Directory overrides can point outside the preview profile.
 
@@ -56,6 +57,7 @@ without restarting.
 ```sh
 pnpm typecheck
 pnpm test:unit
+pnpm test:packaging
 pnpm build:renderer
 cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -64,18 +66,32 @@ cargo test --manifest-path src-tauri/Cargo.toml
 See [contribution instructions](DEVELOPMENT.md), [configuration behavior](CONFIGURATION.md)
 and [architecture and compatibility](ARCHITECTURE.md).
 
-## Distribution and attribution
+## Packaging and distribution
 
-Download installers and version notes from [GitHub Releases](https://github.com/AmazingUmi/codex-switch/releases).
+Both macOS and Windows build in GitHub Actions. Their workflows and download locations are:
+
+| Platform            | Workflow                                                                                                   | Package and distribution                                                       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| macOS Apple Silicon | **macOS Pre-release**: triggered by version tags, or manually with an existing tag                         | DMG and draft Pre-release; download from Releases after review and publication |
+| Windows x64         | **Windows Packages**: triggered by relevant source PRs, or manually with `production`, `preview` or `both` | Per-user NSIS installer; download from that run's Artifacts                    |
+
+Download published installers and version notes from [GitHub Releases](https://github.com/AmazingUmi/codex-switch/releases).
 The current `0.0.3` release is a macOS Apple Silicon (arm64) pre-release. The configured
 minimum is macOS 12; macOS 12 and Intel Macs have not been tested on actual devices.
 Without Apple developer credentials, builds use ad-hoc signing and are not
 notarized by Apple. Installation requires allowing the app in Privacy & Security.
 There is no automatic update channel; download new versions from Releases.
 
+Windows builds also provide a provenance manifest, installation/startup check results
+and SHA-256 checksums; they do not automatically publish a Release. Windows packages
+are unsigned and download WebView2 if it is missing. Live login, tray interaction and
+high DPI presentation still need acceptance checks. For local packaging, use
+`pnpm build:windows`, adding `--preview` for the preview variant.
+
 Distributed packages use release builds, identifier `com.codexswitch.desktop` and
-the `codexswitch://` deep-link scheme. `pnpm build:preview` remains a separate local
-debug bundle with no registered external URL scheme. See [the release workflow](RELEASING.md)
+the `codexswitch://` deep-link scheme. Preview packages use a separate identity
+with no registered external URL scheme. `pnpm build:preview` creates a local debug
+app on macOS and a release installer on Windows. See [the release workflow](RELEASING.md)
 for packaging, verification and signing configuration.
 
 Derived from CC Switch by Jason Young and contributors. Original copyright and

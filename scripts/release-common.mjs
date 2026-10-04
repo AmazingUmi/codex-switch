@@ -80,7 +80,7 @@ export function metadata() {
   const lock = readFileSync(
     new URL("../src-tauri/Cargo.lock", import.meta.url),
     "utf8",
-  );
+  ).replace(/\r\n/g, "\n");
   const lockVersion = lock.match(
     /\[\[package\]\]\nname = "codex-switch"\nversion = "([^"]+)"/,
   )?.[1];

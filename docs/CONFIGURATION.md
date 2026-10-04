@@ -116,6 +116,15 @@ only to the application's database. Saving this preference does not publish othe
 unsaved settings or rewrite client configuration. Sync Now remains available in
 both automatic and manual modes. Changing the source retains recorded history;
 use the separate maintenance action when a full rebuild is intended.
+
+macOS and Windows expose the same tray settings: app icon, quota ring with a
+number, or ring only; preferred five-hour/weekly window; neutral or threshold
+colors. Windows places its compact number inside the icon and keeps full
+percentages, reset times and freshness in the tooltip and Quota details menu.
+Its ring palette follows the taskbar theme independently of the app theme.
+macOS displays the percentage beside the status-bar ring. Unknown values are
+distinct from zero; failed refreshes retain the marked last-success state under
+the same cache rules on both platforms.
 Successful reauthentication clears only that account's obsolete credential error
 and refreshes its quota; a quota outage does not turn a completed login into failure.
 

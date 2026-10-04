@@ -51,6 +51,33 @@ static TRAY_SECTION_SUBMENUS: Lazy<
     std::sync::Mutex<std::collections::HashMap<AppType, Submenu<tauri::Wry>>>,
 > = Lazy::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
+// Windows tooltips are bounded by the Shell. Keep complete details in stable
+// menu items so refreshes never replace a menu while it is open.
+#[cfg(target_os = "windows")]
+type WindowsQuotaDetails = (Submenu<tauri::Wry>, Vec<MenuItem<tauri::Wry>>);
+
+#[cfg(target_os = "windows")]
+static WINDOWS_QUOTA_DETAILS: Lazy<std::sync::Mutex<Option<WindowsQuotaDetails>>> =
+    Lazy::new(|| std::sync::Mutex::new(None));
+
+#[cfg(target_os = "windows")]
+pub(crate) fn update_windows_quota_details(title: &str, lines: &[String]) {
+    let details = WINDOWS_QUOTA_DETAILS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if let Some((submenu, items)) = details.as_ref() {
+        if let Err(error) = submenu.set_text(title) {
+            log::warn!("Updating quota details title failed: {error}");
+        }
+        for (item, line) in items.iter().zip(lines) {
+            // '&' is a Windows menu mnemonic; double it to show account remarks literally.
+            if let Err(error) = item.set_text(line.replace('&', "&&")) {
+                log::warn!("Updating quota details failed: {error}");
+            }
+        }
+    }
+}
+
 /// 托盘菜单文本（国际化）
 #[derive(Clone, Copy)]
 pub struct TrayTexts {
@@ -579,6 +606,35 @@ pub fn create_tray_menu(
             .map_err(|e| AppError::Message(format!("创建打开主界面菜单失败: {e}")))?;
     menu_builder = menu_builder.item(&show_main_item).separator();
 
+    #[cfg(target_os = "windows")]
+    let quota_details = {
+        let snapshot = crate::tray_quota::snapshot(app);
+        let (title, lines) = crate::tray_display::windows_details(
+            &snapshot,
+            language,
+            app_settings.tray_quota_window,
+        );
+        let mut builder = SubmenuBuilder::with_id(app, "quota_details", title);
+        let mut items = Vec::new();
+        for (index, line) in lines.iter().enumerate() {
+            let item = MenuItem::with_id(
+                app,
+                format!("quota_detail_{index}"),
+                line.replace('&', "&&"),
+                false,
+                None::<&str>,
+            )
+            .map_err(|e| AppError::Message(format!("Creating quota detail failed: {e}")))?;
+            builder = builder.item(&item);
+            items.push(item);
+        }
+        let submenu = builder
+            .build()
+            .map_err(|e| AppError::Message(format!("Creating quota details menu failed: {e}")))?;
+        menu_builder = menu_builder.item(&submenu).separator();
+        (submenu, items)
+    };
+
     let providers = app_state.db.get_all_providers("codex")?;
     let mut accounts = app_state.codex_oauth_manager.try_list_accounts();
     accounts.sort_by(|a, b| a.login.cmp(&b.login).then_with(|| a.id.cmp(&b.id)));
@@ -802,6 +858,13 @@ pub fn create_tray_menu(
     *TRAY_SECTION_SUBMENUS
         .lock()
         .unwrap_or_else(|p| p.into_inner()) = section_handles;
+
+    #[cfg(target_os = "windows")]
+    {
+        *WINDOWS_QUOTA_DETAILS
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(quota_details);
+    }
 
     Ok(menu)
 }

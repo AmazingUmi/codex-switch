@@ -20,7 +20,6 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicU64, Ordering},
@@ -1945,58 +1944,12 @@ impl CodexOAuthManager {
     }
 
     fn write_store_atomic(&self, content: &str) -> Result<(), CodexOAuthError> {
-        if let Some(parent) = self.storage_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        let parent = self
-            .storage_path
-            .parent()
-            .ok_or_else(|| CodexOAuthError::IoError("无效的存储路径".to_string()))?;
-        let file_name = self
-            .storage_path
-            .file_name()
-            .ok_or_else(|| CodexOAuthError::IoError("无效的存储文件名".to_string()))?
-            .to_string_lossy()
-            .to_string();
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let tmp_path = parent.join(format!("{file_name}.tmp.{ts}"));
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-            let mut file = fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .mode(0o600)
-                .open(&tmp_path)?;
-            file.write_all(content.as_bytes())?;
-            file.flush()?;
-
-            fs::rename(&tmp_path, &self.storage_path)?;
-            fs::set_permissions(&self.storage_path, fs::Permissions::from_mode(0o600))?;
-        }
-
-        #[cfg(windows)]
-        {
-            let mut file = fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .open(&tmp_path)?;
-            file.write_all(content.as_bytes())?;
-            file.flush()?;
-
-            if self.storage_path.exists() {
-                let _ = fs::remove_file(&self.storage_path);
-            }
-            fs::rename(&tmp_path, &self.storage_path)?;
-        }
-
-        Ok(())
+        // Flush the complete credential generation before publishing it. The shared
+        // writer replaces an existing Windows file without first deleting it, keeps
+        // Unix credentials private, and removes staging files when replacement fails.
+        crate::config::stage_write(&self.storage_path, content.as_bytes(), Some(0o600), true)
+            .and_then(|staged| staged.commit())
+            .map_err(|error| CodexOAuthError::IoError(error.to_string()))
     }
 
     fn load_from_disk_sync(&self) -> Result<(), CodexOAuthError> {
@@ -2140,9 +2093,117 @@ fn extract_account_metadata_from_tokens(
     (account_id, email)
 }
 
+include!("codex_account_removal.rs");
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Account removal also reaches the process-global live-file transaction
+    // store and native Codex paths. Pair this guard with serial_test::serial.
+    struct TestHomeGuard(Option<std::ffi::OsString>);
+
+    impl TestHomeGuard {
+        fn set(home: &std::path::Path) -> Self {
+            let guard = Self(std::env::var_os("CODEX_SWITCH_TEST_HOME"));
+            std::env::set_var("CODEX_SWITCH_TEST_HOME", home);
+            crate::settings::reload_settings().expect("reload isolated authentication settings");
+            assert!(crate::config::get_app_config_dir().starts_with(home));
+            assert!(crate::codex_config::get_codex_config_dir().starts_with(home));
+            guard
+        }
+    }
+
+    impl Drop for TestHomeGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("CODEX_SWITCH_TEST_HOME", value),
+                None => std::env::remove_var("CODEX_SWITCH_TEST_HOME"),
+            }
+            let _ = crate::settings::reload_settings();
+        }
+    }
+
+    #[test]
+    fn atomic_store_replaces_credentials_without_leaving_staging_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = CodexOAuthManager::new(temp.path().to_path_buf());
+        manager
+            .write_store_atomic("old credential generation")
+            .unwrap();
+        manager
+            .write_store_atomic("new credential generation")
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(&manager.storage_path).unwrap(),
+            "new credential generation"
+        );
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&manager.storage_path)
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+    }
+
+    #[test]
+    fn atomic_store_failure_preserves_target_and_cleans_staging_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let manager = CodexOAuthManager::new(temp.path().to_path_buf());
+        fs::create_dir(&manager.storage_path).unwrap();
+        let retained = manager.storage_path.join("retained");
+        fs::write(&retained, "existing contents").unwrap();
+
+        assert!(matches!(
+            manager.write_store_atomic("uncommitted credentials"),
+            Err(CodexOAuthError::IoError(_))
+        ));
+        assert_eq!(fs::read_to_string(retained).unwrap(), "existing contents");
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn atomic_store_keeps_locked_windows_credentials_and_can_retry() {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+
+        let temp = tempfile::tempdir().unwrap();
+        let manager = CodexOAuthManager::new(temp.path().to_path_buf());
+        manager
+            .write_store_atomic("old credential generation")
+            .unwrap();
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&manager.storage_path)
+            .unwrap();
+
+        assert!(manager
+            .write_store_atomic("new credential generation")
+            .is_err());
+        assert_eq!(
+            fs::read_to_string(&manager.storage_path).unwrap(),
+            "old credential generation"
+        );
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
+        drop(held);
+        manager
+            .write_store_atomic("new credential generation")
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&manager.storage_path).unwrap(),
+            "new credential generation"
+        );
+    }
 
     #[tokio::test]
     async fn account_metadata_persists_without_changing_identity_credentials_or_default() {
@@ -2972,8 +3033,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn test_remove_account() {
         let temp = tempfile::tempdir().unwrap();
+        let _home = TestHomeGuard::set(temp.path());
         let manager = CodexOAuthManager::new(temp.path().to_path_buf());
 
         let first = manager
@@ -3289,8 +3352,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn device_commit_rejects_flow_cleared_during_network_poll() {
         let temp = tempfile::tempdir().unwrap();
+        let _home = TestHomeGuard::set(temp.path());
         let manager = CodexOAuthManager::new(temp.path().to_path_buf());
         manager.pending_device_codes.write().await.insert(
             "device-auth-id".to_string(),
@@ -3323,8 +3388,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial_test::serial]
     async fn device_start_rejects_flow_cleared_during_network_request() {
         let temp = tempfile::tempdir().unwrap();
+        let _home = TestHomeGuard::set(temp.path());
         let manager = CodexOAuthManager::new(temp.path().to_path_buf());
         let login_epoch = manager.login_epoch.load(Ordering::Acquire);
 
@@ -3574,5 +3641,3 @@ mod tests {
         assert_eq!(extract_refresh_error_code("not json"), None);
     }
 }
-
-include!("codex_account_removal.rs");
