@@ -1,0 +1,139 @@
+name: Windows Packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: Application variants to package
+        required: true
+        default: both
+        type: choice
+        options: [both, production, preview]
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/windows-build.yml"
+      - ".node-version"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "rust-toolchain.toml"
+      - "scripts/**"
+      - "src/**"
+      - "src-tauri/**"
+      - "tests/**"
+      - "vite.config.ts"
+      - "vitest.config.ts"
+      - "tsconfig*.json"
+      - "tailwind.config.cjs"
+      - "postcss.config.cjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-packages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64 (${{ matrix.variant }})
+    runs-on: windows-2025
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.variant == 'production' && '["production"]' || inputs.variant == 'preview' && '["preview"]' || '["production","preview"]') }}
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Checkout event source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup repository Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+
+      - name: Setup repository pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+
+      - name: Cache pnpm store
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend and packaging checks
+        run: |
+          pnpm typecheck
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm test:packaging
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm test:unit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Setup repository Rust toolchain
+        run: |
+          $toolchain = (Select-String -Path rust-toolchain.toml -Pattern '^channel = "([^"]+)"$').Matches.Groups[1].Value
+          if (-not $toolchain) { throw 'Missing repository Rust toolchain.' }
+          rustup toolchain install $toolchain --profile minimal
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustup target add x86_64-pc-windows-msvc --toolchain $toolchain
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
+        with:
+          workspaces: src-tauri -> target/windows/${{ matrix.variant }}
+          key: windows-x64-${{ matrix.variant }}
+
+      - name: Build locked NSIS package
+        env:
+          BUILD_VARIANT: ${{ matrix.variant }}
+        run: |
+          if ($env:BUILD_VARIANT -eq 'preview') { pnpm build:windows --preview }
+          else { pnpm build:windows }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test native Windows contracts for the packaged feature set
+        env:
+          BUILD_VARIANT: ${{ matrix.variant }}
+        run: |
+          $env:CARGO_TARGET_DIR = Join-Path $env:GITHUB_WORKSPACE "src-tauri/target/windows/$env:BUILD_VARIANT"
+          $testHome = Join-Path $env:RUNNER_TEMP "codex-switch-native-${env:BUILD_VARIANT}-$([guid]::NewGuid().ToString('N'))"
+          New-Item -ItemType Directory -Path $testHome -Force | Out-Null
+          $env:CODEX_SWITCH_TEST_HOME = $testHome
+          $cargoArgs = @('test', '--release', '--locked', '--lib', '--target', 'x86_64-pc-windows-msvc', '--manifest-path', 'src-tauri/Cargo.toml')
+          if ($env:BUILD_VARIANT -eq 'preview') { $cargoArgs += @('--features', 'codex-preview') }
+          try {
+            cargo @cargoArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally {
+            Remove-Item $testHome -Recurse -Force
+          }
+
+      - name: Install and launch with an isolated home
+        run: ./scripts/smoke-windows.ps1 -Variant '${{ matrix.variant }}'
+
+      - name: Verify source and stage checksummed artifacts
+        env:
+          BUILD_VARIANT: ${{ matrix.variant }}
+        run: |
+          if ($env:BUILD_VARIANT -eq 'preview') { node scripts/stage-windows.mjs --preview }
+          else { node scripts/stage-windows.mjs }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload downloadable Windows package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: codex-switch-windows-x64-${{ matrix.variant }}-${{ github.sha }}
+          path: src-tauri/target/windows-assets/${{ matrix.variant }}/
+          if-no-files-found: error
+          retention-days: 14

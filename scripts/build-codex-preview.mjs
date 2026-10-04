@@ -2,8 +2,26 @@ import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+if (process.platform === "win32") {
+  // The Windows helper pairs preview renderer/native flags and validates the
+  // Windows configuration before producing a release-mode NSIS installer.
+  const result = spawnSync(
+    process.execPath,
+    [
+      fileURLToPath(new URL("./build-windows.mjs", import.meta.url)),
+      "--preview",
+    ],
+    {
+      stdio: "inherit",
+      env: process.env,
+    },
+  );
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
+}
+
 if (process.platform !== "darwin") {
-  throw new Error("The current preview bundle is validated for macOS only.");
+  throw new Error("Preview bundles are supported on macOS and Windows.");
 }
 
 // Pair the renderer flag, native feature and bundle identity in one command.

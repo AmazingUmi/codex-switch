@@ -43,6 +43,20 @@ profile and per-model overrides. The form's direct preset policy filters the
 legacy preset array without changing its persisted indices. Database compatibility
 and existing recovery logic are retained.
 
+macOS and Windows use the same account, configuration, usage and settings
+contracts. Native adapters handle title bars, tray presentation and startup
+registration. A shared quota snapshot and renderer determine the account,
+remaining windows, thresholds, unknown state and stale state on both platforms;
+platform UI must not change those values or refresh rules. Settings navigation
+uses Cmd+, on macOS and Ctrl+, on Windows. Retired session-management commands
+are outside the current product surface.
+
+Codex OAuth persistence stages and syncs a complete private credential file,
+then uses the shared atomic replacement operation. Windows never deletes the
+previous account file before publication. Failed replacements retain existing
+credentials and remove the unused staging file. Windows startup commands quote
+the executable path; regular and preview builds have distinct startup entries.
+
 Startup runs a one-way migration of historical local takeover state through
 `src-tauri/src/mode/controller.rs`. It settles interrupted publications through
 `src-tauri/src/mode/operation.rs`, restores a compatible saved direct connection
@@ -85,8 +99,8 @@ updates use manual downloads.
 `scripts/build-codex-preview.mjs` pairs the renderer preview flag, native
 `codex-preview` feature and `tauri.preview.conf.json`. The native executable
 initializes the isolated preview home before startup, including Finder launches.
-The preview is macOS-only and ad-hoc signed; path overrides are not confined by
-an OS sandbox.
+macOS previews are ad-hoc signed. Windows previews use a separate NSIS installer
+and application identity; path overrides are not confined by an OS sandbox.
 Native fixture runs must set an explicit temporary Token source when session
 scanning is enabled; the preview's default source observes real local logs.
 

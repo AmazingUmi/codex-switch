@@ -32,26 +32,26 @@ pub(crate) struct TrayQuotaWindowSnapshot {
 #[derive(Debug, Clone)]
 pub(crate) struct TrayQuotaSnapshot {
     #[cfg_attr(
-        all(not(target_os = "macos"), not(test)),
+        all(not(any(target_os = "macos", target_os = "windows")), not(test)),
         expect(
             dead_code,
-            reason = "Read by the macOS menu-bar renderer and portable fixtures"
+            reason = "Read by the macOS/Windows tray renderers and portable fixtures"
         )
     )]
     pub(crate) account_label: Option<String>,
     #[cfg_attr(
-        all(not(target_os = "macos"), not(test)),
+        all(not(any(target_os = "macos", target_os = "windows")), not(test)),
         expect(
             dead_code,
-            reason = "Read by the macOS menu-bar renderer and portable fixtures"
+            reason = "Read by the macOS/Windows tray renderers and portable fixtures"
         )
     )]
     pub(crate) five_hour: Option<TrayQuotaWindowSnapshot>,
     #[cfg_attr(
-        all(not(target_os = "macos"), not(test)),
+        all(not(any(target_os = "macos", target_os = "windows")), not(test)),
         expect(
             dead_code,
-            reason = "Read by the macOS menu-bar renderer and portable fixtures"
+            reason = "Read by the macOS/Windows tray renderers and portable fixtures"
         )
     )]
     pub(crate) seven_day: Option<TrayQuotaWindowSnapshot>,

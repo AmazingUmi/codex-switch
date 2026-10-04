@@ -6,7 +6,7 @@ import { CapsuleControl } from "@/components/ui/capsule";
 import { HelpButton } from "@/components/ui/help-button";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
 import type { SettingsFormState } from "@/hooks/useSettings";
-import { isMac } from "@/lib/platform";
+import { isMac, isWindows } from "@/lib/platform";
 import { getQuotaBatteryThresholds } from "@/utils/quotaBatteryThresholds";
 
 interface TraySettingsProps {
@@ -21,6 +21,9 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [error, setError] = useState(false);
+  const windows = isWindows();
+  const platformKey = (key: string) =>
+    `settings.tray.${windows ? `windows${key[0].toUpperCase()}${key.slice(1)}` : key}`;
   const mode = settings.trayDisplayMode ?? "icon";
   const window = settings.trayQuotaWindow ?? "fiveHour";
   const colorMode = settings.trayQuotaColorMode ?? "quota";
@@ -48,23 +51,23 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
     }
   };
 
-  if (!isMac()) return null;
+  if (!isMac() && !windows) return null;
 
   return (
     <section className="settings-section space-y-3" aria-busy={saving}>
       <SettingsSectionHeader
-        title={t("settings.tray.title")}
+        title={t(platformKey("title"))}
         icon={<CircleGauge />}
         help={
-          <HelpButton label={t("settings.tray.title")}>
-            <p>{t("settings.tray.help")}</p>
+          <HelpButton label={t(platformKey("title"))}>
+            <p>{t(platformKey("help"))}</p>
           </HelpButton>
         }
       />
       <fieldset disabled={saving} className="min-w-0 space-y-3">
         <CapsuleControl
           value={mode}
-          label={t("settings.tray.display")}
+          label={t(platformKey("display"))}
           onChange={(trayDisplayMode) => {
             if (trayDisplayMode !== mode) void save({ trayDisplayMode });
           }}
@@ -83,7 +86,7 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
               label: (
                 <>
                   <span
-                    className="codex-quota-battery inline-flex w-[50px] flex-none"
+                    className={`codex-quota-battery inline-flex flex-none ${windows ? "w-4" : "w-[50px]"}`}
                     aria-hidden="true"
                   >
                     <span
@@ -114,15 +117,26 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
                           strokeDasharray={`${previewRemaining} 100`}
                           transform="rotate(-90 10 10)"
                         />
+                        {windows && (
+                          <text
+                            x="10"
+                            y="12"
+                            textAnchor="middle"
+                            fontSize="6"
+                            fill="currentColor"
+                          >
+                            {previewRemaining}
+                          </text>
+                        )}
                       </svg>
-                      <span className="settings-control-text tabular-nums">
-                        {previewRemaining}%
-                      </span>
+                      {!windows && (
+                        <span className="settings-control-text tabular-nums">
+                          {previewRemaining}%
+                        </span>
+                      )}
                     </span>
                   </span>
-                  <span className="sr-only">
-                    {t("settings.tray.quotaRing")}
-                  </span>
+                  <span className="sr-only">{t(platformKey("quotaRing"))}</span>
                 </>
               ),
             },
@@ -192,7 +206,7 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
                     void save({ trayQuotaColorMode });
                 }}
                 options={[
-                  { value: "system", label: t("settings.tray.system") },
+                  { value: "system", label: t(platformKey("system")) },
                   { value: "quota", label: t("settings.tray.quota") },
                 ]}
               />
@@ -200,7 +214,7 @@ export function TraySettings({ settings, onChange }: TraySettingsProps) {
           </div>
         )}
       </fieldset>
-      <p className="settings-description">{t("settings.tray.hint")}</p>
+      <p className="settings-description">{t(platformKey("hint"))}</p>
       {error && (
         <p role="alert" className="settings-description text-destructive">
           {t("settings.saveFailedGeneric")}

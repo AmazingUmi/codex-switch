@@ -45,6 +45,7 @@ jobs:
               - "vitest.config.ts"
               - "tailwind.config.cjs"
               - "postcss.config.cjs"
+              - "scripts/**"
               - "components.json"
               - ".github/workflows/**"
             backend:
@@ -93,6 +94,9 @@ jobs:
 
       - name: Unit tests
         run: pnpm test:unit
+
+      - name: Packaging script tests
+        run: pnpm test:packaging
 
       - name: Build frontend
         run: pnpm build:renderer

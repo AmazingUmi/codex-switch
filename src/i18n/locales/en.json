@@ -400,7 +400,13 @@
       "quota": "Quota",
       "hint": "Shows the current account’s remaining quota.",
       "help": "Show the app icon, a compact remaining quota ring with percentage, or the ring alone. Choose the 5-hour or weekly window. If that window is unavailable, the other available window is shown. Hover for the displayed window, both quotas, account and update time. System colors follow the menu bar; quota colors use the warning thresholds. Unknown quota is shown as —. Changes save automatically.",
-      "quotaRingOnly": "Ring only"
+      "quotaRingOnly": "Ring only",
+      "windowsTitle": "System tray",
+      "windowsDisplay": "Tray display",
+      "windowsQuotaRing": "Ring + remaining number",
+      "windowsSystem": "Neutral",
+      "windowsHint": "Shows the current account’s remaining quota in the Windows notification area.",
+      "windowsHelp": "Choose the app icon, a ring with a compact remaining number, or the ring alone. Windows places the number inside the icon; full percentages, account, reset times and freshness are in the tooltip and Quota details menu. If the selected window is unavailable, the other available window is shown. Neutral uses gray; quota colors use your warning thresholds. An unknown quota has a broken ring and —. Stale values are marked ~ in details. Changes save automatically."
     },
     "themeHint": "Choose the appearance theme for the app, takes effect immediately.",
     "themeLight": "Light",

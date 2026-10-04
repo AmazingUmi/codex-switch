@@ -690,9 +690,9 @@ pub fn sync_codex_usage(db: &Database) -> Result<SessionSyncResult, AppError> {
     // Automatic unit tests must explicitly choose fixtures or an isolated home.
     #[cfg(test)]
     if settings.codex_usage_source_dir.is_none()
-        && !std::env::var("CODEX_SWITCH_TEST_HOME")
+        && std::env::var("CODEX_SWITCH_TEST_HOME")
             .ok()
-            .is_some_and(|home| !home.trim().is_empty())
+            .is_none_or(|home| home.trim().is_empty())
     {
         return Err(AppError::InvalidInput(
             "Codex usage unit tests require an explicit fixture source".into(),
